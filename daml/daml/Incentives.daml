@@ -1,0 +1,59 @@
+-- TruthOracle Incentives - Canton Network DAML contracts
+-- Rewards: early participant, market creator, winning prediction
+
+module Incentives where
+
+-- Reward type
+data RewardType = EarlyParticipant | CreatorReward | WinningPrediction
+  deriving (Eq, Show)
+
+-- Claimed reward record
+template ClaimedReward
+  with
+    user: Party
+    marketId: Int
+    rewardType: RewardType
+    amount: Int
+  where
+    signatory user
+
+-- User rewards summary (view)
+template UserRewardsSummary
+  with
+    user: Party
+    totalEarned: Int
+    claimedMarkets: [Int]
+  where
+    signatory user
+
+    choice ClaimReward : ContractId ClaimedReward
+      with
+        marketId: Int
+        rewardType: RewardType
+        amount: Int
+      controller user
+      do
+        create ClaimedReward with
+          user = user
+          marketId = marketId
+          rewardType = rewardType
+          amount = amount
+
+    choice ClaimAllReward : ContractId ClaimedReward
+      with
+        marketId: Int
+        rewardType: RewardType
+        amount: Int
+      controller user
+      do
+        create ClaimedReward with
+          user = user
+          marketId = marketId
+          rewardType = rewardType
+          amount = amount
+
+-- Constants (in real DAML you'd use these in choices)
+-- EARLY_PARTICIPANT_THRESHOLD = 100000000  -- 1 USDC
+-- EARLY_PARTICIPANT_REWARD = 5000000       -- 0.05 USDC
+-- MARKET_CREATOR_REWARD = 10000000        -- 0.1 USDC
+-- WINNING_PREDICTION_BONUS = 20000000     -- 0.2 USDC

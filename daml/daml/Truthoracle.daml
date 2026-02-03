@@ -1,0 +1,125 @@
+-- TruthOracle Prediction Market - Canton Network DAML contracts
+
+module Truthoracle where
+
+-- Market status
+data MarketStatus = InProgress | Finished
+  deriving (Eq, Show)
+
+-- Market result
+data MarketResult = Option1 | Option2 | Draw
+  deriving (Eq, Show)
+
+-- Prediction market metadata (on-ledger state)
+data PredictionMarketMetaData = PredictionMarketMetaData
+  with
+    id: Int
+    question: Text
+    imageUrl: Text
+    description: Text
+    option1: Text
+    option2: Text
+    createdAt: Int
+    status: MarketStatus
+    result: Optional MarketResult
+    payoutPerShare: Optional Int
+  deriving (Eq, Show)
+
+-- LMSR market maker state
+data LMSR = LMSR
+  with
+    optionShares1: Int
+    optionShares2: Int
+    liquidityParam: Int
+  deriving (Eq, Show)
+
+-- Active prediction market contract
+template PredictionMarket
+  with
+    admin: Party
+    marketId: Int
+    question: Text
+    imageUrl: Text
+    description: Text
+    option1: Text
+    option2: Text
+    createdAt: Int
+    optionShares1: Int
+    optionShares2: Int
+    liquidityParam: Int
+    participants: [Party]
+  where
+    signatory admin
+
+    choice RecordResult : ContractId ResolvedMarket
+      with
+        result: MarketResult
+        payoutPerShare: Int
+      controller admin
+      do
+        create ResolvedMarket with
+          admin = admin
+          marketId = marketId
+          question = question
+          option1 = option1
+          option2 = option2
+          result = result
+          payoutPerShare = payoutPerShare
+
+    choice ArchiveMarket : ()
+      controller admin
+      do
+        return ()
+
+-- Resolved market (archived outcome)
+template ResolvedMarket
+  with
+    admin: Party
+    marketId: Int
+    question: Text
+    option1: Text
+    option2: Text
+    result: MarketResult
+    payoutPerShare: Int
+  where
+    signatory admin
+
+-- User position in a market
+template UserMarketData
+  with
+    user: Party
+    marketId: Int
+    optionShares1: Int
+    optionShares2: Int
+    amountInvested: Int
+    profitMade: Int
+  where
+    signatory user
+
+    choice UpdatePosition : ContractId UserMarketData
+      with
+        newShares1: Int
+        newShares2: Int
+        newInvested: Int
+      controller user
+      do
+        create this with
+          optionShares1 = newShares1
+          optionShares2 = newShares2
+          amountInvested = newInvested
+          profitMade = profitMade
+
+-- Market counter (single global instance)
+template MarketCounter
+  with
+    admin: Party
+    value: Int
+  where
+    signatory admin
+
+    choice IncrementCounter : (ContractId MarketCounter, Int)
+      controller admin
+      do
+        let newValue = value + 1
+        newCid <- create this with value = newValue
+        return (newCid, newValue)
