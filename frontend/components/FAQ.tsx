@@ -35,7 +35,7 @@ const faqData: FAQItemProps[] = [
   {
     question: "What cryptocurrencies are supported on TruthOracle?",
     answer:
-      "TruthOracle primarily supports the native Canton token for transactions on our platform. We may expand support to other cryptocurrencies in the future.",
+      "TruthOracle primarily supports USDC for transactions on our platform. We may expand support to other cryptocurrencies in the future.",
   },
   {
     question: "How are outcomes of prediction markets resolved?",
