@@ -23,6 +23,11 @@ const faqData: FAQItemProps[] = [
       "TruthOracle stands out because of its low transaction fees, thanks to the efficiency of the Canton Network. Additionally, our platform offers a fully decentralized experience, removing the need for intermediaries and ensuring complete transparency and security for all users.",
   },
   {
+    question: "Are my bets and positions private?",
+    answer:
+      "Yes. Bets placed on TruthOracle are private. Others cannot see your positions on chain. Your activity and holdings in prediction markets are not visible to other participants.",
+  },
+  {
     question: "What types of predictions can I make on TruthOracle?",
     answer:
       "You can make predictions on a wide range of topics, including political elections, climate change scenarios, sports events, and other significant occurrences. We continually expand our categories to include new and exciting areas of interest.",
