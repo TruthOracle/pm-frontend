@@ -128,10 +128,14 @@ export function WalletSelector() {
       await connect();
       closeDialog();
     } catch (err: any) {
+      const msg = err?.details ?? err?.message ?? "Could not connect to Canton wallet";
+      const isNetworkError = /failed to fetch|network|NetworkError/i.test(String(msg));
       toast({
         variant: "destructive",
         title: "Connection failed",
-        description: err?.details ?? err?.message ?? "Could not connect to Canton wallet",
+        description: isNetworkError
+          ? "Could not reach Loop wallet. Check your connection and try again."
+          : msg,
       });
     }
   }, [connect, closeDialog, toast]);

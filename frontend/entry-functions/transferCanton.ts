@@ -1,4 +1,4 @@
-import { dappAPI } from "@canton-network/dapp-sdk";
+import type { PrepareExecuteParams } from "@/lib/cantonDapp";
 import { buildTransferParams } from "@/utils/cantonCommands";
 
 export type TransferCantonArguments = {
@@ -9,7 +9,7 @@ export type TransferCantonArguments = {
 
 export const transferCanton = (
   args: TransferCantonArguments
-): dappAPI.PrepareExecuteParams => {
+): PrepareExecuteParams => {
   const { partyId, to, amount } = args;
   return buildTransferParams(partyId, to, amount);
 };

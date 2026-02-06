@@ -1,20 +1,21 @@
-import { dappAPI } from "@canton-network/dapp-sdk";
+import type { PrepareExecuteParams } from "@/lib/cantonDapp";
+import type { JsCommands } from "@canton-network/core-wallet-dapp-rpc-client";
 
 /**
  * Build Canton PrepareExecuteParams. Replace commands with real DAML-generated commands.
  */
-function baseParams(partyId: string): dappAPI.PrepareExecuteParams {
+function baseParams(partyId: string): PrepareExecuteParams {
   return {
     actAs: [partyId],
-    commands: {} as dappAPI.JsCommands,
+    commands: {} as JsCommands,
   };
 }
 
-export function buildClaimAllRewardsParams(partyId: string): dappAPI.PrepareExecuteParams {
+export function buildClaimAllRewardsParams(partyId: string): PrepareExecuteParams {
   return baseParams(partyId);
 }
 
-export function buildBuySharesParams(_partyId: string, _marketId: number, _optionIndex: number, _amount: number): dappAPI.PrepareExecuteParams {
+export function buildBuySharesParams(_partyId: string, _marketId: number, _optionIndex: number, _amount: number): PrepareExecuteParams {
   return baseParams(_partyId);
 }
 
@@ -26,22 +27,22 @@ export function buildInitMarketParams(
   _option1: string,
   _option2: string,
   _liquidityParam: number
-): dappAPI.PrepareExecuteParams {
+): PrepareExecuteParams {
   return baseParams(_partyId);
 }
 
-export function buildMintUsdcParams(partyId: string, _amount: number): dappAPI.PrepareExecuteParams {
+export function buildMintUsdcParams(partyId: string, _amount: number): PrepareExecuteParams {
   return baseParams(partyId);
 }
 
-export function buildWriteMessageParams(partyId: string, _content: string): dappAPI.PrepareExecuteParams {
+export function buildWriteMessageParams(partyId: string, _content: string): PrepareExecuteParams {
   return baseParams(partyId);
 }
 
-export function buildTransferParams(partyId: string, _to: string, _amount: number): dappAPI.PrepareExecuteParams {
+export function buildTransferParams(partyId: string, _to: string, _amount: number): PrepareExecuteParams {
   return baseParams(partyId);
 }
 
-export function buildWithdrawPayoutParams(partyId: string, _marketId: number): dappAPI.PrepareExecuteParams {
+export function buildWithdrawPayoutParams(partyId: string, _marketId: number): PrepareExecuteParams {
   return baseParams(partyId);
 }

@@ -13,11 +13,16 @@
     "fmt": "npm run _fmt -- --write"
   },
   "dependencies": {
-    "@canton-network/dapp-sdk": "^0.21.0",
+    "@canton-network/core-splice-provider": "^0.23.0",
+    "@canton-network/core-types": "^0.18.0",
+    "@canton-network/core-wallet-dapp-rpc-client": "^0.22.0",
+    "@canton-network/core-wallet-ui-components": "^0.23.0",
+    "@canton-network/wallet-sdk": "^0.20.0",
     "@chakra-ui/icons": "^2.2.4",
     "@chakra-ui/react": "^2.8.2",
     "@emotion/react": "^11.13.3",
     "@emotion/styled": "^11.13.0",
+    "@fivenorth/loop-sdk": "^0.10.0",
     "@mysten/bcs": "^1.0.4",
     "@radix-ui/react-collapsible": "^1.1.0",
     "@radix-ui/react-dialog": "^1.1.1",

@@ -1,4 +1,4 @@
-import { dappAPI } from "@canton-network/dapp-sdk";
+import type { PrepareExecuteParams } from "@/lib/cantonDapp";
 import { buildWriteMessageParams } from "@/utils/cantonCommands";
 
 export type WriteMessageArguments = {
@@ -8,7 +8,7 @@ export type WriteMessageArguments = {
 
 export const writeMessage = (
   args: WriteMessageArguments
-): dappAPI.PrepareExecuteParams => {
+): PrepareExecuteParams => {
   const { partyId, content } = args;
   return buildWriteMessageParams(partyId, content);
 };

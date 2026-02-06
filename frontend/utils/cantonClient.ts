@@ -5,6 +5,6 @@
  * Dapp SDK and cantonService for Canton integration.
  */
 export function cantonClient(): void {
-  // No-op: Canton integration uses @canton-network/dapp-sdk and blockend/cantonService.
+  // No-op: Canton integration uses @canton-network/wallet-sdk and frontend lib/cantonDapp + blockend/cantonService.
   throw new Error("Use Canton Dapp SDK and cantonService for Canton integration.");
 }
