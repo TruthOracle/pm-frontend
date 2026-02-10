@@ -5,7 +5,7 @@ import {Button, useToast} from "@chakra-ui/react";
 
 export function Header() {
 
-    const { account, signAndSubmitTransaction } = useCantonWallet();
+    const { account } = useCantonWallet();
 
    const toast = useToast()
 
