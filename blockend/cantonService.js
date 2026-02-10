@@ -96,14 +96,14 @@ export async function getRewardMarkets(userAddress) {
 }
 
 /**
- * Get platform USDC balance for an account. Wire to Canton participant (Usdc balance).
+ * Get Canton Coin balance for an account. Wire to Canton participant (native Canton Coin / testnet or mainnet).
  */
-export async function getPlatformUSDCBalance(accountAddress) {
+export async function getPlatformCantonBalance(accountAddress) {
   try {
-    // TODO: query Canton participant for Usdc balance from DAML Usdc contracts
+    // TODO: query Canton participant for Canton Coin balance for party accountAddress
     return 0;
   } catch (e) {
-    console.error("Error fetching platform USDC balance:", e);
+    console.error("Error fetching Canton Coin balance:", e);
     return 0;
   }
 }

@@ -1,13 +1,10 @@
 # TruthOracle - Canton Network DAML contracts
 # Prediction market platform for Canton Network testnet
 
-sdk-version: "2.9.0"
+sdk-version: "3.4.10"
 name: truthoracle
+version: 1.0.0
 source: daml
 dependencies:
   - daml-prim
   - daml-stdlib
-  - daml-script
-
-build-options:
-  - --static

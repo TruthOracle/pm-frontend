@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/use-toast";
 import { getAccountCantonBalance } from "@/view-functions/getAccountBalance";
-import { getPlatformUSDCBalance } from "../../blockend/cantonService";
+import { getPlatformCantonBalance } from "../../blockend/cantonService";
 import { useQuery } from "@tanstack/react-query";
 import Pusher from "pusher-js";
 
@@ -69,12 +69,12 @@ export function WalletSelector() {
   });
 
   const { data: usdcBalanceData } = useQuery({
-    queryKey: ["usdc-balance", account?.address],
+    queryKey: ["canton-balance", account?.address],
     refetchInterval: 10_000,
     queryFn: async () => {
       if (!account?.address) return { balance: 0 };
       try {
-        const balance = await getPlatformUSDCBalance(account.address);
+        const balance = await getPlatformCantonBalance(account.address);
         return { balance };
       } catch (error: any) {
         toast({ variant: "destructive", title: "Error", description: error.message });
@@ -151,9 +151,9 @@ export function WalletSelector() {
           <p className="text-2xl font-bold">
             {balanceData?.balance ? (balanceData.balance / Math.pow(10, 8)).toFixed(4) : "0"} Canton
           </p>
-          <p className="text-sm font-medium mt-2">Platform USDC Balance</p>
+          <p className="text-sm font-medium mt-2">Canton Coin Balance</p>
           <p className="text-2xl font-bold">
-            {usdcBalanceData?.balance ? (usdcBalanceData.balance / 1e8).toFixed(2) : "0"} USD Coin
+            {usdcBalanceData?.balance ? (usdcBalanceData.balance / 1e8).toFixed(2) : "0"} Canton Coin
           </p>
         </div>
         <DropdownMenuSeparator />

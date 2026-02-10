@@ -34,6 +34,7 @@ data LMSR = LMSR
   deriving (Eq, Show)
 
 -- Active prediction market contract
+-- Only admin can create, resolve, archive. Users in participants can trade.
 template PredictionMarket
   with
     admin: Party
@@ -50,7 +51,9 @@ template PredictionMarket
     participants: [Party]
   where
     signatory admin
+    observer participants
 
+    -- Admin-only: record outcome and close market
     choice RecordResult : ContractId ResolvedMarket
       with
         result: MarketResult
@@ -66,10 +69,58 @@ template PredictionMarket
           result = result
           payoutPerShare = payoutPerShare
 
+    -- Admin-only: archive market without resolving
     choice ArchiveMarket : ()
       controller admin
       do
         return ()
+
+    -- Admin-only: allow a party to trade on this market (adds as observer)
+    choice AddParticipant : ContractId PredictionMarket
+      with
+        newParticipant: Party
+      controller admin
+      do
+        create this with participants = newParticipant :: participants
+
+    -- User action: buy shares in option 1 or 2 (only parties in participants may exercise)
+    choice Trade : (ContractId PredictionMarket, ContractId UserMarketData)
+      with
+        buyer: Party
+        option: Int  -- 1 or 2
+        numShares: Int
+        cost: Int
+        existingPosition: Optional (ContractId UserMarketData)
+      controller buyer
+      do
+        assert (elem buyer participants)
+        assert (option == 1 || option == 2)
+        assert (numShares >= 0)
+        assert (cost >= 0)
+        let newShares1 = if option == 1 then optionShares1 + numShares else optionShares1
+        let newShares2 = if option == 1 then optionShares2 else optionShares2 + numShares
+        marketCid <- create this with
+          optionShares1 = newShares1
+          optionShares2 = newShares2
+        (pos1, pos2, invested, profit) <- case existingPosition of
+          None -> return (if option == 1 then numShares else 0, if option == 2 then numShares else 0, cost, 0)
+          Some cid -> do
+            pos <- fetch cid
+            archive cid
+            return
+              ( pos.optionShares1 + (if option == 1 then numShares else 0)
+              , pos.optionShares2 + (if option == 2 then numShares else 0)
+              , pos.amountInvested + cost
+              , pos.profitMade
+              )
+        userDataCid <- create UserMarketData with
+          user = buyer
+          marketId = marketId
+          optionShares1 = pos1
+          optionShares2 = pos2
+          amountInvested = invested
+          profitMade = profit
+        return (marketCid, userDataCid)
 
 -- Resolved market (archived outcome)
 template ResolvedMarket
@@ -84,7 +135,7 @@ template ResolvedMarket
   where
     signatory admin
 
--- User position in a market
+-- User position in a market (one per user per market)
 template UserMarketData
   with
     user: Party
@@ -109,7 +160,8 @@ template UserMarketData
           amountInvested = newInvested
           profitMade = profitMade
 
--- Market counter (single global instance)
+-- Market counter and market factory (single global instance, admin-only)
+-- Only the admin can create new markets or increment the counter.
 template MarketCounter
   with
     admin: Party
@@ -123,3 +175,35 @@ template MarketCounter
         let newValue = value + 1
         newCid <- create this with value = newValue
         return (newCid, newValue)
+
+    -- Admin-only: create a new prediction market (gets next marketId from counter)
+    choice CreateMarket : (ContractId MarketCounter, ContractId PredictionMarket)
+      with
+        question: Text
+        imageUrl: Text
+        description: Text
+        option1: Text
+        option2: Text
+        createdAt: Int
+        initialOptionShares1: Int
+        initialOptionShares2: Int
+        liquidityParam: Int
+      controller admin
+      do
+        let newValue = value + 1
+        let marketId = newValue
+        newCounterCid <- create this with value = newValue
+        marketCid <- create PredictionMarket with
+          admin = admin
+          marketId = marketId
+          question = question
+          imageUrl = imageUrl
+          description = description
+          option1 = option1
+          option2 = option2
+          createdAt = createdAt
+          optionShares1 = initialOptionShares1
+          optionShares2 = initialOptionShares2
+          liquidityParam = liquidityParam
+          participants = []
+        return (newCounterCid, marketCid)

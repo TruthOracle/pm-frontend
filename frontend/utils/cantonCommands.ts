@@ -31,10 +31,6 @@ export function buildInitMarketParams(
   return baseParams(_partyId);
 }
 
-export function buildMintUsdcParams(partyId: string, _amount: number): PrepareExecuteParams {
-  return baseParams(partyId);
-}
-
 export function buildWriteMessageParams(partyId: string, _content: string): PrepareExecuteParams {
   return baseParams(partyId);
 }

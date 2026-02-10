@@ -52,8 +52,8 @@ template UserRewardsSummary
           rewardType = rewardType
           amount = amount
 
--- Constants (in real DAML you'd use these in choices)
--- EARLY_PARTICIPANT_THRESHOLD = 100000000  -- 1 USDC
--- EARLY_PARTICIPANT_REWARD = 5000000       -- 0.05 USDC
--- MARKET_CREATOR_REWARD = 10000000        -- 0.1 USDC
--- WINNING_PREDICTION_BONUS = 20000000     -- 0.2 USDC
+-- Constants (in real DAML you'd use these in choices; amounts in Canton Coin base units)
+-- EARLY_PARTICIPANT_THRESHOLD = 100000000  -- 1 Canton Coin
+-- EARLY_PARTICIPANT_REWARD = 5000000       -- 0.05 Canton Coin
+-- MARKET_CREATOR_REWARD = 10000000        -- 0.1 Canton Coin
+-- WINNING_PREDICTION_BONUS = 20000000      -- 0.2 Canton Coin

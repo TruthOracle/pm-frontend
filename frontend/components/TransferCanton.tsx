@@ -69,7 +69,7 @@ export function TransferCanton() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h4 className="text-lg font-medium">USDC balance: {cantonBalance / Math.pow(10, 8)}</h4>
+      <h4 className="text-lg font-medium">Canton Coin balance: {cantonBalance / Math.pow(10, 8)}</h4>
       Recipient <Input disabled={!account} placeholder="0x1" onChange={(e) => setRecipient(e.target.value)} />
       Amount{" "}
       <Input disabled={!account} placeholder="100" onChange={(e) => setTransferAmount(parseFloat(e.target.value))} />

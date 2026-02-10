@@ -1,5 +1,4 @@
 import { useCantonWallet } from "@/contexts/CantonWalletContext";
-import { buildMintUsdcParams } from "@/utils/cantonCommands";
 import { WalletSelector } from "./WalletSelector";
 import { Link } from 'react-router-dom';
 import {Button, useToast} from "@chakra-ui/react";
@@ -19,23 +18,18 @@ export function Header() {
             return;
         }
 
-        if(account){
-                const params = buildMintUsdcParams(account.address, 10**10);
-                const committedTxn = await signAndSubmitTransaction(params);
-                console.log(`Committed transaction: ${committedTxn.hash}`);
-                // window.alert("Minted USDC successfully!");
-                  toast({
-          title: 'USDC Minted',
-          description: "We've added USDC to your account",
-          status: 'success',
-          duration: 9000,
-          isClosable: true,
-        })
-        }else{
+        if (account) {
+            // Canton Coin is native on testnet/mainnet; use network faucet or transfer, not in-app mint
+            toast({
+                title: 'Canton Coin',
+                description: 'Use the network faucet or transfer to get Canton Coin on testnet.',
+                status: 'info',
+                duration: 5000,
+                isClosable: true,
+            });
+        } else {
             console.log("Account not available");
         }
-
-        
     }
 
 
@@ -72,7 +66,7 @@ export function Header() {
         <Link to="/rewards" className="font-jbm text-l" style={{marginRight:"40px", zIndex:1}}>Rewards</Link>
         <Link to="/faq" className="font-jbm text-l" style={{marginRight:"40px", zIndex:1}}>FAQ's</Link>
         <Link to="/admin" className="font-jbm text-l" style={{marginRight:"40px", zIndex:1}}>Create Market</Link>
-                <Button onClick={handleClick} style={{zIndex:1, borderRadius:"20px", "height":"30px"}}>Mint USDC</Button>
+                <Button onClick={handleClick} style={{zIndex:1, borderRadius:"20px", "height":"30px"}}>Get Canton Coin</Button>
 
 
       </div>

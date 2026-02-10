@@ -26,7 +26,7 @@ const Rewards = () => {
                     total
                 });
                 setRewards({
-                    pending: Number(pending) / 1e8, // Convert from base units to USDC
+                    pending: Number(pending) / 1e8, // Convert from base units to Canton Coin
                     total: Number(total) / 1e8
                 });
                 const rewardMarkets = await getRewardMarkets(account.address);
@@ -133,13 +133,13 @@ const Rewards = () => {
                             <HStack justify="space-between">
                                 <Text color="#E0E0E0">Pending Rewards:</Text>
                                 <Text fontSize="xl" fontWeight="bold" color="white">
-                                    {rewards.pending.toFixed(2)} USDC
+                                    {rewards.pending.toFixed(2)} Canton Coin
                                 </Text>
                             </HStack>
                             <HStack justify="space-between">
                                 <Text color="#E0E0E0">Total Claimed Rewards:</Text>
                                 <Text fontSize="lg" color="white">
-                                    {rewards.total.toFixed(2)} USDC
+                                    {rewards.total.toFixed(2)} Canton Coin
                                 </Text>
                             </HStack>
                         </VStack>
@@ -211,15 +211,15 @@ const Rewards = () => {
                         <VStack align="stretch" spacing={3}>
                             <Box p={2} bg="#1A1F21" borderRadius="md">
                                 <Text color="#E0E0E0" fontWeight="bold">Early Participant Bonus</Text>
-                                <Text color="#E0E0E0" fontSize="sm">Earn 0.05 USDC for early market participation (≥ 1 USDC investment)</Text>
+                                <Text color="#E0E0E0" fontSize="sm">Earn 0.05 Canton Coin for early market participation (≥ 1 Canton Coin investment)</Text>
                             </Box>
                             <Box p={2} bg="#1A1F21" borderRadius="md">
                                 <Text color="#E0E0E0" fontWeight="bold">Market Creator Reward</Text>
-                                <Text color="#E0E0E0" fontSize="sm">Earn 0.1 USDC for creating a new market</Text>
+                                <Text color="#E0E0E0" fontSize="sm">Earn 0.1 Canton Coin for creating a new market</Text>
                             </Box>
                             <Box p={2} bg="#1A1F21" borderRadius="md">
                                 <Text color="#E0E0E0" fontWeight="bold">Winning Prediction Bonus</Text>
-                                <Text color="#E0E0E0" fontSize="sm">Earn 0.2 USDC for correct predictions</Text>
+                                <Text color="#E0E0E0" fontSize="sm">Earn 0.2 Canton Coin for correct predictions</Text>
                             </Box>
                         </VStack>
                     </Box>

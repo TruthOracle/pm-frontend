@@ -7,5 +7,5 @@ export function getUserRewards(value: any): any;
 export function claimRewards(value: any): any;
 export function claimAllRewards(account: any): any;
 export function getRewardMarkets(userAddress: any): any;
-export function getPlatformUSDCBalance(accountAddress: any): any;
+export function getPlatformCantonBalance(accountAddress: any): any;
 export function getClaimedMarkets(userAddress: any): any;

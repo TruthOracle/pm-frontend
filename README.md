@@ -15,7 +15,7 @@ The platform can be seen at - https://truth-oracle.vercel.app/
 - Vite: A modern development tool for fast builds.
 - shadcn/ui & Tailwind CSS: For stylish and responsive design.
 - Canton Network Dapp SDK: For wallet connection and DAML command execution on Canton.
-- DAML: Smart contracts for prediction markets, incentives, and USDC-style token on Canton Network.
+- DAML: Smart contracts for prediction markets and incentives on Canton Network; trading uses Canton Coin (testnet/mainnet).
 
 ## Getting Started
 
@@ -40,7 +40,8 @@ TruthOracle uses DAML contracts on the Canton Network in the `daml/` directory:
 
 - **daml/daml/Truthoracle.daml** – Prediction markets (create, buy shares, record result)
 - **daml/daml/Incentives.daml** – Rewards (early participant, creator, winning prediction)
-- **daml/daml/Usdc.daml** – USDC-style token (balance, transfer, mint)
+
+Balances and payments use **Canton Coin** (native on Canton Network testnet and mainnet).
 
 ### Build DAML
 ```bash
