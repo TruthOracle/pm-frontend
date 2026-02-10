@@ -1,5 +1,6 @@
 import { useCantonWallet } from "@/contexts/CantonWalletContext";
-import { buildClaimAllRewardsParams } from "@/utils/cantonCommands";
+import { buildClaimAllRewardsParams, buildClaimAllRewardsParamsNoArgs } from "@/utils/cantonCommands";
+import { fetchUserRewardsSummaryContractId } from "@/utils/activeContracts";
 import { Box, Button, Heading, Text, VStack, useToast, HStack, Spinner, IconButton } from "@chakra-ui/react";
 import { RepeatIcon } from "@chakra-ui/icons";
 import { useEffect, useState } from "react";
@@ -71,7 +72,13 @@ const Rewards = () => {
         }
         setLoading(true);
         try {
-            const params = buildClaimAllRewardsParams(account.address);
+            const summaryCid = await fetchUserRewardsSummaryContractId(account.address);
+            const claimArgs = rewardMarkets.length > 0
+                ? rewardMarkets.slice(0, 10).map((marketId) => ({ marketId, rewardType: "EarlyParticipant" as const, amount: 5000000 }))
+                : [];
+            const params = summaryCid && claimArgs.length > 0
+                ? buildClaimAllRewardsParams(account.address, summaryCid, claimArgs)
+                : buildClaimAllRewardsParamsNoArgs(account.address);
             const result = await signAndSubmitTransaction(params);
             void result.hash; // Canton commandId
 

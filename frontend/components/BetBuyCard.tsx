@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 import { getMarketCount, getMarketMetadata} from "../../blockend/cantonService";
 import { useCantonWallet } from "@/contexts/CantonWalletContext";
 import { buildBuySharesParams } from "@/utils/cantonCommands";
+import { fetchPredictionMarketContractId, fetchUserMarketDataContractId } from "@/utils/activeContracts";
 
 
 
@@ -16,6 +17,8 @@ const BetBuyCard = () => {
   const [amount, setAmount] = useState<number>(0); // State for bet amount input
   const [selectedOption, setSelectedOption] = useState<string | null>(null); // State to track selected option
   const [currentPrice, setCurrentPrice] = useState<any>(null);
+  const [predictionMarketCid, setPredictionMarketCid] = useState<string | null>(null);
+  const [userMarketDataCid, setUserMarketDataCid] = useState<string | null>(null);
   const { account } = useCantonWallet();
 
    function hexToAscii(hex:any) {
@@ -44,6 +47,17 @@ useEffect(() => {
         }
     });
 }, [id]);
+
+// Fetch PredictionMarket and UserMarketData contract IDs for this market when we have account and market id
+useEffect(() => {
+    if (!account?.address || id == null) return;
+    const marketIdNum = Number(id);
+    if (isNaN(marketIdNum)) return;
+    fetchPredictionMarketContractId(marketIdNum).then((info) => {
+        setPredictionMarketCid(info?.contractId ?? null);
+    });
+    fetchUserMarketDataContractId(account.address, marketIdNum).then(setUserMarketDataCid);
+}, [account?.address, id]);
 
 // Separate useEffect for price calculation
 useEffect(() => {
@@ -99,11 +113,32 @@ useEffect(() => {
 
   const { signAndSubmitTransaction } = useCantonWallet();
 
-  const buyShares = async(marketId:any, shareOption:any, numberOfShares:any) => {
-    try{
-    if(account){
-                const params = buildBuySharesParams(account.address, Number(marketId), Number(shareOption), numberOfShares);
-                const committedTxn = await signAndSubmitTransaction(params);
+  const buyShares = async(_marketId: any, shareOption: any, numberOfShares: number) => {
+    try {
+    if (!account) return;
+    if (!predictionMarketCid) {
+        toast({
+            title: "Market contract not found",
+            description: "This market may not be on this participant. Try refreshing.",
+            status: "warning",
+            duration: 5000,
+            isClosable: true,
+        });
+        return;
+    }
+    // UI uses 0 = option_1, 1 = option_2; DAML Trade expects option 1 or 2
+    const option = Number(shareOption) === 0 ? 1 : 2;
+    const numShares = Math.max(0, Math.floor(numberOfShares));
+    const cost = numShares; // or derive from LMSR; DAML expects non-negative cost
+    const params = buildBuySharesParams(
+        account.address,
+        predictionMarketCid,
+        option,
+        numShares,
+        cost,
+        userMarketDataCid
+    );
+    const committedTxn = await signAndSubmitTransaction(params);
                 void committedTxn.hash;
                 console.log(`Committed transaction: ${committedTxn.hash}`);
                 
@@ -139,11 +174,15 @@ useEffect(() => {
                     duration: 9000,
                     isClosable: true,
                 });
-        }else{
-            console.log("Account not available");
-        }
     } catch (e) {
         console.error(e);
+        toast({
+            title: "Trade failed",
+            description: e instanceof Error ? e.message : "Could not submit trade.",
+            status: "error",
+            duration: 5000,
+            isClosable: true,
+        });
     }
   }
 
@@ -156,9 +195,7 @@ useEffect(() => {
     if(selectedOption === bet?.option_1) option = 0;
     else option = 1;
 
-    buyShares(parseInt(bet?.id), option, amount).then((sharesBought:any) => {
-        console.log("Shares Bought: ", sharesBought);
-    })
+    buyShares(parseInt(bet?.id), option, amount).then(() => {})
     // if (amount > 0 && selectedOption) {
     //   alert(`Placed a bet of $${amount.toFixed(2)} on ${selectedOption}`);
     // } else {
@@ -320,9 +357,9 @@ useEffect(() => {
                   onClick={handleBuyClick}
                   className="text-black font-bold py-2 px-4 rounded bg-[#ebebf0] hover:bg-[#CCCCFF] hover:text-white"
                   style={{ borderColor: '#333', borderWidth: '2px', width: '100%' }}
-                  disabled={!selectedOption || amount <= 0}
+                  disabled={!selectedOption || amount <= 0 || !predictionMarketCid}
                 >
-                  BUY
+                  {!predictionMarketCid && account ? "Loading market…" : "BUY"}
                 </button>
                 <div className="flex flex-col m-1 text-gray-500 text-sm justify-between font-jbm">
                     <p className='font-jbm'>⚠️ Due to slippage tolerance, price may vary.</p>

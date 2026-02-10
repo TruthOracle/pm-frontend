@@ -1,16 +1,29 @@
-import {Button, Center, Input, useToast} from '@chakra-ui/react'
-import React, {useState} from 'react'
+import {Button, Center, Input, useToast, Text} from '@chakra-ui/react'
+import React, {useState, useEffect} from 'react'
 // @ts-ignore
-import { initMarket , getMarketCount, getMarketMetadata} from "../../../blockend/cantonService";
+import { getMarketCount, getMarketMetadata} from "../../../blockend/cantonService";
 import { useCantonWallet } from "@/contexts/CantonWalletContext";
 import { buildInitMarketParams } from "@/utils/cantonCommands";
+import { fetchMarketCounterContractId } from "@/utils/activeContracts";
 
 type Props = {}
 
 function AdminForm({}: Props) {
-
     const { account, signAndSubmitTransaction } = useCantonWallet();
+    const [marketCounterCid, setMarketCounterCid] = useState<string | null>(null);
+    const [loadingCid, setLoadingCid] = useState(true);
 
+    useEffect(() => {
+        if (!account?.address) {
+            setMarketCounterCid(null);
+            setLoadingCid(false);
+            return;
+        }
+        setLoadingCid(true);
+        fetchMarketCounterContractId()
+            .then(setMarketCounterCid)
+            .finally(() => setLoadingCid(false));
+    }, [account?.address]);
 
     const [formData, setFormData] = useState({
 		question: "",
@@ -38,55 +51,39 @@ function AdminForm({}: Props) {
     const handleSubmit = async (e:any) => {
         e.preventDefault();
 
-         if (!account) {
+        if (!account) {
             console.error("Account not available");
             return;
         }
-
-        //  await client.transaction.build.simple({
-        //     sender: account.address ?? "",
-        //     data: {
-        //       function: `${moduleAddress}::truthoracle::init_market`,
-        //       typeArguments: [],
-        //       functionArguments: [
-
-        //         formData.question,
-        //         formData.imageURL,
-        //         formData.description, 
-        //         formData.firstShareOption, 
-        //         formData.secondShareOption, 
-        //         new U64(formData.liquidityParameter)
-        //        ],
-        //     },
-        // });
-
-
-        // const value = await client.getAccountResources(moduleAddress);
-        // console.log(value);
-
-  
-        if(account){
-                const params = buildInitMarketParams(
-                    account.address,
-                    formData.question,
-                    formData.imageURL,
-                    formData.description,
-                    formData.firstShareOption,
-                    formData.secondShareOption,
-                    formData.liquidityParameter
-                );
-                const committedTxn = await signAndSubmitTransaction(params);
-                console.log(`Committed transaction: ${committedTxn.hash}`);
-                  toast({
-                      title: 'Market Created',
-                      description: "We've created market successfully!",
-                      status: 'success',
-                      duration: 9000,
-                      isClosable: true,
-                    })
-        }else{
-            console.log("Account not available");
+        if (!marketCounterCid) {
+            toast({
+                title: "Market counter not found",
+                description: "Connect to the participant where TruthOracle is deployed and ensure the admin has created the MarketCounter.",
+                status: "warning",
+                duration: 6000,
+                isClosable: true,
+            });
+            return;
         }
+        const params = buildInitMarketParams(
+            account.address,
+            formData.question,
+            formData.imageURL,
+            formData.description,
+            formData.firstShareOption,
+            formData.secondShareOption,
+            formData.liquidityParameter,
+            marketCounterCid
+        );
+        const committedTxn = await signAndSubmitTransaction(params);
+        console.log(`Committed transaction: ${committedTxn.hash}`);
+        toast({
+            title: "Market Created",
+            description: "We've created the market successfully!",
+            status: "success",
+            duration: 9000,
+            isClosable: true,
+        });
 
         
     }
@@ -169,7 +166,11 @@ function AdminForm({}: Props) {
 			value={formData.liquidityParameter}
 			onChange={handleInputChange}
 		/> */}
-		    <Button type="submit" colorScheme='green'>Submit</Button>
+		    {loadingCid && <Text color="gray.400" fontSize="sm">Loading contract...</Text>}
+		    {!loadingCid && !marketCounterCid && account && (
+		        <Text color="orange.400" fontSize="sm" mb={2}>Market counter not found on this participant. Deploy TruthOracle and create the counter first.</Text>
+		    )}
+		    <Button type="submit" colorScheme='green' isDisabled={!marketCounterCid || loadingCid}>Submit</Button>
 
 			
         </form>
