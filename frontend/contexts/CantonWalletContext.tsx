@@ -10,6 +10,7 @@ import {
   type LoopTxResult,
 } from "@/lib/loopSdk";
 import type { PrepareExecuteParams } from "@/lib/cantonDapp";
+import { createParticipantClient } from "@/lib/cantonParticipant";
 
 export interface CantonAccount {
   address: string;
@@ -108,18 +109,28 @@ export function CantonWalletProvider({ children }: { children: React.ReactNode }
 
   const signAndSubmitTransaction = useCallback(
     async (params: PrepareExecuteParams): Promise<{ hash: string }> => {
-      const provider = (await import("@fivenorth/loop-sdk")).loop.provider as LoopProvider | undefined;
-      if (!provider) throw new Error("Loop wallet not connected. Connect first.");
-      const payload = toLoopPayload(params);
-      const result: LoopTxResult = await provider.submitAndWaitForTransaction(payload, {
-        message: "TruthOracle transaction",
-        estimateTraffic: true,
-      });
-      const hash = result?.command_id ?? result?.submission_id ?? "";
-      if (result?.error?.error_message) {
-        throw new Error(result.error.error_message);
+      // Use VITE_USE_PARTICIPANT_API env var to switch between Loop wallet and direct participant API
+      const useParticipantApi = import.meta.env.VITE_USE_PARTICIPANT_API === "true";
+
+      if (useParticipantApi) {
+        // Option 1: Use Canton participant Interactive Submission API directly
+        const client = createParticipantClient();
+        return await client.submitTransaction(params);
+      } else {
+        // Option 2: Use Loop wallet provider (default)
+        const provider = (await import("@fivenorth/loop-sdk")).loop.provider as LoopProvider | undefined;
+        if (!provider) throw new Error("Loop wallet not connected. Connect first.");
+        const payload = toLoopPayload(params);
+        const result: LoopTxResult = await provider.submitAndWaitForTransaction(payload, {
+          message: "TruthOracle transaction",
+          estimateTraffic: true,
+        });
+        const hash = result?.command_id ?? result?.submission_id ?? "";
+        if (result?.error?.error_message) {
+          throw new Error(result.error.error_message);
+        }
+        return { hash };
       }
-      return { hash };
     },
     []
   );

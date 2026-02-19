@@ -53,7 +53,7 @@ useEffect(() => {
     if (!account?.address || id == null) return;
     const marketIdNum = Number(id);
     if (isNaN(marketIdNum)) return;
-    fetchPredictionMarketContractId(marketIdNum).then((info) => {
+    fetchPredictionMarketContractId(marketIdNum, account.address).then((info) => {
         setPredictionMarketCid(info?.contractId ?? null);
     });
     fetchUserMarketDataContractId(account.address, marketIdNum).then(setUserMarketDataCid);

@@ -1,11 +1,15 @@
-import { getLoopProvider } from "@/lib/loopSdk";
+import { createParticipantClient } from "@/lib/cantonParticipant";
+import { TRUTHORACLE_PACKAGE_ID } from "@/constants";
 
 const TRUTHORACLE_MODULE = "Truthoracle";
 const INCENTIVES_MODULE = "Incentives";
 
-/** Template id format for Loop getActiveContracts (module:entity; package may be inferred). */
-function templateKey(moduleName: string, entityName: string): string {
-  return `${moduleName}:${entityName}`;
+function templateId(moduleName: string, entityName: string) {
+  return {
+    packageId: TRUTHORACLE_PACKAGE_ID,
+    moduleName,
+    entityName,
+  };
 }
 
 export interface ContractInfo {
@@ -13,21 +17,33 @@ export interface ContractInfo {
   payload?: Record<string, unknown>;
 }
 
+/** Get contract ID from a response item (handles various field naming conventions). */
+function getContractId(item: unknown): string | null {
+  const c = item as Record<string, unknown>;
+  return (c.contractId ?? c.contract_id ?? c.contract_id_value) as string | null;
+}
+
+/** Get payload from a response item. */
+function getPayload(item: unknown): Record<string, unknown> {
+  const c = item as Record<string, unknown>;
+  return (c.payload ?? c.contract ?? c) as Record<string, unknown>;
+}
+
 /**
- * Fetch the active MarketCounter contract (there should be one per admin).
- * Returns the first one found; the app assumes a single counter.
+ * Fetch the active MarketCounter contract from the participant Ledger API.
+ * No Loop/cantonloop.com calls — uses your participant at VITE_CANTON_PARTICIPANT_URL.
  */
-export async function fetchMarketCounterContractId(): Promise<string | null> {
-  const provider = getLoopProvider();
-  if (!provider?.getActiveContracts) return null;
+export async function fetchMarketCounterContractId(
+  partyId: string
+): Promise<string | null> {
   try {
-    const list = await provider.getActiveContracts({
-      templateId: templateKey(TRUTHORACLE_MODULE, "MarketCounter"),
-    });
-    const arr = Array.isArray(list) ? list : [];
-    const first = arr[0] as { contractId?: string; contract_id?: string } | undefined;
-    if (!first) return null;
-    return first.contractId ?? first.contract_id ?? null;
+    const client = createParticipantClient();
+    const list = await client.queryActiveContracts(
+      partyId,
+      templateId(TRUTHORACLE_MODULE, "MarketCounter")
+    );
+    const first = list[0];
+    return first ? getContractId(first) : null;
   } catch (e) {
     console.warn("fetchMarketCounterContractId", e);
     return null;
@@ -35,23 +51,23 @@ export async function fetchMarketCounterContractId(): Promise<string | null> {
 }
 
 /**
- * Fetch active PredictionMarket contracts and return the one matching marketId.
+ * Fetch active PredictionMarket contracts from the participant and return the one matching marketId.
  */
 export async function fetchPredictionMarketContractId(
-  marketId: number
+  marketId: number,
+  partyId: string
 ): Promise<{ contractId: string; payload?: Record<string, unknown> } | null> {
-  const provider = getLoopProvider();
-  if (!provider?.getActiveContracts) return null;
   try {
-    const list = await provider.getActiveContracts({
-      templateId: templateKey(TRUTHORACLE_MODULE, "PredictionMarket"),
-    });
-    const arr = Array.isArray(list) ? list : [];
-    for (const item of arr) {
-      const c = item as { contractId?: string; contract_id?: string; marketId?: number; market_id?: number };
-      const cid = c.contractId ?? c.contract_id;
-      const mid = c.marketId ?? c.market_id;
-      if (cid && Number(mid) === marketId) return { contractId: cid, payload: c as Record<string, unknown> };
+    const client = createParticipantClient();
+    const list = await client.queryActiveContracts(
+      partyId,
+      templateId(TRUTHORACLE_MODULE, "PredictionMarket")
+    );
+    for (const item of list) {
+      const cid = getContractId(item);
+      const payload = getPayload(item);
+      const mid = payload.marketId ?? payload.market_id;
+      if (cid && Number(mid) === marketId) return { contractId: cid, payload };
     }
     return null;
   } catch (e) {
@@ -61,24 +77,23 @@ export async function fetchPredictionMarketContractId(
 }
 
 /**
- * Fetch UserMarketData for the given party and marketId (optional).
+ * Fetch UserMarketData for the given party and marketId (optional) from the participant.
  */
 export async function fetchUserMarketDataContractId(
   partyId: string,
   marketId?: number
 ): Promise<string | null> {
-  const provider = getLoopProvider();
-  if (!provider?.getActiveContracts) return null;
   try {
-    const list = await provider.getActiveContracts({
-      templateId: templateKey(TRUTHORACLE_MODULE, "UserMarketData"),
-    });
-    const arr = Array.isArray(list) ? list : [];
-    for (const item of arr) {
-      const c = item as { contractId?: string; contract_id?: string; user?: string; marketId?: number; market_id?: number };
-      const cid = c.contractId ?? c.contract_id;
-      const user = c.user;
-      const mid = c.marketId ?? c.market_id;
+    const client = createParticipantClient();
+    const list = await client.queryActiveContracts(
+      partyId,
+      templateId(TRUTHORACLE_MODULE, "UserMarketData")
+    );
+    for (const item of list) {
+      const cid = getContractId(item);
+      const payload = getPayload(item);
+      const user = payload.user;
+      const mid = payload.marketId ?? payload.market_id;
       if (cid && user === partyId && (marketId == null || Number(mid) === marketId)) return cid;
     }
     return null;
@@ -89,24 +104,24 @@ export async function fetchUserMarketDataContractId(
 }
 
 /**
- * Fetch UserRewardsSummary contract for the given party.
+ * Fetch UserRewardsSummary contract for the given party from the participant.
  */
-export async function fetchUserRewardsSummaryContractId(partyId: string): Promise<string | null> {
-  const provider = getLoopProvider();
-  if (!provider?.getActiveContracts) return null;
+export async function fetchUserRewardsSummaryContractId(
+  partyId: string
+): Promise<string | null> {
   try {
-    const list = await provider.getActiveContracts({
-      templateId: templateKey(INCENTIVES_MODULE, "UserRewardsSummary"),
-    });
-    const arr = Array.isArray(list) ? list : [];
-    for (const item of arr) {
-      const c = item as { contractId?: string; contract_id?: string; user?: string };
-      const cid = c.contractId ?? c.contract_id;
-      if (cid && c.user === partyId) return cid;
+    const client = createParticipantClient();
+    const list = await client.queryActiveContracts(
+      partyId,
+      templateId(INCENTIVES_MODULE, "UserRewardsSummary")
+    );
+    for (const item of list) {
+      const cid = getContractId(item);
+      const payload = getPayload(item);
+      if (cid && payload.user === partyId) return cid;
     }
-    const first = arr[0] as { contractId?: string; contract_id?: string } | undefined;
-    if (first) return first.contractId ?? first.contract_id ?? null;
-    return null;
+    const first = list[0];
+    return first ? getContractId(first) : null;
   } catch (e) {
     console.warn("fetchUserRewardsSummaryContractId", e);
     return null;

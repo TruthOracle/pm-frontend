@@ -20,7 +20,7 @@ function AdminForm({}: Props) {
             return;
         }
         setLoadingCid(true);
-        fetchMarketCounterContractId()
+        fetchMarketCounterContractId(account.address)
             .then(setMarketCounterCid)
             .finally(() => setLoadingCid(false));
     }, [account?.address]);
