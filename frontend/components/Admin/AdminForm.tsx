@@ -44,6 +44,13 @@ function AdminForm({}: Props) {
 
 	}
 
+    const formValid =
+        formData.question.trim() !== "" &&
+        formData.imageURL.trim() !== "" &&
+        formData.description.trim() !== "" &&
+        formData.firstShareOption.trim() !== "" &&
+        formData.secondShareOption.trim() !== "";
+
     const toast = useToast()
 
 
@@ -170,7 +177,7 @@ function AdminForm({}: Props) {
 		    {!loadingCid && !marketCounterCid && account && (
 		        <Text color="orange.400" fontSize="sm" mb={2}>Market counter not found on this participant. Deploy TruthOracle and create the counter first.</Text>
 		    )}
-		    <Button type="submit" colorScheme='green' isDisabled={!marketCounterCid || loadingCid}>Submit</Button>
+		    <Button type="submit" colorScheme='green' isDisabled={loadingCid || !formValid}>Submit</Button>
 
 			
         </form>
