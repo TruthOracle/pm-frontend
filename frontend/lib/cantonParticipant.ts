@@ -11,6 +11,9 @@ import type { PrepareExecuteParams } from "./cantonDapp";
 /** In-memory cache for OAuth2 client_credentials access token (Keycloak). */
 let keycloakTokenCache: { accessToken: string; expiresAt: number } | null = null;
 
+/** Cache synchronizerId from GET /v2/state/connected-synchronizers (per baseUrl). */
+let synchronizerIdCache: { baseUrl: string; synchronizerId: string } | null = null;
+
 /** Refresh token 60s before expiry to avoid using an expired token. */
 const TOKEN_REFRESH_MARGIN_SEC = 60;
 
@@ -156,20 +159,99 @@ export class CantonParticipantClient {
   }
 
   /**
+   * Fetch synchronizerId from GET /v2/state/connected-synchronizers (cached per baseUrl).
+   * Required by JsPrepareSubmissionRequest.
+   */
+  private async getSynchronizerId(): Promise<string> {
+    if (synchronizerIdCache?.baseUrl === this.config.baseUrl) {
+      return synchronizerIdCache.synchronizerId;
+    }
+    const url = `${this.config.baseUrl}/v2/state/connected-synchronizers`;
+    const headers = await this.ledgerHeaders();
+    const response = await fetch(url, { method: "GET", headers });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Connected synchronizers failed (${response.status}): ${text}`);
+    }
+    const data = (await response.json()) as {
+      connectedSynchronizers?: Array<{ synchronizerId?: string }>;
+    };
+    const id =
+      data.connectedSynchronizers?.[0]?.synchronizerId ??
+      (data as Record<string, unknown>).connectedSynchronizers?.[0]?.synchronizerId;
+    if (!id || typeof id !== "string") {
+      throw new Error("No synchronizerId in connected-synchronizers response");
+    }
+    synchronizerIdCache = { baseUrl: this.config.baseUrl, synchronizerId: id };
+    return id;
+  }
+
+  /**
+   * Convert frontend command shape to Ledger API Command (OpenAPI JsPrepareSubmissionRequest).
+   * Frontend: { exercise: { templateId: { packageId, moduleName, entityName }, ... } } or { create: { ... } }
+   * API: { ExerciseCommand: { templateId: "pkg:mod:ent", ... } } or { CreateCommand: { ... } }
+   */
+  private normalizeCommand(cmd: unknown): Record<string, unknown> {
+    const c = cmd as Record<string, unknown>;
+    if (c.exercise && typeof c.exercise === "object") {
+      const ex = c.exercise as Record<string, unknown>;
+      const tid = ex.templateId;
+      const templateIdStr =
+        typeof tid === "string"
+          ? tid
+          : tid && typeof tid === "object" && "packageId" in tid && "moduleName" in tid && "entityName" in tid
+            ? `${(tid as Record<string, string>).packageId}:${(tid as Record<string, string>).moduleName}:${(tid as Record<string, string>).entityName}`
+            : "";
+      return {
+        ExerciseCommand: {
+          templateId: templateIdStr,
+          contractId: ex.contractId,
+          choice: ex.choice,
+          choiceArgument: ex.choiceArgument ?? ex.choice_argument,
+        },
+      };
+    }
+    if (c.create && typeof c.create === "object") {
+      const cr = c.create as Record<string, unknown>;
+      const tid = cr.templateId;
+      const templateIdStr =
+        typeof tid === "string"
+          ? tid
+          : tid && typeof tid === "object" && "packageId" in tid && "moduleName" in tid && "entityName" in tid
+            ? `${(tid as Record<string, string>).packageId}:${(tid as Record<string, string>).moduleName}:${(tid as Record<string, string>).entityName}`
+            : "";
+      return {
+        CreateCommand: {
+          templateId: templateIdStr,
+          createArguments: cr.createArguments ?? cr.create_arguments ?? {},
+        },
+      };
+    }
+    return c as Record<string, unknown>;
+  }
+
+  /**
    * Prepare a transaction using /v2/interactive-submission/prepare.
-   * Returns the prepared transaction (base64) and metadata.
+   * Request body must match JsPrepareSubmissionRequest: commandId, synchronizerId, actAs (camelCase), etc.
    */
   async prepare(params: PrepareExecuteParams): Promise<PrepareResponse> {
     const url = `${this.config.baseUrl}/v2/interactive-submission/prepare`;
     const headers = await this.ledgerHeaders();
 
+    const rawCommands = params.commands ?? [];
+    const commands = Array.isArray(rawCommands)
+      ? rawCommands.map((cmd) => this.normalizeCommand(cmd))
+      : [this.normalizeCommand(rawCommands)];
+
     const body = {
-      commands: params.commands || [],
-      act_as: params.actAs || [],
-      read_as: params.readAs || [],
-      disclosed_contracts: params.disclosedContracts || [],
-      package_id_selection_preference: params.packageIdSelectionPreference || [],
-      // Optional: command_id, workflow_id, synchronizer_id, min_ledger_time_abs, etc.
+      commandId: crypto.randomUUID(),
+      synchronizerId: await this.getSynchronizerId(),
+      verboseHashing: false,
+      commands,
+      actAs: params.actAs?.length ? params.actAs : [],
+      readAs: params.readAs ?? [],
+      disclosedContracts: params.disclosedContracts ?? [],
+      packageIdSelectionPreference: params.packageIdSelectionPreference ?? [],
     };
 
     const response = await fetch(url, {
@@ -255,10 +337,11 @@ export class CantonParticipantClient {
     // Template id in package-id reference format: "packageId:moduleName:entityName".
     const templateIdStr = `${templateId.packageId}:${templateId.moduleName}:${templateId.entityName}`;
 
+    // Exact shape as script: no top-level "verbose" when using eventFormat (API rejects both).
+    // Script: verbose=false, activeAtOffset, eventFormat: { filtersByParty, filtersForAnyParty?, verbose: true }
     const body = {
-      verbose: true,
       activeAtOffset,
-      filter: {
+      eventFormat: {
         filtersByParty: {
           [partyId]: {
             cumulative: [
@@ -275,10 +358,12 @@ export class CantonParticipantClient {
             ],
           },
         },
+        filtersForAnyParty: {},
+        verbose: true,
       },
     };
 
-    const url = `${this.config.baseUrl}/v2/state/active-contracts`;
+    const url = `${this.config.baseUrl}/v2/state/active-contracts?limit=200`;
     const response = await fetch(url, {
       method: "POST",
       headers,
@@ -290,26 +375,53 @@ export class CantonParticipantClient {
       throw new Error(`Query active contracts failed (${response.status}): ${text}`);
     }
 
-    const list = (await response.json()) as Array<{
-      contractEntry?: {
-        JsActiveContract?: {
-          createdEvent?: {
-            contractId?: string;
-            createArgument?: Record<string, unknown>;
-          };
-        };
-      };
-    }>;
+    const raw = (await response.json()) as unknown;
+    const list = Array.isArray(raw)
+      ? raw
+      : (raw as Record<string, unknown>).activeContracts ?? (raw as Record<string, unknown>).contracts ?? [];
+
+    if (import.meta.env.DEV && import.meta.env.VITE_DEBUG_ACTIVE_CONTRACTS === "true") {
+      console.debug("[active-contracts]", {
+        partyId,
+        templateIdStr,
+        activeAtOffset,
+        responseIsArray: Array.isArray(raw),
+        rawKeys: Array.isArray(raw) ? undefined : Object.keys(raw as object),
+        listLength: Array.isArray(list) ? list.length : 0,
+        firstItem: Array.isArray(list) && list[0] ? list[0] : undefined,
+        raw: raw,
+      });
+    }
 
     const results: unknown[] = [];
-    for (const item of Array.isArray(list) ? list : []) {
-      const entry = item?.contractEntry?.JsActiveContract?.createdEvent;
-      if (entry?.contractId) {
+    const items = Array.isArray(list) ? list : [];
+    for (const item of items) {
+      const rec = item as Record<string, unknown>;
+      const entry =
+        rec?.contractEntry != null
+          ? (rec.contractEntry as Record<string, unknown>)?.JsActiveContract != null
+            ? ((rec.contractEntry as Record<string, unknown>).JsActiveContract as Record<string, unknown>)
+                ?.createdEvent
+            : undefined
+          : undefined;
+      const contractId =
+        (entry as Record<string, unknown> | undefined)?.contractId ??
+        (entry as Record<string, unknown> | undefined)?.contract_id ??
+        rec.contractId ??
+        rec.contract_id;
+      const payload =
+        (entry as Record<string, unknown> | undefined)?.createArgument ??
+        (entry as Record<string, unknown> | undefined)?.create_argument ??
+        rec.createArgument ??
+        rec.create_argument ??
+        rec.payload ??
+        {};
+      if (contractId && typeof contractId === "string") {
         results.push({
-          contractId: entry.contractId,
-          contract_id: entry.contractId,
-          payload: entry.createArgument ?? {},
-          contract: entry.createArgument ?? {},
+          contractId,
+          contract_id: contractId,
+          payload: payload as Record<string, unknown>,
+          contract: payload as Record<string, unknown>,
         });
       }
     }
@@ -330,7 +442,7 @@ export class CantonParticipantClient {
   }
 }
 
-/** In dev, use same-origin Ledger proxy to avoid CORS. */
+/** In dev, use same-origin /api/ledger so Vite proxies to the ledger and we avoid CORS. */
 function getLedgerBaseUrl(): string {
   const url =
     import.meta.env.VITE_CANTON_PARTICIPANT_URL ||

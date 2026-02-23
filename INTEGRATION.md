@@ -195,6 +195,140 @@ If the Loop/Canton API returns a 500 error for active-contracts, verify:
 - Check that the package ID matches the deployed DAR
 - Verify the party has visibility (is signatory or observer on MarketCounter)
 
+### active-contracts returns `[]` (empty array)
+
+1. **MarketCounter not created yet**  
+   Create it once with the admin party using `scripts/create-market-counter.sh` (same `BASE_URL` and `ADMIN_PARTY_ID` as the app). Until that succeeds, there is no contract to see.
+
+2. **Party mismatch**  
+   You must query with the **exact party** that is signatory (or observer) on the contract. For `MarketCounter`, only the **admin** party is signatory. If the UI uses a different party (e.g. another wallet), that party will get `[]`. Fix: use the same party that ran the create-market-counter script, or ensure the connected wallet’s `account.address` is that admin party ID.
+
+3. **Wrong participant / URL**  
+   The app uses `VITE_CANTON_PARTICIPANT_URL` for both creating (script) and querying (frontend). If the script was run against a different base URL than the app, contracts won’t be visible. Use the same participant URL everywhere.
+
+4. **Response shape**  
+   Some participants return a different JSON shape. Enable debug to see the raw response:
+   ```bash
+   VITE_DEBUG_ACTIVE_CONTRACTS=true
+   ```
+   Then open DevTools → Console; when the app fetches active contracts you’ll see `[active-contracts]` with `partyId`, `templateIdStr`, `raw`, etc. The code now also accepts alternative shapes (`activeContracts`, top-level `contractId`).
+
+---
+
+## Creating MarketCounter via CLI / curl
+
+If you see **"Market counter not found on this participant"**, create the counter once as the admin party using either the script below or the curl steps.
+
+### How to get the admin party ID
+
+The **admin party** is the Canton party that will own the `MarketCounter` contract (and be the only one who can create markets). You need its **full party ID** (e.g. `Admin::1220a1b2c3d4e5f6...`).
+
+**Option A – List known parties on the participant**
+
+```bash
+curl -s -X GET "${BASE_URL}/v2/parties" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json"
+```
+
+Use the response to find the party you want (e.g. by display name or hint). The full ID is usually in a field like `party` or `identifier` (format `Hint::1220...`).
+
+**Option B – Allocate a new party (e.g. "Admin")**
+
+If your participant allows it, allocate a new party and use its ID:
+
+```bash
+curl -s -X POST "${BASE_URL}/v2/parties/external/allocate" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{ "partyHint": "Admin", "displayName": "Admin" }'
+```
+
+Use the `party` (or equivalent) from the response as `ADMIN_PARTY_ID`. (Exact request/response shape may vary; check your participant’s OpenAPI or docs.)
+
+**Option C – From the app (Loop / connected wallet)**
+
+If you already use the TruthOracle UI with Loop (or another wallet): connect the wallet that should be admin, then read the **connected account’s party ID** (in the app this is `account.address`). That value is your admin party ID for this participant.
+
+**Option D – From your operator / docs**
+
+Whoever runs the Canton participant (e.g. DigiK, Cantor8, or your team) may have created an admin party and documented its ID. Ask for the “admin party ID” or “MarketCounter owner party” for your environment.
+
+---
+
+### Option 1: Shell script (recommended)
+
+From the repo root, with `jq` and `curl` installed:
+
+```bash
+# Optional: admin party ID (script defaults to TruthOracle party; override if needed)
+export ADMIN_PARTY_ID='9112efc008f3f67e48684a54644d513a::122057c91f560532605edd09804cab9be92c9303cb2f0ab36fe5a299bb2994643e69'
+
+# Optional: participant base URL and Bearer token
+export BASE_URL='https://api.validator.dev.digik.cantor8.tech/api/ledger'
+export TOKEN='your-bearer-token-if-required'
+
+chmod +x scripts/create-market-counter.sh
+./scripts/create-market-counter.sh
+```
+
+### Option 2: Manual curl
+
+Replace `BASE_URL`, `ADMIN_PARTY_ID`, and `TOKEN` (or omit `-H "Authorization: Bearer ..."` if no auth).
+
+**1. Get a synchronizer ID**
+
+```bash
+curl -s -X GET "${BASE_URL}/v2/state/connected-synchronizers?party=${ADMIN_PARTY_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json"
+```
+
+Use the first `synchronizerId` from the `connectedSynchronizers` array (e.g. `SYNCHRONIZER_ID=...`).
+
+**2. Prepare the create command**
+
+```bash
+PACKAGE_ID="54bb6ae431649ce7e6e422093009054a1675bdd3da8f511f6d260d032ef8b9b3"
+TEMPLATE_ID="${PACKAGE_ID}:Truthoracle:MarketCounter"
+COMMAND_ID=$(uuidgen)   # or any unique string
+
+curl -s -X POST "${BASE_URL}/v2/interactive-submission/prepare" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "'"${ADMIN_PARTY_ID}"'",
+    "commandId": "'"${COMMAND_ID}"'",
+    "synchronizerId": "'"${SYNCHRONIZER_ID}"'",
+    "verboseHashing": false,
+    "commands": [
+      {
+        "CreateCommand": {
+          "templateId": "'"${TEMPLATE_ID}"'",
+          "createArguments": { "admin": "'"${ADMIN_PARTY_ID}"'", "value": 0 }
+        }
+      }
+    ],
+    "actAs": [ "'"${ADMIN_PARTY_ID}"'" ],
+    "readAs": [],
+    "disclosedContracts": [],
+    "packageIdSelectionPreference": [ "'"${PACKAGE_ID}"'" ]
+  }'
+```
+
+From the response, take `preparedTransaction` (or `prepared_transaction`).
+
+**3. Execute**
+
+```bash
+curl -s -X POST "${BASE_URL}/v2/interactive-submission/execute" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{ "preparedTransaction": "'"${PREPARED_TRANSACTION}"'" }'
+```
+
+After a successful execute, the participant has one active `MarketCounter` contract; the UI can then create markets.
+
 ### "Market contract not found" (when buying shares)
 - The `PredictionMarket` for that market ID must exist on the participant
 - Check that the market was created via `CreateMarket` and is visible to the user
