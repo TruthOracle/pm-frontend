@@ -8,6 +8,11 @@
 # Requires: curl, jq.
 # Set BASE_URL and either TOKEN or Keycloak credentials (see below).
 # Optional: ADMIN_PARTY_ID. Defaults to TruthOracle admin party; if set to empty, script tries GET /v2/parties.
+#
+# IMPORTANT – 403 Permission denied: The participant must allow your token to act as ADMIN_PARTY_ID.
+# Keycloak client_credentials tokens often map to a service account, not a Daml party. If you get
+# HTTP 403 "security-sensitive error", use a token that is authorized for that party (e.g. same auth
+# as the frontend/wallet), or ask the participant operator to grant your client permission to act as that party.
 # All API responses are logged so you can share them for debugging.
 
 set -e
@@ -140,6 +145,16 @@ PREPARE_BODY_RESP=$(echo "$PREPARE_RESP" | sed '$d')
 echo "[HTTP $PREPARE_HTTP_CODE]"
 echo "$PREPARE_BODY_RESP" | jq . 2>/dev/null || echo "$PREPARE_BODY_RESP"
 echo ""
+
+if [ "$PREPARE_HTTP_CODE" = "403" ]; then
+  echo "*** Prepare returned 403 (Permission denied). ***"
+  echo "The participant does not allow this token to act as: $ADMIN_PARTY_ID"
+  echo "Options:"
+  echo "  1. Use a token that is authorized for this party (e.g. the same auth as your frontend/wallet)."
+  echo "     Export TOKEN=\$(your-method-to-get-user-token) then re-run."
+  echo "  2. Ask the participant operator (DigiK/Cantor8) to grant your client permission to act as this party."
+  exit 1
+fi
 
 PREPARED=$(echo "$PREPARE_BODY_RESP" | jq -r '.preparedTransaction // .prepared_transaction // empty')
 if [ -z "$PREPARED" ]; then

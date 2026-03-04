@@ -31,7 +31,7 @@ function getPayload(item: unknown): Record<string, unknown> {
 
 /**
  * Fetch the active MarketCounter contract from the participant Ledger API.
- * No Loop/cantonloop.com calls — uses your participant at VITE_CANTON_PARTICIPANT_URL.
+ * Restricts to the contract for this account (payload.admin === partyId) even if the API returns many.
  */
 export async function fetchMarketCounterContractId(
   partyId: string
@@ -42,7 +42,13 @@ export async function fetchMarketCounterContractId(
       partyId,
       templateId(TRUTHORACLE_MODULE, "MarketCounter")
     );
-    const first = list[0];
+    // API may return up to 200 contracts; keep only the one for this account (MarketCounter signatory is admin).
+    const forAccount = list.filter((item) => {
+      const payload = getPayload(item);
+      const admin = payload.admin ?? payload.Admin;
+      return admin === partyId;
+    });
+    const first = forAccount[0];
     return first ? getContractId(first) : null;
   } catch (e) {
     console.warn("fetchMarketCounterContractId", e);

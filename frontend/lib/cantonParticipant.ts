@@ -337,10 +337,10 @@ export class CantonParticipantClient {
     // Template id in package-id reference format: "packageId:moduleName:entityName".
     const templateIdStr = `${templateId.packageId}:${templateId.moduleName}:${templateId.entityName}`;
 
-    // Exact shape as script: no top-level "verbose" when using eventFormat (API rejects both).
-    // Script: verbose=false, activeAtOffset, eventFormat: { filtersByParty, filtersForAnyParty?, verbose: true }
+    // Payload shape: top-level verbose, activeAtOffset as string, eventFormat with filtersByParty and verbose.
     const body = {
-      activeAtOffset,
+      verbose: false,
+      activeAtOffset: String(activeAtOffset),
       eventFormat: {
         filtersByParty: {
           [partyId]: {
@@ -358,12 +358,11 @@ export class CantonParticipantClient {
             ],
           },
         },
-        filtersForAnyParty: {},
-        verbose: true,
+        verbose: false,
       },
     };
 
-    const url = `${this.config.baseUrl}/v2/state/active-contracts?limit=200`;
+    const url = `${this.config.baseUrl}/v2/state/active-contracts?limit=200&party=${encodeURIComponent(partyId)}`;
     const response = await fetch(url, {
       method: "POST",
       headers,
@@ -404,11 +403,16 @@ export class CantonParticipantClient {
                 ?.createdEvent
             : undefined
           : undefined;
-      const contractId =
+      let contractId =
         (entry as Record<string, unknown> | undefined)?.contractId ??
         (entry as Record<string, unknown> | undefined)?.contract_id ??
         rec.contractId ??
         rec.contract_id;
+      // Some APIs return workflowId at top level; never use it as contractId (exercise would fail with CONTRACT_NOT_FOUND).
+      const workflowId = rec.workflowId as string | undefined;
+      if (typeof contractId === "string" && typeof workflowId === "string" && contractId === workflowId) {
+        contractId = (entry as Record<string, unknown> | undefined)?.contractId ?? (entry as Record<string, unknown> | undefined)?.contract_id ?? undefined;
+      }
       const payload =
         (entry as Record<string, unknown> | undefined)?.createArgument ??
         (entry as Record<string, unknown> | undefined)?.create_argument ??

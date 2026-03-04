@@ -55,14 +55,17 @@ function AdminForm({}: Props) {
 
 
 
-    const handleSubmit = async (e:any) => {
+    const handleSubmit = async (e: any) => {
         e.preventDefault();
 
         if (!account) {
             console.error("Account not available");
             return;
         }
-        if (!marketCounterCid) {
+        // Re-fetch MarketCounter contract ID immediately before submit to avoid CONTRACT_NOT_FOUND
+        // (cached ID may be stale if the counter was re-created or the contract was archived).
+        const freshCid = await fetchMarketCounterContractId(account.address);
+        if (!freshCid) {
             toast({
                 title: "Market counter not found",
                 description: "Connect to the participant where TruthOracle is deployed and ensure the admin has created the MarketCounter.",
@@ -70,8 +73,11 @@ function AdminForm({}: Props) {
                 duration: 6000,
                 isClosable: true,
             });
+            setMarketCounterCid(null);
             return;
         }
+        setMarketCounterCid(freshCid);
+
         const params = buildInitMarketParams(
             account.address,
             formData.question,
@@ -80,19 +86,43 @@ function AdminForm({}: Props) {
             formData.firstShareOption,
             formData.secondShareOption,
             formData.liquidityParameter,
-            marketCounterCid
+            freshCid
         );
-        const committedTxn = await signAndSubmitTransaction(params);
-        console.log(`Committed transaction: ${committedTxn.hash}`);
-        toast({
-            title: "Market Created",
-            description: "We've created the market successfully!",
-            status: "success",
-            duration: 9000,
-            isClosable: true,
-        });
-
-        
+        try {
+            const committedTxn = await signAndSubmitTransaction(params);
+            console.log(`Committed transaction: ${committedTxn.hash}`);
+            toast({
+                title: "Market Created",
+                description: "We've created the market successfully!",
+                status: "success",
+                duration: 9000,
+                isClosable: true,
+            });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            if (message.includes("CONTRACT_NOT_FOUND") || message.includes("Contract could not be found")) {
+                setMarketCounterCid(null);
+                const partyHint = account?.address
+                    ? ` Use the create-market-counter script with ADMIN_PARTY_ID="${account.address}" so this participant has a counter for your wallet.`
+                    : "";
+                toast({
+                    title: "Market counter not found",
+                    description: `The participant rejected the counter contract.${partyHint} Then try again.`,
+                    status: "warning",
+                    duration: 8000,
+                    isClosable: true,
+                });
+            } else {
+                toast({
+                    title: "Submission failed",
+                    description: message,
+                    status: "error",
+                    duration: 6000,
+                    isClosable: true,
+                });
+            }
+            throw err;
+        }
     }
 
   return (
