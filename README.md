@@ -1,7 +1,7 @@
 # TruthOracle
 TruthOracle is a cutting-edge decentralized prediction market platform built on the Canton Network. Our mission is to provide a secure, transparent, and low-cost environment for users to create, participate in, and resolve prediction markets on a variety of topics, including politics, climate change, and sports.
 
-The platform can be seen at - https://truth-oracle.vercel.app/
+The platform can be seen at - [truthoracle-omega.vercel.app](https://truthoracle-omega.vercel.app/)
 
 ## Features
 - Decentralized Market Creation: Easily create and participate in prediction markets without intermediaries.
