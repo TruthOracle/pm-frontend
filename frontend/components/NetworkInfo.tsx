@@ -1,4 +1,4 @@
-import { useCantonWallet } from "@/contexts/CantonWalletContext";
+import { useCantonWallet } from "@/wallets";
 // Internal components
 import { DisplayValue, LabelValueGrid } from "@/components/LabelValueGrid";
 

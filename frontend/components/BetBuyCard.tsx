@@ -2,7 +2,7 @@ import {Divider, Flex, Progress, Skeleton, Stack, Stat, StatArrow, StatGroup, St
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { getMarketCount, getMarketMetadata} from "../../blockend/cantonService";
-import { useCantonWallet } from "@/contexts/CantonWalletContext";
+import { useCantonWallet } from "@/wallets";
 import { buildBuySharesParams } from "@/utils/cantonCommands";
 import { fetchPredictionMarketContractId, fetchUserMarketDataContractId } from "@/utils/activeContracts";
 

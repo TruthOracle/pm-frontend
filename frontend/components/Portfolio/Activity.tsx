@@ -1,4 +1,4 @@
-import { useCantonWallet } from "@/contexts/CantonWalletContext";
+import { useCantonWallet } from "@/wallets";
 import { buildWithdrawPayoutParams } from "@/utils/cantonCommands";
 import {
     Button,

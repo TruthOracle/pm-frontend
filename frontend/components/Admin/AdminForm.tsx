@@ -2,7 +2,7 @@ import {Button, Center, Input, useToast, Text} from '@chakra-ui/react'
 import React, {useState, useEffect} from 'react'
 // @ts-ignore
 import { getMarketCount, getMarketMetadata} from "../../../blockend/cantonService";
-import { useCantonWallet } from "@/contexts/CantonWalletContext";
+import { useCantonWallet } from "@/wallets";
 import { buildInitMarketParams } from "@/utils/cantonCommands";
 import { fetchMarketCounterContractId } from "@/utils/activeContracts";
 

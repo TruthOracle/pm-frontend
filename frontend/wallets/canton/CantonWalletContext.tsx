@@ -1,3 +1,8 @@
+/**
+ * Canton Wallet – Loop SDK implementation.
+ * Uses @fivenorth/loop-sdk for Loop Wallet (Canton / Five North).
+ * For future use when switching from Cantor8 to Canton.
+ */
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import {
   initLoop,
@@ -11,50 +16,31 @@ import {
 } from "@/lib/loopSdk";
 import type { PrepareExecuteParams } from "@/lib/cantonDapp";
 import { createParticipantClient } from "@/lib/cantonParticipant";
-
-export interface CantonAccount {
-  address: string;
-  partyId: string;
-  publicKey?: string;
-  namespace?: string;
-}
-
-/** Minimal network info for UI (Loop does not expose full network object the same way). */
-export interface CantonNetworkInfo {
-  networkId: string;
-  ledgerApi?: { baseUrl?: string };
-}
-
-/** Single-account wallet shape for compatibility with existing UI (list of one). */
-export interface CantonWalletItem {
-  partyId: string;
-  primary: boolean;
-  publicKey?: string;
-  namespace?: string;
-}
-
-export interface ConnectOptions {
-  defaultGateways?: Array<{ name: string; rpcUrl: string }>;
-  additionalGateways?: Array<{ name: string; rpcUrl: string }>;
-}
-
-interface CantonWalletContextValue {
-  account: CantonAccount | null;
-  connected: boolean;
-  connect: (options?: ConnectOptions) => Promise<void>;
-  disconnect: () => Promise<void>;
-  signAndSubmitTransaction: (params: PrepareExecuteParams) => Promise<{ hash: string }>;
-  wallets: CantonWalletItem[] | null;
-  network: CantonNetworkInfo | null;
-}
+import type {
+  CantonAccount,
+  CantonNetworkInfo,
+  CantonWalletItem,
+  CantonWalletContextValue,
+  ConnectOptions,
+} from "../types";
 
 const CantonWalletContext = createContext<CantonWalletContextValue | null>(null);
 
 const APP_NAME = "TruthOracle";
 
 function toLoopPayload(params: PrepareExecuteParams): DamlCommandPayload {
-  const { actAs, commands, readAs, disclosedContracts, packageIdSelectionPreference } = params as Record<string, unknown>;
-  const commandsArray = Array.isArray(commands) ? commands : commands && typeof commands === "object" ? [commands] : [];
+  const {
+    actAs,
+    commands,
+    readAs,
+    disclosedContracts,
+    packageIdSelectionPreference,
+  } = params as Record<string, unknown>;
+  const commandsArray = Array.isArray(commands)
+    ? commands
+    : commands && typeof commands === "object"
+      ? [commands]
+      : [];
   return {
     commands: commandsArray,
     actAs: actAs as string[] | undefined,
@@ -98,7 +84,7 @@ export function CantonWalletProvider({ children }: { children: React.ReactNode }
     });
   }, []);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (_options?: ConnectOptions) => {
     await loopConnect();
   }, []);
 
@@ -109,16 +95,14 @@ export function CantonWalletProvider({ children }: { children: React.ReactNode }
 
   const signAndSubmitTransaction = useCallback(
     async (params: PrepareExecuteParams): Promise<{ hash: string }> => {
-      // Use VITE_USE_PARTICIPANT_API env var to switch between Loop wallet and direct participant API
       const useParticipantApi = import.meta.env.VITE_USE_PARTICIPANT_API === "true";
 
       if (useParticipantApi) {
-        // Option 1: Use Canton participant Interactive Submission API directly
         const client = createParticipantClient();
         return await client.submitTransaction(params);
       } else {
-        // Option 2: Use Loop wallet provider (default)
-        const provider = (await import("@fivenorth/loop-sdk")).loop.provider as LoopProvider | undefined;
+        const provider = (await import("@fivenorth/loop-sdk")).loop
+          .provider as LoopProvider | undefined;
         if (!provider) throw new Error("Loop wallet not connected. Connect first.");
         const payload = toLoopPayload(params);
         const result: LoopTxResult = await provider.submitAndWaitForTransaction(payload, {
