@@ -13,7 +13,7 @@
     "fmt": "npm run _fmt -- --write"
   },
   "dependencies": {
-    "@cantor8-wallet-connect-sdk": "file:./cantor8-wallet-connect-sdk-0.1.9.tgz",
+    "@cantor8/wallet-connect-sdk": "file:./cantor8-wallet-connect-sdk-0.1.9.tgz",
     "@canton-network/core-splice-provider": "^0.23.0",
     "@canton-network/core-types": "^0.18.0",
     "@canton-network/core-wallet-dapp-rpc-client": "^0.22.0",
