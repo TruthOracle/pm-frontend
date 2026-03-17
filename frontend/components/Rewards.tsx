@@ -1,4 +1,4 @@
-import { useCantonWallet } from "@/contexts/CantonWalletContext";
+import { useCantonWallet } from "@/wallets";
 import { buildClaimAllRewardsParams, buildClaimAllRewardsParamsNoArgs } from "@/utils/cantonCommands";
 import { fetchUserRewardsSummaryContractId } from "@/utils/activeContracts";
 import { Box, Button, Heading, Text, VStack, useToast, HStack, Spinner, IconButton } from "@chakra-ui/react";

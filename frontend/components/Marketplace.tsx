@@ -1,4 +1,4 @@
-import { useCantonWallet } from "@/contexts/CantonWalletContext";
+import { useCantonWallet } from "@/wallets";
 import {Grid, Tabs, TabList, Tab, TabPanels, TabPanel, Box, Spinner, Center} from "@chakra-ui/react";
 import {useEffect, useState, useCallback} from "react";
 import {getMarketCount, getMarketMetadata} from "../../blockend/cantonService";

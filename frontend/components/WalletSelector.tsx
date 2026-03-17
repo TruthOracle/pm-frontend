@@ -1,4 +1,4 @@
-import { useCantonWallet } from "@/contexts/CantonWalletContext";
+import { useCantonWallet } from "@/wallets";
 import { Copy, LogOut } from "lucide-react";
 import { useCallback, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -204,18 +204,22 @@ export function WalletSelector() {
       <DialogContent className="max-h-screen overflow-auto">
         <DialogHeader>
           <DialogTitle style={{ zIndex: 1 }} className="flex flex-col text-center leading-snug">
-            Connect to Canton Network
+            Connect to Cantor8 Network
           </DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-4 pt-4">
           <p className="text-sm text-muted-foreground text-center">
-            Connect your Canton wallet (e.g. Splice Wallet) to use TruthOracle.
+            Connect your Cantor8 wallet (e.g. Splice Wallet) to use TruthOracle.
           </p>
           <Button size="lg" onClick={handleConnect} className="w-full">
-            Connect Canton Wallet
+            Connect Cantor8 Wallet
           </Button>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
+
+
+
+

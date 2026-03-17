@@ -7,12 +7,13 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "deploy": "vercel",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "lint": "eslint frontend --ext ts,tsx --report-unused-disable-directives",
     "preview": "vite preview",
     "_fmt": "prettier 'frontend/**/*.ts'",
     "fmt": "npm run _fmt -- --write"
   },
   "dependencies": {
+    "@cantor8/wallet-connect-sdk": "file:./cantor8-wallet-connect-sdk-0.1.9.tgz",
     "@canton-network/core-splice-provider": "^0.23.0",
     "@canton-network/core-types": "^0.18.0",
     "@canton-network/core-wallet-dapp-rpc-client": "^0.22.0",

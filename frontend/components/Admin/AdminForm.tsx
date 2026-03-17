@@ -1,8 +1,6 @@
 import {Button, Center, Input, useToast, Text} from '@chakra-ui/react'
 import React, {useState, useEffect} from 'react'
-// @ts-ignore
-import { getMarketCount, getMarketMetadata} from "../../../blockend/cantonService";
-import { useCantonWallet } from "@/contexts/CantonWalletContext";
+import { useCantonWallet } from "@/wallets";
 import { buildInitMarketParams } from "@/utils/cantonCommands";
 import { fetchMarketCounterContractId } from "@/utils/activeContracts";
 
@@ -203,14 +201,13 @@ function AdminForm({}: Props) {
 			value={formData.liquidityParameter}
 			onChange={handleInputChange}
 		/> */}
-		    {loadingCid && <Text color="gray.400" fontSize="sm">Loading contract...</Text>}
-		    {!loadingCid && !marketCounterCid && account && (
-		        <Text color="orange.400" fontSize="sm" mb={2}>Market counter not found on this participant. Deploy TruthOracle and create the counter first.</Text>
-		    )}
-		    <Button type="submit" colorScheme='green' isDisabled={loadingCid || !formValid}>Submit</Button>
+		{loadingCid && <Text color="gray.400" fontSize="sm">Loading contract...</Text>}
+		{!loadingCid && !marketCounterCid && account && (
+			<Text color="orange.400" fontSize="sm" mb={2}>Market counter not found on this participant. Deploy TruthOracle and create the counter first.</Text>
+		)}
+		<Button type="submit" colorScheme='green' isDisabled={loadingCid || !formValid}>Submit</Button>
 
-			
-        </form>
+		</form>
     </Center>
 
     </>
