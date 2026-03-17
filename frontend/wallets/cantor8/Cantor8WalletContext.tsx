@@ -36,13 +36,17 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
       network: "devnet",
     });
 
-    wallet.on("connected", (event: unknown) => {
-      const data = event as { accounts?: Array<{ partyId?: string }> };
-      const partyId = data?.accounts?.[0]?.partyId ?? "";
-      setAccount({
-        address: partyId,
-        partyId,
-      });
+    wallet.on("connected", async () => {
+      // Cantor8 "connected" event has no accounts; fetch via getAccounts()
+      try {
+        const { accounts } = await wallet.getAccounts();
+        const partyId = accounts?.[0]?.partyId ?? "";
+        if (partyId) {
+          setAccount({ address: partyId, partyId });
+        }
+      } catch (e) {
+        console.warn("[Cantor8] getAccounts after connect failed:", e);
+      }
     });
 
     wallet.on("disconnected", () => {
@@ -50,6 +54,16 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     });
 
     walletRef.current = wallet;
+
+    // Restore account if already connected (e.g. page refresh)
+    wallet.status().then(({ connected }) => {
+      if (connected) {
+        wallet.getAccounts().then(({ accounts }) => {
+          const partyId = accounts?.[0]?.partyId ?? "";
+          if (partyId) setAccount({ address: partyId, partyId });
+        }).catch(() => {});
+      }
+    }).catch(() => {});
   }, []);
 
   const connect = useCallback(async (_options?: ConnectOptions) => {
@@ -57,6 +71,16 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
       throw new Error("Cantor8 wallet not initialized");
     }
     await walletRef.current.connect();
+    // Fetch account after connect (in case "connected" event didn't include it)
+    try {
+      const { accounts } = await walletRef.current.getAccounts();
+      const partyId = accounts?.[0]?.partyId ?? "";
+      if (partyId) {
+        setAccount({ address: partyId, partyId });
+      }
+    } catch (e) {
+      console.warn("[Cantor8] getAccounts after connect failed:", e);
+    }
   }, []);
 
   const disconnect = useCallback(async () => {
