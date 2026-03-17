@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useCantonWallet } from "@/contexts/CantonWalletContext";
+import { useCantonWallet } from "@/wallets";
 import { buildWriteMessageParams } from "@/utils/cantonCommands";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/components/ui/use-toast";

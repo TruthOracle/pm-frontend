@@ -1,4 +1,4 @@
-import { useCantonWallet } from "@/contexts/CantonWalletContext";
+import { useCantonWallet } from "@/wallets";
 import { WalletSelector } from "./WalletSelector";
 import { Link } from 'react-router-dom';
 import {Button, useToast} from "@chakra-ui/react";

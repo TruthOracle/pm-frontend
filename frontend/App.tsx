@@ -7,10 +7,12 @@ import Portfolio from "./components/Portfolio";
 import Admin from "./components/Admin/Admin";
 import BetDetails from './components/BetDetails';
 import Rewards from './components/Rewards';
+import { WalletProvider } from './components/WalletProvider';
 
 function App() {
 
   return (
+    <WalletProvider>
     <Router>
       <Header />
       <div
@@ -49,11 +51,13 @@ function App() {
 
 
           </Routes>
+          
         </main>
 				{/* <Footer /> */}
          
       </div>
     </Router>
+    </WalletProvider>
   );
 }
 

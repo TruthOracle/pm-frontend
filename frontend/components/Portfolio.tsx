@@ -1,5 +1,5 @@
 import {Center, Stack, TabList, TabPanel, TabPanels, Tabs} from '@chakra-ui/react'
-import { useCantonWallet } from "@/contexts/CantonWalletContext";
+import { useCantonWallet } from "@/wallets";
 import Activity from './Portfolio/Activity'
 
 function Portfolio() {

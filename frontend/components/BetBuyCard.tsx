@@ -2,7 +2,7 @@ import {Divider, Flex, Progress, Skeleton, Stack, Stat, StatArrow, StatGroup, St
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { getMarketCount, getMarketMetadata} from "../../blockend/cantonService";
-import { useCantonWallet } from "@/contexts/CantonWalletContext";
+import { useCantonWallet } from "@/wallets";
 import { buildBuySharesParams } from "@/utils/cantonCommands";
 import { fetchPredictionMarketContractId, fetchUserMarketDataContractId } from "@/utils/activeContracts";
 
@@ -36,7 +36,7 @@ useEffect(() => {
     if (!id) return;
 
     getMarketCount().then((m:any) => {
-        let marketCount = m;
+        const marketCount = m;
         for(let i = 0; i < marketCount; i++) {
             getMarketMetadata(i).then((m:any) => {
                 if(m[0].id == id) {
@@ -103,8 +103,8 @@ useEffect(() => {
         if (q1 === undefined || q2 === undefined || b === undefined || b === 0) {
             return { val1: 0.5, val2: 0.5 }; // Default to 50/50 if data is missing
         }
-        let val_1 = Math.exp(q1/b);
-        let val_2 = Math.exp(q2/b);
+        const val_1 = Math.exp(q1/b);
+        const val_2 = Math.exp(q2/b);
         return { 
             val1: val_1 / (val_1 + val_2), 
             val2: val_2 / (val_1 + val_2) 
@@ -156,7 +156,7 @@ useEffect(() => {
                 // 3. Refresh current bet data
                 if (!id) return;
                 getMarketCount().then((m:any) => {
-                    let marketCount = m;
+                    const marketCount = m;
                     for(let i = 0; i < marketCount; i++) {
                         getMarketMetadata(i).then((m:any) => {
                             if(m[0].id == id) {
