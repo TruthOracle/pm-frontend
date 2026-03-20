@@ -10,5 +10,11 @@
       "destination": "https://auth.dev.digik.cantor8.tech/:path*"
     }
   ],
-  "routes": [{ "src": "/[^.]+", "dest": "/", "status": 200 }]
+  "routes": [
+    {
+      "src": "/((?!api/.*).*)",
+      "dest": "/",
+      "status": 200
+    }
+  ]
 }
