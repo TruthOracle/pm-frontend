@@ -13,6 +13,13 @@ DAML contracts for the TruthOracle prediction market platform on **Canton Networ
 - **Truthoracle.daml** – Prediction markets: admin creates markets and resolves them; users in `participants` trade (buy shares).
 - **Incentives.daml** – Rewards: early participant, market creator, winning prediction; users claim.
 
+### Reward claims (important)
+
+- Prefer **`ClaimRewardsBatch`** with a `claims` list when claiming more than one reward in a single submission. Several **`ClaimReward`** exercises on the same `UserRewardsSummary` contract id would fail: the first choice consumes the summary.
+- **`ClaimReward`** (single) still updates `totalEarned` / `claimedMarkets` by archiving the old summary and creating a new one; return type is **`(ContractId ClaimedReward, ContractId UserRewardsSummary)`**.
+- The duplicate **`ClaimAllReward`** choice was removed; use **`ClaimRewardsBatch`** or **`ClaimReward`**.
+- After any DAML change: **`daml build`**, upload the new **`.dar`**, then set **`VITE_TRUTHORACLE_PACKAGE_ID`** / `frontend/constants.ts` to the new package id.
+
 ## Prerequisites
 
 - [DAML SDK](https://docs.daml.com/getting-started/installation.html) 3.4.10 (install via `curl -sSL https://get.daml.com/ | sh`)

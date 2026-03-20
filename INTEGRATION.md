@@ -50,7 +50,11 @@ Directly calls the Canton participant's Ledger API endpoints:
 ```bash
 VITE_USE_PARTICIPANT_API=true
 VITE_CANTON_PARTICIPANT_URL=https://api.validator.dev.digik.cantor8.tech/api/ledger
-VITE_CANTON_PARTICIPANT_TOKEN=your-bearer-token  # Optional, if participant requires auth
+# Keycloak client_credentials (required for Ledger API auth — same as the rest of the app)
+VITE_KEYCLOAK_URL=...
+VITE_KEYCLOAK_REALM=master
+VITE_KEYCLOAK_CLIENT_ID=...
+VITE_KEYCLOAK_CLIENT_SECRET=...
 ```
 
 The mode is selected at runtime in `CantonWalletContext.tsx`:
@@ -107,7 +111,7 @@ All commands are built in `frontend/utils/cantonCommands.ts` using the Ledger AP
   Exercise `PredictionMarket.Trade` to buy shares (option 1 or 2).
 
 - **`buildClaimAllRewardsParams(partyId, userRewardsSummaryContractId, claimArgs)`**  
-  Exercise `UserRewardsSummary.ClaimReward` for one or more rewards (from Incentives module).
+  Exercise `UserRewardsSummary.ClaimRewardsBatch` once with a `claims` array (Incentives module). Avoids multiple consuming `ClaimReward` exercises on the same contract id in one transaction.
 
 - **`buildTransferParams(partyId, to, amount)`** *(placeholder)*  
   For Canton Coin transfers (not yet wired to TruthOracle DAML).
@@ -180,11 +184,13 @@ If the Loop/Canton API returns a 500 error for active-contracts, verify:
    ```bash
    VITE_USE_PARTICIPANT_API=true
    VITE_CANTON_PARTICIPANT_URL=https://api.validator.dev.digik.cantor8.tech/api/ledger
+   VITE_KEYCLOAK_URL=...
+   VITE_KEYCLOAK_CLIENT_ID=...
+   VITE_KEYCLOAK_CLIENT_SECRET=...
    ```
-2. Ensure the participant is running and accepts requests from your origin (CORS)
-3. If auth is required, set `VITE_CANTON_PARTICIPANT_TOKEN`
-4. Run `npm run dev`
-5. Transactions go directly to `/v2/interactive-submission/prepare` and `/execute`
+2. Ensure the participant is running and accepts requests from your origin (CORS); in dev the app proxies Ledger and Keycloak to avoid CORS where configured.
+3. Run `npm run dev`
+4. Transactions go directly to `/v2/interactive-submission/prepare` and `/execute`
 
 ---
 
@@ -198,10 +204,10 @@ If the Loop/Canton API returns a 500 error for active-contracts, verify:
 ### active-contracts returns `[]` (empty array)
 
 1. **MarketCounter not created yet**  
-   Create it once with the admin party using `scripts/create-market-counter.sh` (same `BASE_URL` and `ADMIN_PARTY_ID` as the app). Until that succeeds, there is no contract to see.
+   Create it once with the admin party using `npm run create:contract` with the same `.env` as the app (`VITE_CANTON_PARTICIPANT_URL`, `VITE_TRUTHORACLE_*`, `VITE_KEYCLOAK_*`, and optionally `VITE_TRUTHORACLE_ADMIN_PARTY_ID`). Until that succeeds, there is no contract to see.
 
 2. **Party mismatch**  
-   You must query with the **exact party** that is signatory (or observer) on the contract. For `MarketCounter`, only the **admin** party is signatory. If the UI uses a different party (e.g. another wallet), that party will get `[]`. Fix: use the same party that ran the create-market-counter script, or ensure the connected wallet’s `account.address` is that admin party ID.
+   You must query with the **exact party** that is signatory (or observer) on the contract. For `MarketCounter`, only the **admin** party is signatory. If the UI uses a different party (e.g. another wallet), that party will get `[]`. Fix: use the same party that ran `npm run create:contract`, or ensure the connected wallet’s `account.address` is that admin party ID.
 
 3. **Wrong participant / URL**  
    The app uses `VITE_CANTON_PARTICIPANT_URL` for both creating (script) and querying (frontend). If the script was run against a different base URL than the app, contracts won’t be visible. Use the same participant URL everywhere.
@@ -218,6 +224,13 @@ If the Loop/Canton API returns a 500 error for active-contracts, verify:
 ## Creating MarketCounter via CLI / curl
 
 If you see **"Market counter not found on this participant"**, create the counter once as the admin party using either the script below or the curl steps.
+
+### Validator party vs TruthOracle admin (`VITE_TRUTHORACLE_ADMIN_PARTY_ID`)
+
+In `c8-knowledge-hub-main/playground/.env.example`, **`VALIDATOR_PARTY`** (e.g. `cantor8-digik-1::1220…`) is the **validator / participant infrastructure** party used in Messenger playground examples. It is **not** the TruthOracle **`MarketCounter` admin**.
+
+- **`npm run create:contract`** uses **`VITE_TRUTHORACLE_ADMIN_PARTY_ID`** from `.env` if set; otherwise a built-in dev default. That party is signatory on `MarketCounter` (typically the same as the wallet you connect as admin). The script does not call **`GET /v2/parties`**; set the admin explicitly (see [How to get the admin party ID](#how-to-get-the-admin-party-id) below).
+- Do **not** substitute `VALIDATOR_PARTY` for your TruthOracle admin unless your operator confirms they are the same party (they usually are not).
 
 ### How to get the admin party ID
 
@@ -244,7 +257,7 @@ curl -s -X POST "${BASE_URL}/v2/parties/external/allocate" \
   -d '{ "partyHint": "Admin", "displayName": "Admin" }'
 ```
 
-Use the `party` (or equivalent) from the response as `ADMIN_PARTY_ID`. (Exact request/response shape may vary; check your participant’s OpenAPI or docs.)
+Use the `party` (or equivalent) from the response as `VITE_TRUTHORACLE_ADMIN_PARTY_ID` in `.env`. (Exact request/response shape may vary; check your participant’s OpenAPI or docs.)
 
 **Option C – From the app (Loop / connected wallet)**
 
@@ -256,20 +269,16 @@ Whoever runs the Canton participant (e.g. DigiK, Cantor8, or your team) may have
 
 ---
 
-### Option 1: Shell script (recommended)
+### Option 1: TypeScript script (recommended)
 
-From the repo root, with `jq` and `curl` installed:
+From the repo root:
 
 ```bash
-# Optional: admin party ID (script defaults to TruthOracle party; override if needed)
-export ADMIN_PARTY_ID='9112efc008f3f67e48684a54644d513a::122057c91f560532605edd09804cab9be92c9303cb2f0ab36fe5a299bb2994643e69'
+# .env already has VITE_CANTON_PARTICIPANT_URL, VITE_TRUTHORACLE_PACKAGE_ID, VITE_KEYCLOAK_*.
+# Recommended: set your MarketCounter admin in .env (else the script uses a repo dev default):
+# VITE_TRUTHORACLE_ADMIN_PARTY_ID='6ff9435fff4d4f43856f688e95a27368::12204e98dc339cc86c6d318f3746f99e880245b4a5827ef1e8bbe7ba6193ef8c0e58'
 
-# Optional: participant base URL and Bearer token
-export BASE_URL='https://api.validator.dev.digik.cantor8.tech/api/ledger'
-export TOKEN='your-bearer-token-if-required'
-
-chmod +x scripts/create-market-counter.sh
-./scripts/create-market-counter.sh
+npm run create:contract
 ```
 
 ### Option 2: Manual curl

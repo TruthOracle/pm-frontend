@@ -3,8 +3,17 @@
 
 module Incentives where
 
+import DA.List (all, elem, nub, null, reverse)
+
 -- Reward type
 data RewardType = EarlyParticipant | CreatorReward | WinningPrediction
+  deriving (Eq, Show)
+
+-- One row in a batch claim (Ledger API / JSON maps to this record)
+data RewardClaim = RewardClaim with
+  marketId : Int
+  rewardType : RewardType
+  amount : Int
   deriving (Eq, Show)
 
 -- Claimed reward record
@@ -26,31 +35,53 @@ template UserRewardsSummary
   where
     signatory user
 
-    choice ClaimReward : ContractId ClaimedReward
+    -- Single claim: archives this summary and creates an updated one (do not batch multiple
+    -- ClaimReward on the same contract id in one submission).
+    choice ClaimReward : (ContractId ClaimedReward, ContractId UserRewardsSummary)
       with
         marketId: Int
         rewardType: RewardType
         amount: Int
       controller user
       do
-        create ClaimedReward with
+        assert (not (elem marketId claimedMarkets))
+        rewardCid <- create ClaimedReward with
           user = user
           marketId = marketId
           rewardType = rewardType
           amount = amount
+        summaryCid <- create UserRewardsSummary with
+          user = user
+          totalEarned = totalEarned + amount
+          claimedMarkets = marketId :: claimedMarkets
+        return (rewardCid, summaryCid)
 
-    choice ClaimAllReward : ContractId ClaimedReward
+    -- Preferred for "claim all": one exercise, many ClaimedReward + one new summary.
+    choice ClaimRewardsBatch : (ContractId UserRewardsSummary, [ContractId ClaimedReward])
       with
-        marketId: Int
-        rewardType: RewardType
-        amount: Int
+        claims : [RewardClaim]
       controller user
       do
-        create ClaimedReward with
+        assert (not (null claims))
+        let newIds = map (\c -> c.marketId) claims
+        assert (newIds == nub newIds)
+        assert (all (\m -> not (elem m claimedMarkets)) newIds)
+        rewardCids <- do
+          let collect [] acc = return (reverse acc)
+              collect (c :: cs) acc = do
+                cid <- create ClaimedReward with
+                  user = user
+                  marketId = c.marketId
+                  rewardType = c.rewardType
+                  amount = c.amount
+                collect cs (cid :: acc)
+          collect claims []
+        let delta = foldl (\acc c -> acc + c.amount) 0 claims
+        summaryCid <- create UserRewardsSummary with
           user = user
-          marketId = marketId
-          rewardType = rewardType
-          amount = amount
+          totalEarned = totalEarned + delta
+          claimedMarkets = claimedMarkets ++ newIds
+        return (summaryCid, rewardCids)
 
 -- Constants (in real DAML you'd use these in choices; amounts in Canton Coin base units)
 -- EARLY_PARTICIPANT_THRESHOLD = 100000000  -- 1 Canton Coin

@@ -1,9 +1,8 @@
 /**
  * Canton Participant client for the JSON Ledger API.
- * Uses Bearer JWT for all requests per OpenAPI (httpAuth): set VITE_CANTON_PARTICIPANT_TOKEN
- * or provide getToken so Authorization: Bearer <token> is sent; otherwise requests may be rejected.
- * When using Keycloak (VITE_KEYCLOAK_*), tokens are obtained via client_credentials and cached
- * until they expire (typically 900s); they are refreshed automatically before expiry.
+ * Uses Bearer JWT for all requests per OpenAPI (httpAuth).
+ * Tokens come from Keycloak client_credentials (VITE_KEYCLOAK_*), cached until expiry (~900s),
+ * then refreshed automatically.
  */
 
 import type { PrepareExecuteParams } from "./cantonDapp";
@@ -95,10 +94,8 @@ async function fetchKeycloakAccessToken(): Promise<string> {
 export interface CantonParticipantConfig {
   /** Base URL of the participant Ledger API (e.g. "http://localhost:5003" or "https://participant.example.com") */
   baseUrl: string;
-  /** Optional static bearer token (overrides getToken if set). Required for auth when getToken is not set. */
-  authToken?: string;
-  /** Optional async token getter (e.g. Keycloak); used when authToken is not set */
-  getToken?: () => Promise<string | null>;
+  /** Bearer token (Keycloak client_credentials). Required for authenticated Ledger API. */
+  getToken: () => Promise<string | null>;
 }
 
 export interface PrepareResponse {
@@ -129,33 +126,25 @@ export class CantonParticipantClient {
     this.config = config;
   }
 
-  /** Resolve Bearer token: prefer getToken() (Keycloak /token) so fresh token is used; else static authToken. */
-  private async resolveAuthToken(): Promise<string | null> {
-    if (this.config.getToken) {
-      const token = await this.config.getToken();
-      if (token) return token;
-    }
-    if (this.config.authToken) return this.config.authToken;
-    return null;
+  /** Resolve Bearer token from Keycloak (getToken). */
+  private async resolveAuthToken(): Promise<string> {
+    const token = await this.config.getToken();
+    if (typeof token === "string" && token.trim()) return token.trim();
+    throw new Error(
+      "Ledger API requires a Bearer token (Keycloak token fetch failed or empty). Check VITE_KEYCLOAK_URL, VITE_KEYCLOAK_CLIENT_ID, and VITE_KEYCLOAK_CLIENT_SECRET."
+    );
   }
 
   /**
    * Build request headers with Bearer token for Ledger API.
-   * Same flow as the reference script: get token from Keycloak /token (client_credentials),
-   * then send "Authorization: Bearer <token>" on every Ledger request (ledger-end, active-contracts, prepare, execute).
-   * When auth is configured (getToken or authToken), we require a token; otherwise the API returns a security error.
+   * Token from Keycloak client_credentials on every Ledger request (ledger-end, active-contracts, prepare, execute).
    */
   private async ledgerHeaders(): Promise<Record<string, string>> {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
     const token = await this.resolveAuthToken();
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    } else if (this.config.getToken || this.config.authToken) {
-      throw new Error(
-        "Ledger API requires a Bearer token (Keycloak token fetch failed or no token available). Check VITE_KEYCLOAK_* or VITE_CANTON_PARTICIPANT_TOKEN."
-      );
-    }
-    return headers;
+    return {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    };
   }
 
   /**
@@ -362,7 +351,7 @@ export class CantonParticipantClient {
       },
     };
 
-    const url = `${this.config.baseUrl}/v2/state/active-contracts?limit=200&party=${encodeURIComponent(partyId)}`;
+    const url = `${this.config.baseUrl}/v2/state/active-contracts`;
     const response = await fetch(url, {
       method: "POST",
       headers,
@@ -463,32 +452,19 @@ function getLedgerBaseUrl(): string {
 
 /**
  * Get participant config from environment or defaults.
- * Auth: when Keycloak env vars are set we use getToken (client_credentials to /token, cached ~900s).
- * Otherwise we use static VITE_CANTON_PARTICIPANT_TOKEN. All Ledger API calls (ledger-end, active-contracts,
- * prepare, execute) use this token as Authorization: Bearer.
+ * Auth: Keycloak client_credentials only (cached ~900s). Required for Ledger API calls.
  */
 export function getParticipantConfig(): CantonParticipantConfig {
-  const authToken = import.meta.env.VITE_CANTON_PARTICIPANT_TOKEN;
-  const keycloakUrl = import.meta.env.VITE_KEYCLOAK_URL;
-  const keycloakClientId = import.meta.env.VITE_KEYCLOAK_CLIENT_ID;
-  const keycloakClientSecret = import.meta.env.VITE_KEYCLOAK_CLIENT_SECRET;
-  const useKeycloak = Boolean(
-    keycloakUrl && keycloakClientId && keycloakClientSecret
-  );
-
   return {
     baseUrl: getLedgerBaseUrl(),
-    authToken: authToken || undefined,
-    getToken: useKeycloak
-      ? async () => {
-          try {
-            return await fetchKeycloakAccessToken();
-          } catch (e) {
-            console.error("Keycloak token fetch failed:", e);
-            return null;
-          }
-        }
-      : undefined,
+    getToken: async () => {
+      try {
+        return await fetchKeycloakAccessToken();
+      } catch (e) {
+        console.error("Keycloak token fetch failed:", e);
+        return null;
+      }
+    },
   };
 }
 

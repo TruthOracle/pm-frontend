@@ -101,7 +101,7 @@ function AdminForm({}: Props) {
             if (message.includes("CONTRACT_NOT_FOUND") || message.includes("Contract could not be found")) {
                 setMarketCounterCid(null);
                 const partyHint = account?.address
-                    ? ` Use the create-market-counter script with ADMIN_PARTY_ID="${account.address}" so this participant has a counter for your wallet.`
+                    ? ` Run npm run create:contract with VITE_TRUTHORACLE_ADMIN_PARTY_ID="${account.address}" in .env so this participant has a counter for your wallet.`
                     : "";
                 toast({
                     title: "Market counter not found",

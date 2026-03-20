@@ -91,22 +91,31 @@ export function buildBuySharesParams(
 }
 
 /**
- * Exercise UserRewardsSummary.ClaimReward on Incentives (one or more claims).
- * Requires the UserRewardsSummary contract ID for the user.
+ * Exercise UserRewardsSummary.ClaimRewardsBatch on Incentives (all claims in one choice).
+ * One exercise avoids archiving the summary on the first ClaimReward and failing on the rest.
  */
 export function buildClaimAllRewardsParams(
   partyId: string,
   userRewardsSummaryContractId: string,
   claimArgs: { marketId: number; rewardType: string; amount: number }[]
 ): PrepareExecuteParams {
-  const commands = claimArgs.map(({ marketId, rewardType, amount }) => ({
-    exercise: {
-      templateId: templateId(INCENTIVES_MODULE, "UserRewardsSummary"),
-      contractId: userRewardsSummaryContractId,
-      choice: "ClaimReward",
-      choiceArgument: { marketId, rewardType, amount },
+  const commands = [
+    {
+      exercise: {
+        templateId: templateId(INCENTIVES_MODULE, "UserRewardsSummary"),
+        contractId: userRewardsSummaryContractId,
+        choice: "ClaimRewardsBatch",
+        choiceArgument: {
+          // DAML RewardClaim: { marketId, rewardType, amount }
+          claims: claimArgs.map(({ marketId, rewardType, amount }) => ({
+            marketId,
+            rewardType,
+            amount,
+          })),
+        },
+      },
     },
-  }));
+  ];
   return baseParams(partyId, commands);
 }
 
