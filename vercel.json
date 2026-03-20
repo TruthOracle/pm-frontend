@@ -1,1 +1,14 @@
-{ "routes": [{ "src": "/[^.]+", "dest": "/", "status": 200 }] }
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api/ledger/:path*",
+      "destination": "https://api.validator.dev.digik.cantor8.tech/api/ledger/:path*"
+    },
+    {
+      "source": "/api/keycloak/:path*",
+      "destination": "https://auth.dev.digik.cantor8.tech/:path*"
+    }
+  ],
+  "routes": [{ "src": "/[^.]+", "dest": "/", "status": 200 }]
+}
