@@ -451,14 +451,22 @@ function getLedgerBaseUrl(): string {
   const url =
     import.meta.env.VITE_CANTON_PARTICIPANT_URL ||
     "https://api.validator.dev.digik.cantor8.tech/api/ledger";
+
+  // Important:
+  // - In dev, Vite proxies `/api/ledger` -> the external ledger host to avoid browser CORS.
+  // - In production (Vercel/static), we must also route through same-origin `/api/ledger`
+  //   via `vercel.json` rewrites, otherwise the browser will call the external host directly.
+  const normalized = url.replace(/\/$/, "");
   if (
-    import.meta.env.DEV &&
-    (url.includes("api.validator.dev.digik.cantor8.tech") ||
-      url.includes("validator.dev.digik.cantor8.tech"))
+    normalized.includes("api.validator.dev.digik.cantor8.tech") ||
+    normalized.includes("validator.dev.digik.cantor8.tech")
   ) {
     return "/api/ledger";
   }
-  return url.replace(/\/$/, "");
+
+  // Allow overriding to a different same-origin proxy path like `/api/ledger`.
+  // Otherwise use the provided URL as-is (minus trailing slash).
+  return normalized;
 }
 
 /**
