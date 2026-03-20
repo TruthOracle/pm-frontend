@@ -22,17 +22,9 @@ const TOKEN_REFRESH_MARGIN_SEC = 60;
  * Caches the token and returns it until (expires_in - margin) has passed, then fetches a new one.
  * Token endpoint: POST .../realms/{realm}/protocol/openid-connect/token
  */
-/** In dev, use same-origin proxy to avoid CORS when Keycloak is on a different origin. */
 function getKeycloakBaseUrl(): string {
   const url = import.meta.env.VITE_KEYCLOAK_URL;
   if (!url) return "";
-  // In development, proxy Keycloak through Vite so the browser doesn't hit CORS.
-  if (
-    import.meta.env.DEV &&
-    (url.includes("auth.dev.digik.cantor8.tech") || url.startsWith("https://auth."))
-  ) {
-    return "/api/keycloak";
-  }
   return url.replace(/\/$/, "");
 }
 
@@ -446,27 +438,12 @@ export class CantonParticipantClient {
   }
 }
 
-/** In dev, use same-origin /api/ledger so Vite proxies to the ledger and we avoid CORS. */
 function getLedgerBaseUrl(): string {
   const url =
     import.meta.env.VITE_CANTON_PARTICIPANT_URL ||
     "https://api.validator.dev.digik.cantor8.tech/api/ledger";
 
-  // Important:
-  // - In dev, Vite proxies `/api/ledger` -> the external ledger host to avoid browser CORS.
-  // - In production (Vercel/static), we must also route through same-origin `/api/ledger`
-  //   via `vercel.json` rewrites, otherwise the browser will call the external host directly.
-  const normalized = url.replace(/\/$/, "");
-  if (
-    normalized.includes("api.validator.dev.digik.cantor8.tech") ||
-    normalized.includes("validator.dev.digik.cantor8.tech")
-  ) {
-    return "/api/ledger";
-  }
-
-  // Allow overriding to a different same-origin proxy path like `/api/ledger`.
-  // Otherwise use the provided URL as-is (minus trailing slash).
-  return normalized;
+  return url.replace(/\/$/, "");
 }
 
 /**

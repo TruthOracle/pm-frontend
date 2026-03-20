@@ -10,20 +10,6 @@ export default defineConfig({
   },
   server: {
     open: true,
-    // Proxy in dev to avoid CORS when calling external APIs from the browser.
-    proxy: {
-      "/api/keycloak": {
-        target: "https://auth.dev.digik.cantor8.tech",
-        changeOrigin: true,
-        secure: true,
-        rewrite: (path) => path.replace(/^\/api\/keycloak/, ""),
-      },
-      "/api/ledger": {
-        target: "https://api.validator.dev.digik.cantor8.tech",
-        changeOrigin: true,
-        secure: true,
-      },
-    },
   },
   plugins: [
     react(), nodePolyfills()
