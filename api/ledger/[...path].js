@@ -1,11 +1,16 @@
 const UPSTREAM_LEDGER_BASE_URL =
   "https://api.validator.dev.digik.cantor8.tech/api/ledger";
 
-function getPathSegments(req) {
-  // Vercel passes catch-all params as `req.query.path`.
-  const p = req.query?.path;
-  if (!p) return [];
-  return Array.isArray(p) ? p : [String(p)];
+function getUpstreamPath(req) {
+  // Derive from URL path so we don't depend on Vercel's query/params shape.
+  // Example incoming: /api/ledger/v2/state/ledger-end
+  const url = new URL(req.url, "http://localhost");
+  const pathname = url.pathname;
+  const prefix = "/api/ledger";
+  if (pathname === prefix) return "";
+  if (pathname.startsWith(prefix + "/")) return pathname.slice(prefix.length + 1);
+  // Fallback: if mounted differently, return full pathname without leading "/"
+  return pathname.replace(/^\//, "");
 }
 
 function isJsonContentType(contentType) {
@@ -14,8 +19,8 @@ function isJsonContentType(contentType) {
 
 async function handler(req, res) {
   try {
-    const segments = getPathSegments(req);
-    const upstreamUrl = `${UPSTREAM_LEDGER_BASE_URL}/${segments.join("/")}${new URL(req.url, "http://localhost").search}`;
+    const upstreamPath = getUpstreamPath(req);
+    const upstreamUrl = `${UPSTREAM_LEDGER_BASE_URL}/${upstreamPath}${new URL(req.url, "http://localhost").search}`;
 
     const headers = new Headers();
     for (const [key, value] of Object.entries(req.headers || {})) {
