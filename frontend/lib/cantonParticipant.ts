@@ -21,11 +21,21 @@ const TOKEN_REFRESH_MARGIN_SEC = 60;
  * Fetch access token from Keycloak using client_credentials.
  * Caches the token and returns it until (expires_in - margin) has passed, then fetches a new one.
  * Token endpoint: POST .../realms/{realm}/protocol/openid-connect/token
+ *
+ * Use same-origin /api/keycloak when hosted on Cantor8 Keycloak: browser cannot POST to Keycloak
+ * cross-origin (CORS). Vite proxies /api/keycloak in dev; Vercel rewrites proxy in production.
  */
 function getKeycloakBaseUrl(): string {
   const url = import.meta.env.VITE_KEYCLOAK_URL;
   if (!url) return "";
-  return url.replace(/\/$/, "");
+  const trimmed = url.replace(/\/$/, "");
+  if (
+    trimmed.includes("auth.dev.digik.cantor8.tech") ||
+    trimmed.startsWith("https://auth.")
+  ) {
+    return "/api/keycloak";
+  }
+  return trimmed;
 }
 
 async function fetchKeycloakAccessToken(): Promise<string> {
@@ -438,11 +448,17 @@ export class CantonParticipantClient {
   }
 }
 
+/** Same-origin /api/ledger: Vite (dev) and Vercel rewrites (prod) proxy to Canton Ledger API — avoids CORS. */
 function getLedgerBaseUrl(): string {
   const url =
     import.meta.env.VITE_CANTON_PARTICIPANT_URL ||
     "https://api.validator.dev.digik.cantor8.tech/api/ledger";
-
+  if (
+    url.includes("api.validator.dev.digik.cantor8.tech") ||
+    url.includes("validator.dev.digik.cantor8.tech")
+  ) {
+    return "/api/ledger";
+  }
   return url.replace(/\/$/, "");
 }
 

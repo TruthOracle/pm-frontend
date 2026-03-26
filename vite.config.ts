@@ -10,6 +10,20 @@ export default defineConfig({
   },
   server: {
     open: true,
+    // Proxy so the browser calls same-origin /api/*; avoids CORS on Keycloak token + Ledger API.
+    proxy: {
+      "/api/keycloak": {
+        target: "https://auth.dev.digik.cantor8.tech",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/api\/keycloak/, ""),
+      },
+      "/api/ledger": {
+        target: "https://api.validator.dev.digik.cantor8.tech",
+        changeOrigin: true,
+        secure: true,
+      },
+    },
   },
   plugins: [
     react(), nodePolyfills()
