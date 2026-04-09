@@ -125,5 +125,6 @@ export function useCantor8Wallet(): CantonWalletContextValue {
   if (!ctx) {
     throw new Error("useCantor8Wallet must be used within Cantor8WalletProvider");
   }
+  
   return ctx;
 }
