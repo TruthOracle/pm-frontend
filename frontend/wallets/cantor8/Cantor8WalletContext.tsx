@@ -122,10 +122,8 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
 
 export function useCantor8Wallet(): CantonWalletContextValue {
   const ctx = useContext(Cantor8WalletContext);
-  
   if (!ctx) {
     throw new Error("useCantor8Wallet must be used within Cantor8WalletProvider");
   }
-
   return ctx;
 }
