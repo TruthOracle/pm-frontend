@@ -14,7 +14,8 @@ The platform can be seen at - [truthoracle-omega.vercel.app](https://truthoracle
 - React: For building the user interface.
 - Vite: A modern development tool for fast builds.
 - shadcn/ui & Tailwind CSS: For stylish and responsive design.
-- Canton Network Dapp SDK: For wallet connection and DAML command execution on Canton.
+- Cantor8 Wallet Connect SDK (`@cantor8/wallet-connect-sdk`): User wallet connection. Switchable to the Loop SDK via `VITE_WALLET_TYPE=canton`.
+- Canton Participant Interactive Submission API: DAML command execution (`/v2/interactive-submission/prepare` + `/execute`).
 - DAML: Smart contracts for prediction markets and incentives on Canton Network; trading uses Canton Coin (testnet/mainnet).
 
 ## Getting Started

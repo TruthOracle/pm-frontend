@@ -22,53 +22,70 @@ All DAML commands include `packageIdSelectionPreference: [TRUTHORACLE_PACKAGE_ID
 
 ---
 
-## Transaction Submission: Two Options
+## Wallet & Transaction Submission
 
-The app supports **two modes** for submitting transactions:
+### Wallet provider: Cantor8 (default) or Canton/Loop
 
-### Option 1: Loop Wallet (Default)
+The frontend supports two wallet providers, selected at build time via
+`VITE_WALLET_TYPE` (`frontend/wallets/index.tsx`):
 
-Uses the Loop wallet browser extension/popup for user signing and submission.
+- `cantor8` (default) — `@cantor8/wallet-connect-sdk` popup wallet at
+  `https://wallet.dev.digik.cantor8.tech` (devnet).
+- `canton` — Loop SDK / Canton wallet (kept around but not the active path).
 
-- User connects Loop wallet via `loopConnect()`
-- Transactions are built as DAML commands and passed to `loop.provider.submitAndWaitForTransaction()`
-- Loop wallet prompts user to approve and sign
-- Best for end-user flows where users have Loop wallet installed
-
-**Configuration:**
 ```bash
-VITE_USE_PARTICIPANT_API=false  # or omit (default)
+VITE_WALLET_TYPE=cantor8
+VITE_CANTOR8_WALLET_ORIGIN=https://wallet.dev.digik.cantor8.tech
 ```
 
-### Option 2: Canton Participant Interactive Submission API
+### Cantor8 connect flow & a workaround you should know about
 
-Directly calls the Canton participant's Ledger API endpoints:
-- `/v2/interactive-submission/prepare` — prepares the transaction and returns a prepared transaction blob
-- `/v2/interactive-submission/execute` — executes the prepared transaction (participant signs or accepts external signature)
+The SDK's documented flow is `await connect(); await getAccounts();`, but the
+current devnet wallet **closes its popup immediately after Approve** and
+doesn't include the partyId on the `connected` event. Once the popup is gone,
+the SDK marks the transport "destroyed" and rejects every pending request,
+including `getAccounts()`. Net effect: following the README leaves you stuck
+with no account.
 
-**Configuration:**
+`Cantor8WalletContext.tsx` works around this by:
+
+1. Adding a `window.addEventListener("message", …)` scoped to
+   `VITE_CANTOR8_WALLET_ORIGIN` and pulling the partyId out of any inbound
+   message that carries one (deep scan for `…::<hex>` strings).
+2. Ignoring `disconnected` events whose `reason === "destroyed"` — those are
+   synthetic events fired by the SDK's popup-closed watcher, not real wallet
+   disconnects, and acting on them would wipe the account we just captured.
+3. Making `disconnect()` non-blocking, since the SDK's `request("disconnect")`
+   call hangs forever once the popup is closed.
+
+If/when the wallet starts emitting accounts on the `connected` event (or
+keeps the popup open until `getAccounts()` returns), the raw-message listener
+becomes redundant and can be removed.
+
+### Transaction submission: Canton Participant API
+
+Wallet signing is **not** on the critical path. All transactions go through
+the Canton participant's Interactive Submission API using a Keycloak
+service-account token:
+
+- `POST /v2/interactive-submission/prepare` — prepares the transaction
+- `POST /v2/interactive-submission/execute` — executes the prepared blob
+
 ```bash
 VITE_USE_PARTICIPANT_API=true
 VITE_CANTON_PARTICIPANT_URL=https://api.validator.dev.digik.cantor8.tech/api/ledger
-# Keycloak client_credentials (required for Ledger API auth — same as the rest of the app)
-VITE_KEYCLOAK_URL=...
+VITE_KEYCLOAK_URL=https://auth.dev.digik.cantor8.tech
 VITE_KEYCLOAK_REALM=master
 VITE_KEYCLOAK_CLIENT_ID=...
 VITE_KEYCLOAK_CLIENT_SECRET=...
 ```
 
-The mode is selected at runtime in `CantonWalletContext.tsx`:
+`signAndSubmitTransaction` in both `CantonWalletContext.tsx` and
+`Cantor8WalletContext.tsx` resolves to:
 
 ```typescript
-const useParticipantApi = import.meta.env.VITE_USE_PARTICIPANT_API === "true";
-if (useParticipantApi) {
-  const client = createParticipantClient();
-  return await client.submitTransaction(params);
-} else {
-  // Use Loop wallet
-  const result = await provider.submitAndWaitForTransaction(payload, {...});
-  return { hash: result.command_id };
-}
+const client = createParticipantClient();
+return await client.submitTransaction(params);
 ```
 
 ---
@@ -123,7 +140,7 @@ All commands are built in `frontend/utils/cantonCommands.ts` using the Ledger AP
 
 ## Active Contract Lookup
 
-The frontend fetches active contracts using the Loop provider's `getActiveContracts()` or by querying the participant directly. Helpers in `frontend/utils/activeContracts.ts`:
+The frontend fetches active contracts directly from the participant via `/v2/state/active-contracts`. Helpers in `frontend/utils/activeContracts.ts`:
 
 - **`fetchMarketCounterContractId()`** — Get the active MarketCounter contract (admin holds it)
 - **`fetchPredictionMarketContractId(marketId)`** — Get PredictionMarket contract by market ID
@@ -141,7 +158,7 @@ Example:
 54bb6ae431649ce7e6e422093009054a1675bdd3da8f511f6d260d032ef8b9b3:Truthoracle:MarketCounter
 ```
 
-If the Loop/Canton API returns a 500 error for active-contracts, verify:
+If active-contracts returns a 500, verify:
 1. The package ID matches the deployed DAR
 2. The participant has the MarketCounter and other contracts visible to the connected party
 3. The template identifier format is correct (try with/without package ID if needed)
@@ -154,7 +171,7 @@ If the Loop/Canton API returns a 500 error for active-contracts, verify:
 
 1. On mount, fetches `MarketCounter` contract ID via `fetchMarketCounterContractId()`
 2. When user submits the form, calls `buildInitMarketParams(..., marketCounterCid)` 
-3. Calls `signAndSubmitTransaction(params)` which uses Loop wallet or participant API based on `VITE_USE_PARTICIPANT_API`
+3. Calls `signAndSubmitTransaction(params)`, which goes through the Canton Participant API
 
 ### Bet Buy Card (Trade)
 
@@ -172,25 +189,29 @@ If the Loop/Canton API returns a 500 error for active-contracts, verify:
 
 ## Testing
 
-### With Loop Wallet (default)
-1. Install Loop wallet extension or use Loop web wallet at https://cantonloop.com
-2. Connect to devnet
-3. Ensure your party has visibility of the TruthOracle contracts on devnet
-4. Run `npm run dev` and connect wallet
-5. Create markets, buy shares, claim rewards
+### With Cantor8 Wallet (default)
+1. Open the Cantor8 web wallet at the devnet origin
+   (`https://wallet.dev.digik.cantor8.tech`) and make sure your account exists.
+2. Run `npm run dev`, click **Connect a Wallet**, sign in to Cantor8 in the
+   popup, and click **Approve**. The app captures your partyId from the raw
+   wallet `postMessage` traffic (see the workaround note above).
+3. Ensure that party has visibility of the TruthOracle contracts on devnet.
+4. Create markets, buy shares, claim rewards.
 
-### With Participant API
-1. Set `.env`:
-   ```bash
-   VITE_USE_PARTICIPANT_API=true
-   VITE_CANTON_PARTICIPANT_URL=https://api.validator.dev.digik.cantor8.tech/api/ledger
-   VITE_KEYCLOAK_URL=...
-   VITE_KEYCLOAK_CLIENT_ID=...
-   VITE_KEYCLOAK_CLIENT_SECRET=...
-   ```
-2. Ensure the participant is running and accepts requests from your origin (CORS); in dev the app proxies Ledger and Keycloak to avoid CORS where configured.
-3. Run `npm run dev`
-4. Transactions go directly to `/v2/interactive-submission/prepare` and `/execute`
+### Participant API auth (used for every transaction)
+Already required for the default flow; Keycloak `client_credentials` mints the
+Bearer token for `/v2/interactive-submission/*` and active-contracts calls.
+
+```bash
+VITE_USE_PARTICIPANT_API=true
+VITE_CANTON_PARTICIPANT_URL=https://api.validator.dev.digik.cantor8.tech/api/ledger
+VITE_KEYCLOAK_URL=...
+VITE_KEYCLOAK_CLIENT_ID=...
+VITE_KEYCLOAK_CLIENT_SECRET=...
+```
+
+In dev, Vite proxies `/api/keycloak` and `/api/ledger` to the dev hosts to
+sidestep CORS — see `vite.config.ts`.
 
 ---
 
@@ -259,9 +280,12 @@ curl -s -X POST "${BASE_URL}/v2/parties/external/allocate" \
 
 Use the `party` (or equivalent) from the response as `VITE_TRUTHORACLE_ADMIN_PARTY_ID` in `.env`. (Exact request/response shape may vary; check your participant’s OpenAPI or docs.)
 
-**Option C – From the app (Loop / connected wallet)**
+**Option C – From the app (connected wallet)**
 
-If you already use the TruthOracle UI with Loop (or another wallet): connect the wallet that should be admin, then read the **connected account’s party ID** (in the app this is `account.address`). That value is your admin party ID for this participant.
+If you already use the TruthOracle UI: connect the Cantor8 (or Canton) wallet
+that should be admin, then read the **connected account's party ID** (in the
+app this is `account.address`). That value is your admin party ID for this
+participant.
 
 **Option D – From your operator / docs**
 
@@ -359,5 +383,6 @@ After a successful execute, the participant has one active `MarketCounter` contr
 
 - **DAML Contracts:** `daml/daml/Truthoracle.daml`, `daml/daml/Incentives.daml`
 - **Canton Interactive Submission API:** [Canton docs](https://docs.digitalasset.com/build/3.4/tutorials/app-dev/external_signing_submission_part_2.html)
-- **Loop SDK:** [@fivenorth/loop-sdk](https://www.npmjs.com/package/@fivenorth/loop-sdk)
+- **Cantor8 Wallet Connect SDK:** `@cantor8/wallet-connect-sdk` (vendored as `cantor8-wallet-connect-sdk-0.1.9.tgz`)
+- **Loop SDK:** [@fivenorth/loop-sdk](https://www.npmjs.com/package/@fivenorth/loop-sdk) (used only when `VITE_WALLET_TYPE=canton`)
 - **Canton Network:** https://www.canton.network/

@@ -78,13 +78,15 @@ async function main() {
     clientSecret: mustEnv(viteEnv("VITE_KEYCLOAK_CLIENT_SECRET"), "VITE_KEYCLOAK_CLIENT_SECRET"),
   });
 
+  console.log("bearerToken", bearerToken);
+
   const ledgerEnd = await fetchJson(`${LEDGER_API}/v2/state/ledger-end`, {
     method: "GET",
     headers: { Authorization: `Bearer ${bearerToken}`, "Content-Type": "application/json" },
   });
   const offset = typeof (ledgerEnd as any).offset === "number" ? (ledgerEnd as any).offset : 0;
 
-  const active = await fetchJson(`${LEDGER_API}/v2/state/active-contracts?limit=200`, {
+  const active = await fetchJson(`${LEDGER_API}/v2/state/active-contracts?limit=2`, {
     method: "POST",
     headers: { Authorization: `Bearer ${bearerToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({
