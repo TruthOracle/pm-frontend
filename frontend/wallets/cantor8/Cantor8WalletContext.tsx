@@ -8,8 +8,14 @@
  * also doesn't include the partyId on the `connected` event payload.
  *
  * Workaround: tap into the raw postMessage stream from the wallet origin and
- * pull the partyId out of whichever message carries it. This is the only path
- * that actually works against the current devnet wallet build.
+ * pull the partyId out of whichever message carries it.
+ *
+ * SDK ≥0.2 also persists a bearer token in localStorage (`c8-session`). When a
+ * token exists, `connect()` resolves immediately **without** opening the popup,
+ * and restore-session polling hits `/api/balance` in the background. If we only
+ * listened to postMessage, React would stay "disconnected" while those balance
+ * calls ran — so we hydrate `account` from `getAccounts()` and `connected` /
+ * `accountChanged` events as well.
  *
  * Transactions go through the Canton Participant API (Keycloak service-account
  * token), so wallet signing isn't on the critical path.
@@ -84,7 +90,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
       network: "devnet",
     });
 
-    wallet.on("disconnected", (event: any) => {
+    const unsubDisconnected = wallet.on("disconnected", (event: any) => {
       // The SDK fires a synthetic disconnected event with reason "destroyed"
       // whenever the popup closes (including the auto-close right after
       // Approve). That's transport teardown, not a real wallet disconnect —
@@ -93,10 +99,35 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
       setAccount(null);
     });
 
+    const syncAccountFromSdk = async () => {
+      try {
+        const { accounts } = await wallet.getAccounts();
+        const partyId = accounts[0]?.partyId;
+        if (partyId) setAccount({ address: partyId, partyId });
+      } catch {
+        // No valid session / token — keep relying on postMessage after popup auth.
+      }
+    };
+
+    const unsubConnected = wallet.on("connected", () => {
+      void syncAccountFromSdk();
+    });
+
+    const unsubAccountChanged = wallet.on("accountChanged", (ev) => {
+      const partyId = ev.accounts[0]?.partyId;
+      if (partyId) setAccount({ address: partyId, partyId });
+    });
+
+    // Hydrate UI when localStorage already has a C8 session (no popup on connect()).
+    void syncAccountFromSdk();
+
     walletRef.current = wallet;
 
     return () => {
       window.removeEventListener("message", onRawMessage);
+      unsubDisconnected();
+      unsubConnected();
+      unsubAccountChanged();
     };
   }, []);
 
@@ -104,10 +135,16 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     if (!walletRef.current) {
       throw new Error("Cantor8 wallet not initialized");
     }
-    // Connect just opens the popup and waits for Approve. The partyId is
-    // captured by the raw-message listener — getAccounts() can't be relied on
-    // here because the popup auto-closes before its response arrives.
+    // Opens the popup when there is no cached bearer token; otherwise the SDK
+    // resolves immediately (see sync above / postMessage for partyId).
     await walletRef.current.connect();
+    try {
+      const { accounts } = await walletRef.current.getAccounts();
+      const partyId = accounts[0]?.partyId;
+      if (partyId) setAccount({ address: partyId, partyId });
+    } catch {
+      /* fresh popup flow — party may arrive via postMessage */
+    }
   }, []);
 
   const disconnect = useCallback(async () => {

@@ -307,7 +307,7 @@ export class CantonParticipantClient {
    */
   async queryActiveContracts(
     partyId: string,
-    templateId: { packageId: string; moduleName: string; entityName: string }
+    templateId: { moduleName: string; entityName: string }
   ): Promise<unknown[]> {
     const headers = await this.ledgerHeaders();
 
@@ -323,22 +323,23 @@ export class CantonParticipantClient {
     const ledgerEnd = (await ledgerEndRes.json()) as { offset?: number };
     const activeAtOffset = typeof ledgerEnd.offset === "number" ? ledgerEnd.offset : 0;
 
-    // Template id in package-id reference format: "packageId:moduleName:entityName".
-    const templateIdStr = `${templateId.packageId}:${templateId.moduleName}:${templateId.entityName}`;
+    // Query party-scoped ACS with wildcard and filter by module/entity on the client.
+    // This avoids participant-specific validation differences for template identifier formats.
+    const templateSuffix = `:${templateId.moduleName}:${templateId.entityName}`;
 
-    // Payload shape: top-level verbose, activeAtOffset as string, eventFormat with filtersByParty and verbose.
+    // OpenAPI GetActiveContractsRequest:
+    // - activeAtOffset must be int64 (number), not string
+    // - do not mix top-level verbose/filter with eventFormat
     const body = {
-      verbose: false,
-      activeAtOffset: String(activeAtOffset),
+      activeAtOffset,
       eventFormat: {
         filtersByParty: {
           [partyId]: {
             cumulative: [
               {
                 identifierFilter: {
-                  TemplateFilter: {
+                  WildcardFilter: {
                     value: {
-                      templateId: templateIdStr,
                       includeCreatedEventBlob: false,
                     },
                   },
@@ -347,11 +348,12 @@ export class CantonParticipantClient {
             ],
           },
         },
+        filtersForAnyParty: {},
         verbose: false,
       },
     };
 
-    const url = `${this.config.baseUrl}/v2/state/active-contracts`;
+    const url = `${this.config.baseUrl}/v2/state/active-contracts?limit=200`;
     const response = await fetch(url, {
       method: "POST",
       headers,
@@ -371,7 +373,7 @@ export class CantonParticipantClient {
     if (import.meta.env.DEV && import.meta.env.VITE_DEBUG_ACTIVE_CONTRACTS === "true") {
       console.debug("[active-contracts]", {
         partyId,
-        templateIdStr,
+        templateSuffix,
         activeAtOffset,
         responseIsArray: Array.isArray(raw),
         rawKeys: Array.isArray(raw) ? undefined : Object.keys(raw as object),
@@ -392,6 +394,12 @@ export class CantonParticipantClient {
                 ?.createdEvent
             : undefined
           : undefined;
+      const templateRef =
+        (entry as Record<string, unknown> | undefined)?.templateId ??
+        (entry as Record<string, unknown> | undefined)?.template_id;
+      if (typeof templateRef === "string" && !templateRef.endsWith(templateSuffix)) {
+        continue;
+      }
       let contractId =
         (entry as Record<string, unknown> | undefined)?.contractId ??
         (entry as Record<string, unknown> | undefined)?.contract_id ??
