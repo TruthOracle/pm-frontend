@@ -181,7 +181,8 @@ async function createMarketCounter() {
       {
         CreateCommand: {
           templateId: TEMPLATE_ID,
-          createArguments: { admin, value: 0 },
+          // Daml `Int` (Int64) — the JSON Ledger API accepts a numeric string here.
+          createArguments: { admin, value: "0" },
         },
       },
     ],
