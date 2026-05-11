@@ -304,10 +304,14 @@ export class CantonParticipantClient {
   /**
    * Query active contracts by template from the participant Ledger API.
    * Uses GET /v2/state/ledger-end and POST /v2/state/active-contracts (GetActiveContractsRequest).
+   *
+   * The template filter must reference the template by *package name* ("#<pkgName>:<module>:<entity>"),
+   * not by package ID — the JSON Ledger API rejects package-ID identifiers in active-contracts filters
+   * ("expected a package name"). Pass `packageName`; `packageId` is accepted as a legacy fallback only.
    */
   async queryActiveContracts(
     partyId: string,
-    templateId: { packageId: string; moduleName: string; entityName: string }
+    templateId: { packageName?: string; packageId?: string; moduleName: string; entityName: string }
   ): Promise<unknown[]> {
     const headers = await this.ledgerHeaders();
 
@@ -323,8 +327,11 @@ export class CantonParticipantClient {
     const ledgerEnd = (await ledgerEndRes.json()) as { offset?: number };
     const activeAtOffset = typeof ledgerEnd.offset === "number" ? ledgerEnd.offset : 0;
 
-    // Template id in package-id reference format: "packageId:moduleName:entityName".
-    const templateIdStr = `${templateId.packageId}:${templateId.moduleName}:${templateId.entityName}`;
+    // Template id in package-name reference format: "#packageName:moduleName:entityName".
+    // (Falls back to a raw package-id reference only if no package name is supplied.)
+    const templateIdStr = templateId.packageName
+      ? `#${templateId.packageName}:${templateId.moduleName}:${templateId.entityName}`
+      : `${templateId.packageId}:${templateId.moduleName}:${templateId.entityName}`;
 
     // Payload shape: top-level verbose, activeAtOffset as string, eventFormat with filtersByParty and verbose.
     const body = {

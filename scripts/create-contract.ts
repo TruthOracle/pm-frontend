@@ -142,6 +142,8 @@ async function createMarketCounter() {
 
   const PACKAGE_ID = viteEnv("VITE_TRUTHORACLE_PACKAGE_ID");
   if (!PACKAGE_ID) throw new Error("Missing VITE_TRUTHORACLE_PACKAGE_ID in .env (same as the frontend)");
+  // daml.yaml `name:` — the active-contracts filter wants a package-name reference, not a package id.
+  const PACKAGE_NAME = viteEnv("VITE_TRUTHORACLE_PACKAGE_NAME") || "truthoracle";
 
   // TruthOracle Daml admin (MarketCounter signatory). Never use VALIDATOR_PARTY—that is the Cantor8 infra party.
   const DEFAULT_ADMIN_PARTY_ID = "6ff9435fff4d4f43856f688e95a27368::12204e98dc339cc86c6d318f3746f99e880245b4a5827ef1e8bbe7ba6193ef8c0e58";
@@ -149,6 +151,8 @@ async function createMarketCounter() {
   const explicitAdminPartyId = viteEnv("VITE_TRUTHORACLE_ADMIN_PARTY_ID");
 
   const TEMPLATE_ID = `${PACKAGE_ID}:Truthoracle:MarketCounter`;
+  // Package-name reference, used for the active-contracts template filter.
+  const TEMPLATE_ID_BY_NAME = `#${PACKAGE_NAME}:Truthoracle:MarketCounter`;
   const PREPARE_USER_ID = viteEnv("VITE_PREPARE_USER_ID") || "sachin";
 
   // Always use Keycloak client_credentials (same as frontend participant API + Keycloak).
@@ -231,7 +235,7 @@ async function createMarketCounter() {
     token: bearerToken,
     baseUrl: BASE_URL,
     partyId: admin,
-    templateId: TEMPLATE_ID,
+    templateId: TEMPLATE_ID_BY_NAME,
   });
 
   if (cid) console.log(`\nMarketCounter contract ID: ${cid}`);
