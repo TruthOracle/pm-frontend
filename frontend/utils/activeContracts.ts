@@ -1,11 +1,14 @@
 import { createParticipantClient } from "@/lib/cantonParticipant";
-import { TRUTHORACLE_PACKAGE_ID } from "@/constants";
+import { TRUTHORACLE_PACKAGE_ID, TRUTHORACLE_PACKAGE_NAME } from "@/constants";
 
 const TRUTHORACLE_MODULE = "Truthoracle";
 const INCENTIVES_MODULE = "Incentives";
 
 function templateId(moduleName: string, entityName: string) {
   return {
+    // The JSON Ledger API active-contracts filter wants a package-name reference,
+    // not a package ID. packageId is kept only as a legacy fallback.
+    packageName: TRUTHORACLE_PACKAGE_NAME,
     packageId: TRUTHORACLE_PACKAGE_ID,
     moduleName,
     entityName,
