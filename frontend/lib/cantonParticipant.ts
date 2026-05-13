@@ -99,9 +99,15 @@ export interface CantonParticipantConfig {
 }
 
 export interface PrepareResponse {
-  /** Base64-encoded prepared transaction */
+  /** Base64-encoded prepared transaction (`preparedTransaction` in the JSON Ledger API). */
   preparedTransaction: string;
-  /** Metadata about the transaction (for signing, validation, etc.) */
+  /** Base64 (std, with padding) of the transaction hash to sign (`preparedTransactionHash`). */
+  preparedTransactionHash: string;
+  /** Hashing scheme version the wallet must use to sign the hash, e.g. "HASHING_SCHEME_VERSION_V2". */
+  hashingSchemeVersion: string;
+  /** The commandId used in the prepare request (echo it back when executing / signing). */
+  commandId: string;
+  /** Raw prepare response (cost estimation, hashing details, etc.). */
   metadata?: Record<string, unknown>;
 }
 
@@ -221,11 +227,15 @@ export class CantonParticipantClient {
 
   /**
    * Prepare a transaction using /v2/interactive-submission/prepare.
-   * Request body must match JsPrepareSubmissionRequest: commandId, synchronizerId, actAs (camelCase), etc.
+   * Request body matches JsPrepareSubmissionRequest (camelCase: commandId, synchronizerId, actAs, …).
+   * Returns the prepared transaction + hash + hashing scheme — hand these to the wallet to sign,
+   * or to {@link execute} for participant-hosted parties.
+   * Pass `commandId` to reuse a caller-generated id (so the same id can be echoed when executing/signing).
    */
-  async prepare(params: PrepareExecuteParams): Promise<PrepareResponse> {
+  async prepare(params: PrepareExecuteParams, commandId?: string): Promise<PrepareResponse> {
     const url = `${this.config.baseUrl}/v2/interactive-submission/prepare`;
     const headers = await this.ledgerHeaders();
+    const cmdId = commandId ?? crypto.randomUUID();
 
     const rawCommands = params.commands ?? [];
     const commands = Array.isArray(rawCommands)
@@ -233,7 +243,7 @@ export class CantonParticipantClient {
       : [this.normalizeCommand(rawCommands)];
 
     const body = {
-      commandId: crypto.randomUUID(),
+      commandId: cmdId,
       synchronizerId: await this.getSynchronizerId(),
       verboseHashing: false,
       commands,
@@ -255,30 +265,36 @@ export class CantonParticipantClient {
     }
 
     const data = await response.json();
-    return {
-      preparedTransaction: data.prepared_transaction || data.preparedTransaction || "",
-      metadata: data.metadata || data,
-    };
+    const preparedTransaction = data.preparedTransaction || data.prepared_transaction || "";
+    const preparedTransactionHash = data.preparedTransactionHash || data.prepared_transaction_hash || "";
+    const hashingSchemeVersion = data.hashingSchemeVersion || data.hashing_scheme_version || "HASHING_SCHEME_VERSION_V2";
+    if (!preparedTransaction) {
+      throw new Error("Prepare did not return a preparedTransaction");
+    }
+    return { preparedTransaction, preparedTransactionHash, hashingSchemeVersion, commandId: cmdId, metadata: data };
   }
 
   /**
    * Execute a prepared transaction using /v2/interactive-submission/execute.
-   * For unsigned execution (participant signs), pass preparedTransaction only.
-   * For externally signed, pass signature as well.
+   * Works for participant-hosted parties (the participant signs — pass no party signatures).
+   * For external / self-custody parties the participant rejects this ("did not provide an external
+   * signature"); those must be signed + executed via the wallet (`signAndExecutePreparedTransfer`).
    */
-  async execute(
-    preparedTransaction: string,
-    signature?: string
-  ): Promise<ExecuteResponse> {
+  async execute(prepared: {
+    preparedTransaction: string;
+    hashingSchemeVersion?: string;
+    partySignatures?: unknown;
+  }): Promise<ExecuteResponse> {
     const url = `${this.config.baseUrl}/v2/interactive-submission/execute`;
     const headers = await this.ledgerHeaders();
 
-    const body: Record<string, unknown> = {
-      prepared_transaction: preparedTransaction,
+    const body = {
+      preparedTransaction: prepared.preparedTransaction,
+      hashingSchemeVersion: prepared.hashingSchemeVersion ?? "HASHING_SCHEME_VERSION_V2",
+      partySignatures: prepared.partySignatures ?? { signatures: [] },
+      deduplicationPeriod: { Empty: {} },
+      submissionId: crypto.randomUUID(),
     };
-    if (signature) {
-      body.signature = signature;
-    }
 
     const response = await fetch(url, {
       method: "POST",
@@ -429,15 +445,19 @@ export class CantonParticipantClient {
   }
 
   /**
-   * Prepare and execute in one call (for unsigned transactions where participant signs).
+   * Prepare and execute in one call. Only works for participant-hosted parties (participant signs).
+   * For external / self-custody parties, use `prepare()` here + sign/execute via the wallet.
    */
   async submitTransaction(params: PrepareExecuteParams): Promise<{ hash: string }> {
     const prepared = await this.prepare(params);
-    const result = await this.execute(prepared.preparedTransaction);
+    const result = await this.execute({
+      preparedTransaction: prepared.preparedTransaction,
+      hashingSchemeVersion: prepared.hashingSchemeVersion,
+    });
     if (result.error) {
       throw new Error(`Transaction failed: ${result.error}`);
     }
-    const hash = result.commandId || result.transactionId || result.updateId || "";
+    const hash = result.updateId || result.commandId || result.transactionId || "";
     return { hash };
   }
 }
