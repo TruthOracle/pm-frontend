@@ -21,18 +21,14 @@ const TOKEN_REFRESH_MARGIN_SEC = 60;
  * Caches the token and returns it until (expires_in - margin) has passed, then fetches a new one.
  * Token endpoint: POST .../realms/{realm}/protocol/openid-connect/token
  */
-/** In dev, use same-origin proxy to avoid CORS when Keycloak is on a different origin. */
+/**
+ * Always use same-origin proxy to avoid CORS.
+ * Dev: Vite proxy in vite.config.ts forwards /__proxy/keycloak → VITE_KEYCLOAK_URL.
+ * Prod: Vercel rewrite in vercel.json forwards /__proxy/keycloak → upstream Keycloak.
+ */
 function getKeycloakBaseUrl(): string {
-  const url = import.meta.env.VITE_KEYCLOAK_URL;
-  if (!url) return "";
-  // In development, proxy Keycloak through Vite so the browser doesn't hit CORS.
-  if (
-    import.meta.env.DEV &&
-    (url.includes("auth.dev.digik.cantor8.tech") || url.startsWith("https://auth."))
-  ) {
-    return "/api/keycloak";
-  }
-  return url.replace(/\/$/, "");
+  if (!import.meta.env.VITE_KEYCLOAK_URL) return "";
+  return "/__proxy/keycloak";
 }
 
 async function fetchKeycloakAccessToken(): Promise<string> {
@@ -462,19 +458,13 @@ export class CantonParticipantClient {
   }
 }
 
-/** In dev, use same-origin /api/ledger so Vite proxies to the ledger and we avoid CORS. */
+/**
+ * Always use same-origin /__proxy/ledger to avoid CORS.
+ * Dev: Vite proxy forwards to VITE_CANTON_PARTICIPANT_URL.
+ * Prod: Vercel rewrite forwards to upstream Canton participant.
+ */
 function getLedgerBaseUrl(): string {
-  const url =
-    import.meta.env.VITE_CANTON_PARTICIPANT_URL ||
-    "https://api.validator.dev.digik.cantor8.tech/api/ledger";
-  if (
-    import.meta.env.DEV &&
-    (url.includes("api.validator.dev.digik.cantor8.tech") ||
-      url.includes("validator.dev.digik.cantor8.tech"))
-  ) {
-    return "/api/ledger";
-  }
-  return url.replace(/\/$/, "");
+  return "/__proxy/ledger";
 }
 
 /**

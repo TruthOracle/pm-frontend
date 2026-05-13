@@ -1,1 +1,16 @@
-{ "routes": [{ "src": "/[^.]+", "dest": "/", "status": 200 }] }
+{
+  "rewrites": [
+    {
+      "source": "/__proxy/keycloak/:path*",
+      "destination": "https://auth.dev.digik.cantor8.tech/:path*"
+    },
+    {
+      "source": "/__proxy/ledger/:path*",
+      "destination": "https://api.validator.dev.digik.cantor8.tech/api/ledger/:path*"
+    },
+    {
+      "source": "/((?!.*\\.).*)",
+      "destination": "/"
+    }
+  ]
+}

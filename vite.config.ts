@@ -1,36 +1,49 @@
 import path from "path";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 
-export default defineConfig({
-  build: {
-    outDir: "dist",
-  },
-  server: {
-    open: true,
-    // Proxy in dev to avoid CORS when calling external APIs from the browser.
-    proxy: {
-      "/api/keycloak": {
-        target: "https://auth.dev.digik.cantor8.tech",
-        changeOrigin: true,
-        secure: true,
-        rewrite: (path) => path.replace(/^\/api\/keycloak/, ""),
-      },
-      "/api/ledger": {
-        target: "https://api.validator.dev.digik.cantor8.tech",
-        changeOrigin: true,
-        secure: true,
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  const keycloakTarget =
+    env.VITE_KEYCLOAK_URL?.replace(/\/$/, "") ||
+    "https://auth.dev.digik.cantor8.tech";
+  const ledgerTarget =
+    env.VITE_CANTON_PARTICIPANT_URL?.replace(/\/$/, "") ||
+    "https://api.validator.dev.digik.cantor8.tech/api/ledger";
+
+  return {
+    build: {
+      outDir: "dist",
+    },
+    server: {
+      open: true,
+      // Proxy in dev to avoid CORS when calling external APIs from the browser.
+      // Targets come from VITE_KEYCLOAK_URL / VITE_CANTON_PARTICIPANT_URL so the
+      // proxy follows whatever hosts the .env points at (not hardcoded).
+      proxy: {
+        "/__proxy/keycloak": {
+          target: keycloakTarget,
+          changeOrigin: true,
+          secure: true,
+          rewrite: (p) => p.replace(/^\/__proxy\/keycloak/, ""),
+        },
+        "/__proxy/ledger": {
+          target: ledgerTarget,
+          changeOrigin: true,
+          secure: true,
+          rewrite: (p) => p.replace(/^\/__proxy\/ledger/, ""),
+        },
       },
     },
-  },
-  plugins: [
-    react(), nodePolyfills()
-  ],
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./frontend"),
+    plugins: [
+      react(), nodePolyfills()
+    ],
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./frontend"),
+      },
     },
-  },
+  };
 });
