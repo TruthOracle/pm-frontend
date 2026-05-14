@@ -12,7 +12,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { C8WalletProvider } from "@cantor8/wallet-connect-sdk";
 import type { AccountInfoPayload } from "@cantor8/wallet-connect-sdk";
-import { createParticipantClient } from "@/lib/cantonParticipant";
 import type { PrepareExecuteParams } from "@/lib/cantonDapp";
 import type {
   CantonAccount,
@@ -29,20 +28,18 @@ const APP_NAME = "TruthOracle";
 type C8Network = "devnet" | "mainnet" | "local";
 
 /**
- * `signAndExecutePreparedTransfer` exists on the SDK provider at runtime but is typed `private`
- * in the published .d.ts. This is the wallet-side "sign a prepared transaction & execute it" entry
- * point — the params are generic (prepared tx bytes + hash), not transfer-specific.
- * (Standalone interface — not an intersection with C8WalletProvider, which would collapse to `never`
- * because of the private member of the same name. Cast through `unknown` at the call site.)
+ * `signAndExecute` exists on the SDK provider at runtime but is typed `private` in
+ * the published .d.ts (provider.d.ts:26). Cast through this standalone interface +
+ * `unknown` at the call site.
+ *
+ * Unlike `signAndExecutePreparedTransfer` (which only posts to an already-open
+ * popup and silently no-ops if the popup is closed), `signAndExecute` auto-opens
+ * the wallet popup via init("signAndExecute"). The wallet's participant handles
+ * prepare + sign + execute. Resolution returns `void`; the txId arrives via the
+ * `txInitiated` event, and pass/fail via `txChanged`.
  */
-interface C8PreparedSigner {
-  signAndExecutePreparedTransfer(input: {
-    partyId: string;
-    commandId: string;
-    preparedTxB64: string;
-    hashB64: string;
-    hashingSchemeVersion: string;
-  }): Promise<{ txId: string }>;
+interface C8Signer {
+  signAndExecute(input: { message?: string; commands: unknown }): Promise<void>;
 }
 
 /** Resolve the C8 network from env, falling back to devnet for unsupported values. */
@@ -144,23 +141,72 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
       const partyId = account?.partyId ?? params.actAs?.[0] ?? "";
       if (!partyId) throw new Error("Cantor8 wallet not connected (no partyId)");
 
-      // 1. prepare on the dApp's participant.
-      const client = createParticipantClient();
-      const commandId = crypto.randomUUID();
-      const prepared = await client.prepare(params, commandId);
+      // signAndExecute (not signAndExecutePreparedTransfer): the SDK auto-opens
+      // the wallet popup for this method via init("signAndExecute"). The wallet's
+      // participant prepares + signs + executes — we pass the JSON Ledger API
+      // command shape directly. Resolution is via events:
+      //   - txInitiated → wallet submitted; resolve with txId
+      //   - txChanged status=failed → reject
+      //   - operationCanceled → user closed the popup → reject
+      const signer = wallet as unknown as C8Signer;
 
-      // 2. wallet signs the hash with the party's key and executes.
-      const signer = wallet as unknown as C8PreparedSigner;
-      const { txId } = await signer.signAndExecutePreparedTransfer({
-        partyId,
-        commandId,
-        preparedTxB64: prepared.preparedTransaction,
-        hashB64: prepared.preparedTransactionHash,
-        hashingSchemeVersion: prepared.hashingSchemeVersion,
+      return new Promise<{ hash: string }>((resolve, reject) => {
+        let settled = false;
+        const cleanup: Array<() => void> = [];
+        const finish = (fn: () => void) => {
+          if (settled) return;
+          settled = true;
+          for (const off of cleanup) {
+            try {
+              off();
+            } catch {
+              /* listener already removed */
+            }
+          }
+          fn();
+        };
+
+        cleanup.push(
+          wallet.on("txInitiated", (e) => {
+            finish(() => resolve({ hash: e.txId ?? "" }));
+          }),
+        );
+        cleanup.push(
+          wallet.on("txChanged", (e) => {
+            if (e.status === "failed") {
+              finish(() => reject(new Error(`Wallet failed to submit tx ${e.txId}`)));
+            }
+          }),
+        );
+        cleanup.push(
+          wallet.on("operationCanceled", (e) => {
+            finish(() => reject(new Error(e.reason || "Wallet operation canceled")));
+          }),
+        );
+
+        signer
+          .signAndExecute({
+            message: "TruthOracle transaction",
+            commands: {
+              actAs: params.actAs ?? [partyId],
+              commands: params.commands ?? [],
+              packageIdSelectionPreference: params.packageIdSelectionPreference ?? [],
+              disclosedContracts: params.disclosedContracts ?? [],
+            },
+          })
+          .catch((err) => {
+            finish(() => reject(err instanceof Error ? err : new Error(String(err))));
+          });
+
+        // User may walk away from the wallet popup; bound the wait.
+        const timer = setTimeout(
+          () => finish(() => reject(new Error("Wallet sign timed out"))),
+          5 * 60 * 1000,
+        );
+        cleanup.push(() => clearTimeout(timer));
       });
-      return { hash: txId };
     },
-    [account]
+    [account],
   );
 
   const wallets: CantonWalletItem[] | null = account
