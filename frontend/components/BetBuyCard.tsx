@@ -1,388 +1,665 @@
-import {Divider, Flex, Progress, Skeleton, Stack, Stat, StatArrow, StatGroup, StatHelpText, StatLabel, StatNumber, Text, useToast} from '@chakra-ui/react';
-import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
-import { getMarketCount, getMarketMetadata} from "../../blockend/cantonService";
+import {
+  Divider,
+  Flex,
+  Progress,
+  Skeleton,
+  Stack,
+  Stat,
+  StatArrow,
+  StatGroup,
+  StatHelpText,
+  StatLabel,
+  StatNumber,
+  Text,
+  useToast,
+} from "@chakra-ui/react";
+import React, { useState, useEffect, useCallback } from "react";
+import { useParams } from "react-router-dom";
 import { useCantonWallet } from "@/wallets";
-import { buildBuySharesParams } from "@/utils/cantonCommands";
-import { fetchPredictionMarketContractId, fetchUserMarketDataContractId } from "@/utils/activeContracts";
+import { useIsAdmin } from "@/lib/useIsAdmin";
+import {
+  buildAddParticipantParams,
+  buildBuySharesParams,
+  buildRecordResultParams,
+} from "@/utils/cantonCommands";
+import {
+  fetchAllPredictionMarkets,
+  fetchAllResolvedMarkets,
+  fetchUserMarketDataContractId,
+  type PredictionMarketRecord,
+  type ResolvedMarketRecord,
+} from "@/utils/activeContracts";
 
+type MarketView = {
+  marketId: number;
+  question: string;
+  description: string;
+  imageUrl: string;
+  option1: string;
+  option2: string;
+  optionShares1: number;
+  optionShares2: number;
+  liquidityParam: number;
+  /** Party ids in the market's observer list — only these (plus admin) can exercise Trade. */
+  participants: string[];
+  /** 0 = active (PredictionMarket), 1 = resolved (ResolvedMarket). */
+  status: 0 | 1;
+  /** Daml `MarketResult` variant tag, only set when resolved. */
+  result?: "Option1" | "Option2" | "Draw" | string;
+};
 
+function toView(active?: PredictionMarketRecord, resolved?: ResolvedMarketRecord): MarketView | null {
+  if (active) {
+    return {
+      marketId: active.marketId,
+      question: active.question,
+      description: active.description,
+      imageUrl: active.imageUrl,
+      option1: active.option1,
+      option2: active.option2,
+      optionShares1: active.optionShares1,
+      optionShares2: active.optionShares2,
+      liquidityParam: active.liquidityParam,
+      participants: active.participants,
+      status: 0,
+    };
+  }
+  if (resolved) {
+    return {
+      marketId: resolved.marketId,
+      question: resolved.question,
+      description: "",
+      imageUrl: "",
+      option1: resolved.option1,
+      option2: resolved.option2,
+      // Resolved markets have no LMSR state; default the pricing display to 50/50.
+      optionShares1: 0,
+      optionShares2: 0,
+      liquidityParam: 1,
+      participants: [],
+      status: 1,
+      result: resolved.result,
+    };
+  }
+  return null;
+}
 
-
+function getCurrentPrice(q1: number, q2: number, b: number) {
+  if (!b || b === 0) return { val1: 0.5, val2: 0.5 };
+  const val_1 = Math.exp(q1 / b);
+  const val_2 = Math.exp(q2 / b);
+  return { val1: val_1 / (val_1 + val_2), val2: val_2 / (val_1 + val_2) };
+}
 
 const BetBuyCard = () => {
-  const { id } = useParams<{ id: string }>(); // Get the bet ID from the URL
-  const [bet, setBet] = useState<any>(null); // State to hold the bet data
-  const [lmsr, setLmsr] = useState<any>(null);
-  const [amount, setAmount] = useState<number>(0); // State for bet amount input
-  const [selectedOption, setSelectedOption] = useState<string | null>(null); // State to track selected option
-  const [currentPrice, setCurrentPrice] = useState<any>(null);
+  const { id } = useParams<{ id: string }>();
+  const marketIdNum = id != null && id !== "" ? Number(id) : NaN;
+
+  const [view, setView] = useState<MarketView | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [amount, setAmount] = useState<number>(0);
+  const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [predictionMarketCid, setPredictionMarketCid] = useState<string | null>(null);
   const [userMarketDataCid, setUserMarketDataCid] = useState<string | null>(null);
-  const { account } = useCantonWallet();
+  const [resolveResult, setResolveResult] = useState<"Option1" | "Option2" | "Draw">("Option1");
+  const [payoutPerShare, setPayoutPerShare] = useState<number>(0);
+  const [resolving, setResolving] = useState(false);
+  const [addParticipantInput, setAddParticipantInput] = useState<string>("");
+  const [addingParticipant, setAddingParticipant] = useState(false);
+  const { account, signAndSubmitTransaction } = useCantonWallet();
+  const isAdmin = useIsAdmin();
+  const toast = useToast();
 
-   function hexToAscii(hex:any) {
-        if (!hex) return "";
-        let str = "";
-        for (let i = 0; i < hex.length; i += 2) {
-            const hexValue = hex.substr(i, 2);
-            const decimalValue = parseInt(hexValue, 16);
-            str += String.fromCharCode(decimalValue);
-        }
-        return str;
-    }
-
-useEffect(() => {
-    if (!id) return;
-
-    getMarketCount().then((m:any) => {
-        const marketCount = m;
-        for(let i = 0; i < marketCount; i++) {
-            getMarketMetadata(i).then((m:any) => {
-                if(m[0].id == id) {
-                    setBet(m[0]);
-                    setLmsr(m[1]);
-                }
-            });
-        }
-    });
-}, [id]);
-
-// Fetch PredictionMarket and UserMarketData contract IDs for this market when we have account and market id
-useEffect(() => {
-    if (!account?.address || id == null) return;
-    const marketIdNum = Number(id);
+  const refreshMarket = useCallback(async () => {
     if (isNaN(marketIdNum)) return;
-    fetchPredictionMarketContractId(marketIdNum, account.address).then((info) => {
-        setPredictionMarketCid(info?.contractId ?? null);
-    });
-    fetchUserMarketDataContractId(account.address, marketIdNum).then(setUserMarketDataCid);
-}, [account?.address, id]);
-
-// Separate useEffect for price calculation
-useEffect(() => {
-    if (lmsr) {
-        const price = getCurrentPrice(
-            lmsr.option_shares_1,
-            lmsr.option_shares_2,
-            lmsr.liquidity_param
-        );
-        setCurrentPrice(price);
-        console.log("Updated price:", price);
+    setLoading(true);
+    try {
+      const [actives, resolved] = await Promise.all([
+        fetchAllPredictionMarkets(),
+        fetchAllResolvedMarkets(),
+      ]);
+      const active = actives.find((m) => m.marketId === marketIdNum);
+      const done = !active ? resolved.find((m) => m.marketId === marketIdNum) : undefined;
+      setView(toView(active, done));
+      // fetchAllPredictionMarkets queries via the Enterprise Wallet admin party (template
+      // signatory), so its cid is the canonical one to use for Trade/RecordResult — both
+      // admin and end users submit against the same cid. Querying as a non-admin user
+      // returns nothing until they've been added via AddParticipant, which would leave the
+      // BUY button stuck on "Loading market…".
+      setPredictionMarketCid(active?.contractId ?? null);
+    } finally {
+      setLoading(false);
     }
-}, [lmsr]);
+  }, [marketIdNum]);
 
+  useEffect(() => {
+    refreshMarket();
+  }, [refreshMarket]);
 
+  // UserMarketData is owned by the user; only they (or the service account) can resolve
+  // its cid. Null on first trade — the Trade choice creates the position contract.
+  useEffect(() => {
+    if (!account?.address || isNaN(marketIdNum)) {
+      setUserMarketDataCid(null);
+      return;
+    }
+    fetchUserMarketDataContractId(account.address, marketIdNum).then(setUserMarketDataCid);
+  }, [account?.address, marketIdNum]);
 
+  const currentPrice = view
+    ? getCurrentPrice(view.optionShares1, view.optionShares2, view.liquidityParam)
+    : null;
+
+  // Admin sees the contract by signatory and can always trade/resolve. End users
+  // must be added via AddParticipant first or `prepare` fails with CONTRACT_NOT_FOUND
+  // (template has `observer participants` — they can't see the cid from their view).
+  const isParticipant = !!(
+    account?.partyId &&
+    view &&
+    (isAdmin || view.participants.includes(account.partyId))
+  );
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseFloat(e.target.value);
     if (!isNaN(value) && value >= 0) {
-      // Limit to two decimal places
-
-     setAmount(Math.round(value * 100) / 100);
+      setAmount(Math.round(value * 100) / 100);
     }
   };
 
   const incrementAmount = () => {
-    setAmount(prevAmount => Math.round((prevAmount + 1) * 100) / 100); // Increment by 0.1 and limit to two decimal places
+    setAmount((prev) => Math.round((prev + 1) * 100) / 100);
   };
 
   const decrementAmount = () => {
-    setAmount(prevAmount => Math.max(Math.round((prevAmount - 1) * 100) / 100, 0)); // Decrement by 0.1 and prevent negative values
+    setAmount((prev) => Math.max(Math.round((prev - 1) * 100) / 100, 0));
   };
 
   const handleOptionClick = (option: string) => {
     setSelectedOption(option);
   };
 
-  const toast = useToast()
-
-
-  function getCurrentPrice(q1:any, q2:any, b:any) {
-        if (q1 === undefined || q2 === undefined || b === undefined || b === 0) {
-            return { val1: 0.5, val2: 0.5 }; // Default to 50/50 if data is missing
-        }
-        const val_1 = Math.exp(q1/b);
-        const val_2 = Math.exp(q2/b);
-        return { 
-            val1: val_1 / (val_1 + val_2), 
-            val2: val_2 / (val_1 + val_2) 
-        };
+  const handleBuyClick = async () => {
+    if (!view || view.status !== 0) return;
+    if (!account) {
+      toast({ title: "Connect a wallet to trade", status: "info", duration: 4000, isClosable: true });
+      return;
     }
-
-  const { signAndSubmitTransaction } = useCantonWallet();
-
-  const buyShares = async(_marketId: any, shareOption: any, numberOfShares: number) => {
-    try {
-    if (!account) return;
     if (!predictionMarketCid) {
-        toast({
-            title: "Market contract not found",
-            description: "This market may not be on this participant. Try refreshing.",
-            status: "warning",
-            duration: 5000,
-            isClosable: true,
-        });
-        return;
+      toast({
+        title: "Market contract not found",
+        description: "This market may not be visible to your party yet. Ask the admin to add you as a participant.",
+        status: "warning",
+        duration: 5000,
+        isClosable: true,
+      });
+      return;
     }
-    // UI uses 0 = option_1, 1 = option_2; DAML Trade expects option 1 or 2
-    const option = Number(shareOption) === 0 ? 1 : 2;
-    const numShares = Math.max(0, Math.floor(numberOfShares));
-    const cost = numShares; // or derive from LMSR; DAML expects non-negative cost
-    const params = buildBuySharesParams(
+    // Daml `Trade` choice expects option ∈ {1, 2}; map from the option label the user clicked.
+    const damlOption = selectedOption === view.option1 ? 1 : 2;
+    const numShares = Math.max(0, Math.floor(amount));
+    if (numShares <= 0) {
+      toast({ title: "Enter shares to buy", status: "info", duration: 3000, isClosable: true });
+      return;
+    }
+    // LMSR cost in Canton Coin units. For now we charge 1 unit/share; the contract only
+    // asserts cost >= 0, so this stays consistent with the on-ledger accounting.
+    const cost = numShares;
+
+    try {
+      const params = buildBuySharesParams(
         account.address,
         predictionMarketCid,
-        option,
+        damlOption,
         numShares,
         cost,
-        userMarketDataCid
-    );
-    const committedTxn = await signAndSubmitTransaction(params);
-                void committedTxn.hash;
-                console.log(`Committed transaction: ${committedTxn.hash}`);
-                
-                // Refresh all necessary data
-                // 1. Refresh portfolio data
-                if ((window as any).refreshPortfolio) {
-                    (window as any).refreshPortfolio();
-                }
-                
-                // 2. Refresh marketplace data
-                if ((window as any).refreshMarketplace) {
-                    (window as any).refreshMarketplace();
-                }
-                
-                // 3. Refresh current bet data
-                if (!id) return;
-                getMarketCount().then((m:any) => {
-                    const marketCount = m;
-                    for(let i = 0; i < marketCount; i++) {
-                        getMarketMetadata(i).then((m:any) => {
-                            if(m[0].id == id) {
-                                setBet(m[0]);
-                                setLmsr(m[1]);
-                            }
-                        });
-                    }
-                });
+        userMarketDataCid,
+      );
+      const committedTxn = await signAndSubmitTransaction(params);
+      void committedTxn.hash;
 
-                toast({
-                    title: 'Bet Placed',
-                    description: "We've added your bet to the market.",
-                    status: 'success',
-                    duration: 9000,
-                    isClosable: true,
-                });
+      // Refresh portfolio + marketplace listings if those views are mounted.
+      const w = window as unknown as { refreshPortfolio?: () => void; refreshMarketplace?: () => void };
+      w.refreshPortfolio?.();
+      w.refreshMarketplace?.();
+      await refreshMarket();
+
+      toast({
+        title: "Bet Placed",
+        description: "We've added your bet to the market.",
+        status: "success",
+        duration: 9000,
+        isClosable: true,
+      });
     } catch (e) {
-        console.error(e);
-        toast({
-            title: "Trade failed",
-            description: e instanceof Error ? e.message : "Could not submit trade.",
-            status: "error",
-            duration: 5000,
-            isClosable: true,
-        });
+      console.error(e);
+      toast({
+        title: "Trade failed",
+        description: e instanceof Error ? e.message : "Could not submit trade.",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
     }
-  }
-
-  const handleBuyClick = () => {
-    // Only proceed if amount is a number, greater than 0, and an option is selected
-
-    console.log("Selected Option", selectedOption);
-    let option;
-
-    if(selectedOption === bet?.option_1) option = 0;
-    else option = 1;
-
-    buyShares(parseInt(bet?.id), option, amount).then(() => {})
-    // if (amount > 0 && selectedOption) {
-    //   alert(`Placed a bet of $${amount.toFixed(2)} on ${selectedOption}`);
-    // } else {
-    //   alert('Please enter a valid bet amount and select an option.');
-    // }
-    
   };
 
   const getResultText = () => {
-    if (!bet) return null;
-    if (bet.status === 0) return null;
-    if (bet.result === 0) return `Winner: ${hexToAscii(bet.option_1)}`;
-    if (bet.result === 1) return `Winner: ${hexToAscii(bet.option_2)}`;
-    return "Market Expired";
+    if (!view || view.status === 0) return null;
+    if (view.result === "Option1") return `Winner: ${view.option1}`;
+    if (view.result === "Option2") return `Winner: ${view.option2}`;
+    if (view.result === "Draw") return "Draw";
+    return "Market Resolved";
   };
 
+  const handleResolveClick = async () => {
+    if (!view || view.status !== 0) return;
+    if (!account || !isAdmin) {
+      toast({ title: "Admin wallet required", status: "warning", duration: 3000, isClosable: true });
+      return;
+    }
+    if (!predictionMarketCid) {
+      toast({
+        title: "Market contract not found",
+        description: "Could not locate the PredictionMarket contract for this market.",
+        status: "warning",
+        duration: 5000,
+        isClosable: true,
+      });
+      return;
+    }
+    const payout = Math.max(0, Math.floor(payoutPerShare));
+    setResolving(true);
+    try {
+      const params = buildRecordResultParams(account.address, predictionMarketCid, resolveResult, payout);
+      const committedTxn = await signAndSubmitTransaction(params);
+      void committedTxn.hash;
+
+      const w = window as unknown as { refreshPortfolio?: () => void; refreshMarketplace?: () => void };
+      w.refreshMarketplace?.();
+      w.refreshPortfolio?.();
+      await refreshMarket();
+
+      toast({
+        title: "Market Resolved",
+        description: `Recorded ${resolveResult} with payout ${payout}/share.`,
+        status: "success",
+        duration: 7000,
+        isClosable: true,
+      });
+    } catch (e) {
+      console.error(e);
+      toast({
+        title: "Resolve failed",
+        description: e instanceof Error ? e.message : "Could not submit RecordResult.",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  const handleAddParticipantClick = async () => {
+    if (!view || view.status !== 0) return;
+    if (!account || !isAdmin) {
+      toast({ title: "Admin wallet required", status: "warning", duration: 3000, isClosable: true });
+      return;
+    }
+    if (!predictionMarketCid) {
+      toast({
+        title: "Market contract not found",
+        description: "Could not locate the PredictionMarket contract for this market.",
+        status: "warning",
+        duration: 5000,
+        isClosable: true,
+      });
+      return;
+    }
+    const newParty = addParticipantInput.trim();
+    if (!newParty) {
+      toast({ title: "Enter a party id", status: "info", duration: 3000, isClosable: true });
+      return;
+    }
+    if (view.participants.includes(newParty)) {
+      toast({ title: "Already a participant", status: "info", duration: 3000, isClosable: true });
+      return;
+    }
+    setAddingParticipant(true);
+    try {
+      const params = buildAddParticipantParams(account.address, predictionMarketCid, newParty);
+      const committedTxn = await signAndSubmitTransaction(params);
+      void committedTxn.hash;
+      setAddParticipantInput("");
+      await refreshMarket();
+      toast({
+        title: "Participant added",
+        description: `${newParty} can now trade on this market.`,
+        status: "success",
+        duration: 6000,
+        isClosable: true,
+      });
+    } catch (e) {
+      console.error(e);
+      toast({
+        title: "Add participant failed",
+        description: e instanceof Error ? e.message : "Could not submit AddParticipant.",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setAddingParticipant(false);
+    }
+  };
+
+  if (loading && !view) {
+    return (
+      <Stack minHeight={"100vh"} p={5} width={"100%"} color={"white"} justifyContent={"space-between"}>
+        <Skeleton height="20px" />
+        <Skeleton height="20px" />
+        <Skeleton height="20px" />
+      </Stack>
+    );
+  }
+
+  if (!view) {
+    return (
+      <Stack minHeight={"100vh"} p={5} width={"100%"} color={"white"} alignItems={"center"} justifyContent={"center"}>
+        <Text fontSize="lg">Market #{id} not found.</Text>
+      </Stack>
+    );
+  }
+
   return (
-    
-    <>
-        {!bet && <Stack minHeight={"100vh"} p={5} width={"100%"} color={"white"} justifyContent={"space-between"}>
-          <Skeleton height='20px' />
-          <Skeleton height='20px' />
-          <Skeleton height='20px' />
-        </Stack>} 
-        {bet && <Flex minHeight={"100vh"} p={5} width={"100%"} color={"white"} justifyContent={"space-between"}>
-        <Stack width={"60%"}>
-            <h2 className="text-xl font-jbm font-bold mb-3" style={{color: "#CCCCFF"}}>{hexToAscii(bet?.question)}</h2>
-            <Text fontSize={"lg"} mb={10} className="font-jbm">{hexToAscii(bet?.description)}</Text>
+    <Flex minHeight={"100vh"} p={5} width={"100%"} color={"white"} justifyContent={"space-between"}>
+      <Stack width={"60%"}>
+        <h2 className="text-xl font-jbm font-bold mb-3" style={{ color: "#CCCCFF" }}>
+          {view.question}
+        </h2>
+        <Text fontSize={"lg"} mb={10} className="font-jbm">
+          {view.description}
+        </Text>
+        <Flex>
+          <Stack width={"70%"}>
             <Flex>
-            <Stack width={"70%"}>
-                <Flex>
-                    <Text mr={2}>{hexToAscii(bet?.option_1)}</Text>
-                    <Text> - {lmsr?.option_shares_1}  Shares</Text>
-                </Flex>
-                    <Progress width={"50%"} colorScheme='green' size='sm' value={lmsr?.option_shares_1} />
-                <Flex width={"100%"}>
-                    <Text mr={2}>{hexToAscii(bet?.option_2)}  {" "}</Text>
-                    <Text> - {lmsr?.option_shares_2} Shares</Text>
-                </Flex>
-                 <Progress width={"50%"} colorScheme='red' size='sm' value={lmsr?.option_shares_2} />
-
-            </Stack>
-
-            <StatGroup >
-              <Stat mr={20}>
-                <StatLabel fontSize={"lg"}>{hexToAscii(bet?.option_1)}</StatLabel>
-                <StatNumber>{"$"}{currentPrice?.val1.toFixed(2)}</StatNumber>
-                <StatHelpText>
-                  <StatArrow type='increase' />
-                </StatHelpText>
-              </Stat>
-
-              <Stat>
-                <StatLabel fontSize={"lg"}>{hexToAscii(bet?.option_2)}</StatLabel>
-                <StatNumber>{"$"}{currentPrice?.val2.toFixed(2)}</StatNumber>
-                <StatHelpText>
-                  <StatArrow type='decrease' />
-                </StatHelpText>
-              </Stat>
-            </StatGroup>
+              <Text mr={2}>{view.option1}</Text>
+              <Text> - {view.optionShares1} Shares</Text>
             </Flex>
+            <Progress width={"50%"} colorScheme="green" size="sm" value={view.optionShares1} />
+            <Flex width={"100%"}>
+              <Text mr={2}>{view.option2} </Text>
+              <Text> - {view.optionShares2} Shares</Text>
+            </Flex>
+            <Progress width={"50%"} colorScheme="red" size="sm" value={view.optionShares2} />
+          </Stack>
 
-            
+          <StatGroup>
+            <Stat mr={20}>
+              <StatLabel fontSize={"lg"}>{view.option1}</StatLabel>
+              <StatNumber>
+                {"$"}
+                {currentPrice?.val1.toFixed(2)}
+              </StatNumber>
+              <StatHelpText>
+                <StatArrow type="increase" />
+              </StatHelpText>
+            </Stat>
 
-            <Divider my={10}></Divider>
+            <Stat>
+              <StatLabel fontSize={"lg"}>{view.option2}</StatLabel>
+              <StatNumber>
+                {"$"}
+                {currentPrice?.val2.toFixed(2)}
+              </StatNumber>
+              <StatHelpText>
+                <StatArrow type="decrease" />
+              </StatHelpText>
+            </Stat>
+          </StatGroup>
+        </Flex>
 
-            <h2 style={{color: "#CCCCFF"}} className="text-md font-jbm font-bold">About the Logarithmic Market Scoring Rule</h2>
-            <Text fontSize={"sm"} mb={20} className="font-jbm">
-                The Logarithmic Market Scoring Rule (LMSR) is a mathematical tool used to evaluate the accuracy of predictions. 
-                It's designed to encourage honesty and precision when making predictions about uncertain events.
+        <Divider my={10} />
 
-            
+        <h2 style={{ color: "#CCCCFF" }} className="text-md font-jbm font-bold">
+          About the Logarithmic Market Scoring Rule
+        </h2>
+        <Text fontSize={"sm"} mb={20} className="font-jbm">
+          The Logarithmic Market Scoring Rule (LMSR) is a mathematical tool used to evaluate the accuracy of
+          predictions. It's designed to encourage honesty and precision when making predictions about uncertain
+          events.
+        </Text>
+      </Stack>
 
-            </Text>
+      {view.status === 0 ? (
+        <Stack width={"30%"} ml={20}>
+          <div
+            style={{ color: "white", backgroundColor: "#18191C" }}
+            className="font-jbm p-4 rounded-lg border-2 border-[#CCCCFF] shadow-md w-full max-w-sm mx-auto"
+          >
+            <div className="text-center mb-4">
+              <h2 className="text-lg font-bold">Buy Bet</h2>
+              <h3 className="text-sm text-gray-300 mt-2">{view.question}</h3>
+            </div>
 
-        </Stack>
-        {bet.status === 0 ? (
-            <Stack width={"30%"} ml={20}>
-                <div style={{ color: 'white', backgroundColor: '#18191C' }} className="font-jbm p-4 rounded-lg border-2 border-[#CCCCFF] shadow-md w-full max-w-sm mx-auto">
-                  <div className="text-center mb-4">
-                    <h2 className="text-lg font-bold">Buy Bet</h2>
-                    {bet && <h3 className="text-sm text-gray-300 mt-2">{hexToAscii(bet?.question)}</h3>}
-                  </div>
+            <div className="flex flex-col items-center mb-4">
+              <button
+                onClick={() => handleOptionClick(view.option1)}
+                className={
+                  selectedOption === view.option1
+                    ? "font-bold py-2 px-4 mb-2 rounded w-full border-2 border-green-400 bg-green-600 text-white ring-2 ring-green-400/40 transition-all"
+                    : "font-bold py-2 px-4 mb-2 rounded w-full border-2 border-green-600 bg-transparent text-green-300 hover:bg-green-600/20 hover:text-white transition-all"
+                }
+              >
+                Bet {view.option1}
+              </button>
+              <button
+                onClick={() => handleOptionClick(view.option2)}
+                className={
+                  selectedOption === view.option2
+                    ? "font-bold py-2 px-4 rounded w-full border-2 border-red-400 bg-red-600 text-white ring-2 ring-red-400/40 transition-all"
+                    : "font-bold py-2 px-4 rounded w-full border-2 border-red-600 bg-transparent text-red-300 hover:bg-red-600/20 hover:text-white transition-all"
+                }
+              >
+                Bet {view.option2}
+              </button>
+            </div>
 
-          {bet && (
-            <>
-              <div className="flex flex-col items-center mb-4">
+            <div className="flex flex-col items-center mb-4">
+              <div className="flex flex-row items-center w-max mb-4">
                 <button
-                  onClick={() => handleOptionClick(bet?.option_1)}
-                  className={`text-white font-bold py-2 px-4 mb-2 rounded ${selectedOption === bet?.option_1 ? 'bg-green-600' : 'hover:bg-green-600'}`}
-                  style={{
-                    borderColor: '#008000',
-                    borderWidth: '2px',
-                    minWidth: '100px',
-                    width: '100%',
-                  }}
+                  onClick={decrementAmount}
+                  className="text-white font-bold py-2 px-4 rounded-l bg-[#CCCCFF] hover:bg-gray-600"
+                  style={{ borderColor: "#333", borderWidth: "2px" }}
                 >
-                  Bet {hexToAscii(bet.option_1)}
+                  -
                 </button>
+                <input
+                  type="number"
+                  value={amount.toFixed(2)}
+                  onChange={handleInputChange}
+                  placeholder="$0.0"
+                  className="text-black py-2 px-4 w-32 text-center"
+                  style={{ borderColor: "#333", borderWidth: "2px", borderLeft: "none", borderRight: "none" }}
+                />
                 <button
-                  onClick={() => handleOptionClick(bet?.option_2)}
-                  className={`text-white font-bold py-2 px-4 rounded ${selectedOption === bet?.option_2 ? 'bg-red-600' : 'hover:bg-red-600'}`}
-                  style={{
-                    borderColor: '#FF0000',
-                    borderWidth: '2px',
-                    minWidth: '100px',
-                    width: '100%',
-                  }}
+                  onClick={incrementAmount}
+                  className="text-white font-bold py-2 px-4 rounded-r bg-[#CCCCFF] hover:bg-gray-600"
+                  style={{ borderColor: "#333", borderWidth: "2px" }}
                 >
-                  Bet {hexToAscii(bet?.option_2)}
+                  +
                 </button>
               </div>
 
-              <div className="flex flex-col items-center mb-4">
-                {/* Balance and Max Buttons Above Input */}
-                {/* <div className="flex justify-between w-full mb-2">
+              {(() => {
+                const buyDisabledReason = !account
+                  ? "Connect wallet"
+                  : !predictionMarketCid
+                    ? "Loading market…"
+                    : !isParticipant
+                      ? "Awaiting admin access"
+                      : !selectedOption
+                        ? "Select an option"
+                        : amount <= 0
+                          ? "Enter shares to buy"
+                          : null;
+                const isDisabled = buyDisabledReason !== null;
+                return (
                   <button
-                    className="text-white font-bold py-1 px-2 rounded"
-                    
+                    onClick={handleBuyClick}
+                    className={
+                      isDisabled
+                        ? "font-bold py-2 px-4 rounded bg-[#2a2b30] text-gray-500 cursor-not-allowed"
+                        : "text-black font-bold py-2 px-4 rounded bg-[#ebebf0] hover:bg-[#CCCCFF] hover:text-white"
+                    }
+                    style={{
+                      borderColor: isDisabled ? "#3a3b40" : "#333",
+                      borderWidth: "2px",
+                      width: "100%",
+                    }}
+                    disabled={isDisabled}
                   >
-                    Balance : $40.50
+                    {buyDisabledReason ?? "BUY"}
                   </button>
-                  {/* <button
-                    className="text-white font-bold py-1 px-2 rounded bg-[#CCCCFF] hover:bg-gray-600"
-                    style={{ borderColor: '#333', borderWidth: '2px', minWidth: '60px' }}
-                  >
-                    Max
-                  </button> */}
-                {/* </div> */} 
-
-                {/* Input Field and Increment/Decrement Buttons */}
-                <div className="flex flex-row items-center w-max mb-4">
-                  <button
-                    onClick={decrementAmount}
-                    className="text-white font-bold py-2 px-4 rounded-l bg-[#CCCCFF] hover:bg-gray-600"
-                    style={{ borderColor: '#333', borderWidth: '2px' }}
-                  >
-                    -
-                  </button>
-                  <input
-                    type="number"
-                    value={amount.toFixed(2)}
-                    onChange={handleInputChange}
-                    placeholder="$0.0"
-                    className="text-black py-2 px-4 w-32 text-center"
-                    style={{ borderColor: '#333', borderWidth: '2px', borderLeft: 'none', borderRight: 'none' }}
-                  />
-                  <button
-                    onClick={incrementAmount}
-                    className="text-white font-bold py-2 px-4 rounded-r bg-[#CCCCFF] hover:bg-gray-600"
-                    style={{ borderColor: '#333', borderWidth: '2px' }}
-                  >
-                    +
-                  </button>
-                </div>
-
-                {/* BUY Button */}
-                <button
-                  onClick={handleBuyClick}
-                  className="text-black font-bold py-2 px-4 rounded bg-[#ebebf0] hover:bg-[#CCCCFF] hover:text-white"
-                  style={{ borderColor: '#333', borderWidth: '2px', width: '100%' }}
-                  disabled={!selectedOption || amount <= 0 || !predictionMarketCid}
-                >
-                  {!predictionMarketCid && account ? "Loading market…" : "BUY"}
-                </button>
-                <div className="flex flex-col m-1 text-gray-500 text-sm justify-between font-jbm">
-                    <p className='font-jbm'>⚠️ Due to slippage tolerance, price may vary.</p>
-                  </div>
+                );
+              })()}
+              <div className="flex flex-col m-1 text-gray-500 text-sm justify-between font-jbm">
+                <p className="font-jbm">⚠️ Due to slippage tolerance, price may vary.</p>
+                {account && !isParticipant && (
+                  <p className="font-jbm text-amber-400 mt-2">
+                    🔒 Your party is not a participant yet. Ask the admin to add{" "}
+                    <span className="break-all text-amber-300">{account.partyId}</span> to this market.
+                  </p>
+                )}
               </div>
-            </>
+            </div>
+          </div>
+
+          {isAdmin && (
+            <div
+              style={{ color: "white", backgroundColor: "#18191C" }}
+              className="font-jbm p-4 mt-4 rounded-lg border-2 border-[#CCCCFF] shadow-md w-full max-w-sm mx-auto"
+            >
+              <div className="text-center mb-3">
+                <h2 className="text-lg font-bold">Add Participant</h2>
+                <p className="text-xs text-gray-400 mt-1">
+                  Grant trading access. {view.participants.length} participant
+                  {view.participants.length === 1 ? "" : "s"} so far.
+                </p>
+              </div>
+              <input
+                type="text"
+                value={addParticipantInput}
+                onChange={(e) => setAddParticipantInput(e.target.value)}
+                placeholder="Party id (e.g. user::1220…)"
+                className="text-black py-2 px-3 w-full text-sm mb-2 rounded"
+                style={{ borderColor: "#333", borderWidth: "2px" }}
+              />
+              <button
+                onClick={handleAddParticipantClick}
+                className="text-black font-bold py-2 px-4 rounded bg-[#ebebf0] hover:bg-[#CCCCFF] hover:text-white disabled:bg-[#2a2b30] disabled:text-gray-500 disabled:cursor-not-allowed"
+                style={{ borderColor: "#333", borderWidth: "2px", width: "100%" }}
+                disabled={addingParticipant || !predictionMarketCid || !account || !addParticipantInput.trim()}
+              >
+                {addingParticipant ? "Adding…" : "ADD"}
+              </button>
+            </div>
           )}
-                </div>
-            </Stack>
-        ) : (
-            <Stack width={"30%"} ml={20}>
-                <div style={{ color: 'white', backgroundColor: '#18191C' }} className="font-jbm p-4 rounded-lg border-2 border-[#CCCCFF] shadow-md w-full max-w-sm mx-auto">
-                  <div className="text-center mb-4">
-                    <h2 className="text-lg font-bold">Market Result</h2>
-                    <Text color="#CCCCFF" fontSize="lg" mt={4}>
-                        {getResultText()}
-                    </Text>
-                  </div>
-                </div>
-            </Stack>
-        )}
-    </Flex>}
-    </>
+
+          {isAdmin && (
+            <div
+              style={{ color: "white", backgroundColor: "#18191C" }}
+              className="font-jbm p-4 mt-4 rounded-lg border-2 border-[#CCCCFF] shadow-md w-full max-w-sm mx-auto"
+            >
+              <div className="text-center mb-4">
+                <h2 className="text-lg font-bold">Resolve Market</h2>
+                <p className="text-xs text-gray-400 mt-1">Admin only — archives this market and records the outcome.</p>
+              </div>
+
+              <div className="flex flex-col items-stretch mb-4 gap-2">
+                <button
+                  onClick={() => setResolveResult("Option1")}
+                  className={
+                    resolveResult === "Option1"
+                      ? "font-bold py-2 px-4 rounded w-full border-2 border-green-400 bg-green-600 text-white ring-2 ring-green-400/40 transition-all"
+                      : "font-bold py-2 px-4 rounded w-full border-2 border-green-600 bg-transparent text-green-300 hover:bg-green-600/20 hover:text-white transition-all"
+                  }
+                >
+                  {view.option1} wins
+                </button>
+                <button
+                  onClick={() => setResolveResult("Option2")}
+                  className={
+                    resolveResult === "Option2"
+                      ? "font-bold py-2 px-4 rounded w-full border-2 border-red-400 bg-red-600 text-white ring-2 ring-red-400/40 transition-all"
+                      : "font-bold py-2 px-4 rounded w-full border-2 border-red-600 bg-transparent text-red-300 hover:bg-red-600/20 hover:text-white transition-all"
+                  }
+                >
+                  {view.option2} wins
+                </button>
+                <button
+                  onClick={() => setResolveResult("Draw")}
+                  className={
+                    resolveResult === "Draw"
+                      ? "font-bold py-2 px-4 rounded w-full border-2 border-gray-300 bg-gray-500 text-white ring-2 ring-gray-300/40 transition-all"
+                      : "font-bold py-2 px-4 rounded w-full border-2 border-gray-500 bg-transparent text-gray-300 hover:bg-gray-500/30 hover:text-white transition-all"
+                  }
+                >
+                  Draw
+                </button>
+              </div>
+
+              <div className="flex flex-col items-center mb-3">
+                <label className="text-xs text-gray-400 mb-1 self-start">Payout per share</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={payoutPerShare}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    setPayoutPerShare(isNaN(v) || v < 0 ? 0 : v);
+                  }}
+                  placeholder="0"
+                  className="text-black py-2 px-4 w-full text-center"
+                  style={{ borderColor: "#333", borderWidth: "2px" }}
+                />
+              </div>
+
+              <button
+                onClick={handleResolveClick}
+                className="text-black font-bold py-2 px-4 rounded bg-[#ebebf0] hover:bg-[#CCCCFF] hover:text-white"
+                style={{ borderColor: "#333", borderWidth: "2px", width: "100%" }}
+                disabled={resolving || !predictionMarketCid || !account}
+              >
+                {resolving
+                  ? "Resolving…"
+                  : !account
+                    ? "Connect wallet"
+                    : !predictionMarketCid
+                      ? "Loading market…"
+                      : "RECORD RESULT"}
+              </button>
+              <p className="text-xs text-gray-500 mt-2 font-jbm">
+                ⚠️ This is irreversible — the market will be archived and a ResolvedMarket created on-ledger.
+              </p>
+            </div>
+          )}
+        </Stack>
+      ) : (
+        <Stack width={"30%"} ml={20}>
+          <div
+            style={{ color: "white", backgroundColor: "#18191C" }}
+            className="font-jbm p-4 rounded-lg border-2 border-[#CCCCFF] shadow-md w-full max-w-sm mx-auto"
+          >
+            <div className="text-center mb-4">
+              <h2 className="text-lg font-bold">Market Result</h2>
+              <Text color="#CCCCFF" fontSize="lg" mt={4}>
+                {getResultText()}
+              </Text>
+            </div>
+          </div>
+        </Stack>
+      )}
+    </Flex>
   );
 };
 

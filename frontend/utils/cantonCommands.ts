@@ -103,6 +103,68 @@ export function buildBuySharesParams(
 }
 
 /**
+ * Exercise PredictionMarket.AddParticipant. Admin-only on the DAML side
+ * (`controller admin`). Adds `newParticipant` as an observer on the market so
+ * the participant node will surface the cid from that party's view — without
+ * this, Trade prepare fails with CONTRACT_NOT_FOUND because the buyer can't
+ * see the contract.
+ *
+ * Returns a new PredictionMarket cid; the previous one is archived by the
+ * choice. Callers should refresh after the tx settles.
+ */
+export function buildAddParticipantParams(
+  partyId: string,
+  predictionMarketContractId: string,
+  newParticipantPartyId: string,
+): PrepareExecuteParams {
+  const commands = [
+    {
+      exercise: {
+        templateId: templateId(TRUTHORACLE_MODULE, "PredictionMarket"),
+        contractId: predictionMarketContractId,
+        choice: "AddParticipant",
+        choiceArgument: {
+          newParticipant: newParticipantPartyId,
+        },
+      },
+    },
+  ];
+  return baseParams(partyId, commands);
+}
+
+/**
+ * Exercise PredictionMarket.RecordResult. Admin-only on the DAML side
+ * (`controller admin` in Truthoracle.daml) — the wallet must be connected as
+ * the admin party (VITE_ENTERPRISE_WALLET_PARTY_ID). On success the underlying
+ * PredictionMarket is archived and a ResolvedMarket is created on the participant.
+ *
+ * `result` is a Daml `MarketResult` enum (`Option1 | Option2 | Draw`); the JSON
+ * Ledger API encodes nullary enum constructors as plain tag strings — same as
+ * `rewardType` in buildClaimAllRewardsParams.
+ */
+export function buildRecordResultParams(
+  partyId: string,
+  predictionMarketContractId: string,
+  result: "Option1" | "Option2" | "Draw",
+  payoutPerShare: number,
+): PrepareExecuteParams {
+  const commands = [
+    {
+      exercise: {
+        templateId: templateId(TRUTHORACLE_MODULE, "PredictionMarket"),
+        contractId: predictionMarketContractId,
+        choice: "RecordResult",
+        choiceArgument: {
+          result,
+          payoutPerShare: damlInt(payoutPerShare),
+        },
+      },
+    },
+  ];
+  return baseParams(partyId, commands);
+}
+
+/**
  * Exercise UserRewardsSummary.ClaimRewardsBatch on Incentives (all claims in one choice).
  * One exercise avoids archiving the summary on the first ClaimReward and failing on the rest.
  */
