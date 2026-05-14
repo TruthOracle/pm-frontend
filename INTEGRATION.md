@@ -204,7 +204,7 @@ If the Loop/Canton API returns a 500 error for active-contracts, verify:
 ### active-contracts returns `[]` (empty array)
 
 1. **MarketCounter not created yet**  
-   Create it once with the admin party using `npm run create:contract` with the same `.env` as the app (`VITE_CANTON_PARTICIPANT_URL`, `VITE_TRUTHORACLE_*`, `VITE_KEYCLOAK_*`, and optionally `VITE_TRUTHORACLE_ADMIN_PARTY_ID`). Until that succeeds, there is no contract to see.
+   Create it once with the admin party using `npm run create:contract` with the same `.env` as the app (`VITE_CANTON_PARTICIPANT_URL`, `VITE_TRUTHORACLE_*`, `VITE_KEYCLOAK_*`, and optionally `VITE_ENTERPRISE_WALLET_PARTY_ID`). Until that succeeds, there is no contract to see.
 
 2. **Party mismatch**  
    You must query with the **exact party** that is signatory (or observer) on the contract. For `MarketCounter`, only the **admin** party is signatory. If the UI uses a different party (e.g. another wallet), that party will get `[]`. Fix: use the same party that ran `npm run create:contract`, or ensure the connected wallet’s `account.address` is that admin party ID.
@@ -225,11 +225,11 @@ If the Loop/Canton API returns a 500 error for active-contracts, verify:
 
 If you see **"Market counter not found on this participant"**, create the counter once as the admin party using either the script below or the curl steps.
 
-### Validator party vs TruthOracle admin (`VITE_TRUTHORACLE_ADMIN_PARTY_ID`)
+### Validator party vs TruthOracle admin (`VITE_ENTERPRISE_WALLET_PARTY_ID`)
 
 In `c8-knowledge-hub-main/playground/.env.example`, **`VALIDATOR_PARTY`** (e.g. `cantor8-digik-1::1220…`) is the **validator / participant infrastructure** party used in Messenger playground examples. It is **not** the TruthOracle **`MarketCounter` admin**.
 
-- **`npm run create:contract`** uses **`VITE_TRUTHORACLE_ADMIN_PARTY_ID`** from `.env` if set; otherwise a built-in dev default. That party is signatory on `MarketCounter` (typically the same as the wallet you connect as admin). The script does not call **`GET /v2/parties`**; set the admin explicitly (see [How to get the admin party ID](#how-to-get-the-admin-party-id) below).
+- **`npm run create:contract`** uses **`VITE_ENTERPRISE_WALLET_PARTY_ID`** from `.env` if set; otherwise a built-in dev default. That party is signatory on `MarketCounter` (typically the same as the wallet you connect as admin). The script does not call **`GET /v2/parties`**; set the admin explicitly (see [How to get the admin party ID](#how-to-get-the-admin-party-id) below).
 - Do **not** substitute `VALIDATOR_PARTY` for your TruthOracle admin unless your operator confirms they are the same party (they usually are not).
 
 ### How to get the admin party ID
@@ -257,7 +257,7 @@ curl -s -X POST "${BASE_URL}/v2/parties/external/allocate" \
   -d '{ "partyHint": "Admin", "displayName": "Admin" }'
 ```
 
-Use the `party` (or equivalent) from the response as `VITE_TRUTHORACLE_ADMIN_PARTY_ID` in `.env`. (Exact request/response shape may vary; check your participant’s OpenAPI or docs.)
+Use the `party` (or equivalent) from the response as `VITE_ENTERPRISE_WALLET_PARTY_ID` in `.env`. (Exact request/response shape may vary; check your participant’s OpenAPI or docs.)
 
 **Option C – From the app (Loop / connected wallet)**
 
@@ -276,7 +276,7 @@ From the repo root:
 ```bash
 # .env already has VITE_CANTON_PARTICIPANT_URL, VITE_TRUTHORACLE_PACKAGE_ID, VITE_KEYCLOAK_*.
 # Recommended: set your MarketCounter admin in .env (else the script uses a repo dev default):
-# VITE_TRUTHORACLE_ADMIN_PARTY_ID='6ff9435fff4d4f43856f688e95a27368::12204e98dc339cc86c6d318f3746f99e880245b4a5827ef1e8bbe7ba6193ef8c0e58'
+# VITE_ENTERPRISE_WALLET_PARTY_ID='6ff9435fff4d4f43856f688e95a27368::12204e98dc339cc86c6d318f3746f99e880245b4a5827ef1e8bbe7ba6193ef8c0e58'
 
 npm run create:contract
 ```

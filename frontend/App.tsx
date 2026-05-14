@@ -1,6 +1,6 @@
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
 import { Header } from "@/components/Header";
-import FAQ from '@/components/FAQ';       
+import FAQ from '@/components/FAQ';
 import Marketplace from "./components/Marketplace";
 import Homepage from "./components/Homepage";
 import Portfolio from "./components/Portfolio";
@@ -8,6 +8,11 @@ import Admin from "./components/Admin/Admin";
 import BetDetails from './components/BetDetails';
 import Rewards from './components/Rewards';
 import { WalletProvider } from './components/WalletProvider';
+import { useIsAdmin } from "@/lib/useIsAdmin";
+
+function AdminRoute() {
+  return useIsAdmin() ? <Admin /> : <Navigate to="/" replace />;
+}
 
 function App() {
 
@@ -45,7 +50,7 @@ function App() {
             />
             <Route path="/portfolio" element={<Portfolio/>} />
             <Route path="/bet/:id" element={<BetDetails />} /> 
-            <Route path="/admin" element={<Admin/>} />
+            <Route path="/admin" element={<AdminRoute />} />
             <Route path="/rewards" element={<Rewards/>} />
             {/* <Route path="/market/:address" element={<Market/>} /> */}
 
