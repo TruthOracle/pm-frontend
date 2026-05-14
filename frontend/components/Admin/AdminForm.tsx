@@ -18,7 +18,7 @@ function AdminForm({}: Props) {
             return;
         }
         setLoadingCid(true);
-        fetchMarketCounterContractId(account.address)
+        fetchMarketCounterContractId()
             .then(setMarketCounterCid)
             .finally(() => setLoadingCid(false));
     }, [account?.address]);
@@ -62,7 +62,7 @@ function AdminForm({}: Props) {
         }
         // Re-fetch MarketCounter contract ID immediately before submit to avoid CONTRACT_NOT_FOUND
         // (cached ID may be stale if the counter was re-created or the contract was archived).
-        const freshCid = await fetchMarketCounterContractId(account.address);
+        const freshCid = await fetchMarketCounterContractId();
         if (!freshCid) {
             toast({
                 title: "Market counter not found",
@@ -100,9 +100,8 @@ function AdminForm({}: Props) {
             const message = err instanceof Error ? err.message : String(err);
             if (message.includes("CONTRACT_NOT_FOUND") || message.includes("Contract could not be found")) {
                 setMarketCounterCid(null);
-                const partyHint = account?.address
-                    ? ` Run npm run create:contract with VITE_TRUTHORACLE_ADMIN_PARTY_ID="${account.address}" in .env so this participant has a counter for your wallet.`
-                    : "";
+                const partyHint =
+                    " Bring up wallet-deploy/ (see its README), set VITE_ENTERPRISE_WALLET_PARTY_ID in .env to the wallet's party id, then `npm run create:contract`.";
                 toast({
                     title: "Market counter not found",
                     description: `The participant rejected the counter contract.${partyHint} Then try again.`,

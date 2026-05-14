@@ -1,23 +1,31 @@
 /**
- * TruthOracle DAML — create on-ledger contracts via the Canton participant.
+ * TruthOracle DAML — create on-ledger contracts where the C8 Enterprise Wallet signs
+ * for the admin party.
  *
- * Default: creates `Truthoracle:MarketCounter` { admin, value: 0 } using the
- * interactive submission flow (prepare + execute) against the Canton JSON Ledger API.
+ * Hybrid flow:
+ *   1. POST /v2/interactive-submission/prepare on the Canton participant (Keycloak token)
+ *      → returns preparedTxB64 + preparedTransactionHash + hashingSchemeVersion.
+ *   2. POST /api/v1/transaction/sign_and_execute on the local Enterprise Wallet
+ *      → wallet signs the hash with the admin party's key and executes.
  *
- * NOTE on `admin` / signing:
- *   The interactive submission `execute` step requires the acting party's *external
- *   signature* of the prepared-transaction hash. The script cannot produce that — only
- *   the holder of the party's key (e.g. the Cantor8 wallet) can. So:
- *     - If `VITE_TRUTHORACLE_ADMIN_PARTY_ID` is a self-custody / external party
- *       (the participant does not hold its key), `execute` will fail with
- *       "did not provide an external signature" — that's expected; the prepared
- *       transaction must be signed and executed via the Cantor8 wallet instead.
- *     - If it points at a participant-hosted party, `execute` succeeds (participant signs).
+ * This is the same pattern the popup SDK uses (`signAndExecutePreparedTransfer`); we just
+ * point at the self-hosted Enterprise Wallet REST endpoint instead.
  *
- * Every HTTP call is logged as a copy-pasteable `curl` plus its full response — nothing
- * redacted (real bearer token, client secret, response bodies). Treat the output as sensitive.
+ * Why not /api/v1/external/submit?
+ *   In v0.1.21 the wallet's request validator types `commands[]` as JSON-strings while the
+ *   downstream backend expects dicts; the wallet does not translate between them, so the
+ *   call always fails with "Input should be a valid dictionary". The hybrid flow avoids
+ *   the external/* endpoints entirely and uses the well-defined sign_and_execute primitive.
  *
- * Env: reads only the repo root `.env` and `VITE_*` keys (same names as the Vite app).
+ * Every HTTP call is logged as a copy-pasteable `curl` plus its full response.
+ *
+ * Setup:
+ *   1. Run the wallet — see wallet-deploy/README.md.
+ *   2. Create the admin account once (returns a partyId):
+ *        curl -X POST $VITE_ENTERPRISE_WALLET_URL/api/v1/accounts \
+ *          -H 'Content-Type: application/json' \
+ *          -d '{"desiredAccountName":"truthoracle-admin","validatorId":0,"preApproveAmuletTransfers":true}'
+ *   3. Set in .env: VITE_ENTERPRISE_WALLET_PARTY_ID=<that partyId>
  *
  * Usage:
  *   npm run create:contract
@@ -43,7 +51,6 @@ function stripTrailingSlash(url: string) {
 
 let curlSeq = 0;
 
-/** Build a copy-pasteable curl command equivalent to the given fetch call (nothing redacted). */
 function curlOf(url: string, init: RequestInit): string {
   const parts: string[] = [`curl -sS -X ${init.method ?? "GET"} '${url}'`];
   const headers = (init.headers ?? {}) as Record<string, string>;
@@ -56,8 +63,7 @@ function curlOf(url: string, init: RequestInit): string {
   return parts.join(" \\\n");
 }
 
-/** fetch + JSON parse, logging the equivalent curl and the response body. */
-async function fetchJsonLogged(label: string, url: string, init: RequestInit): Promise<{ ok: boolean; status: number; data: Json }> {
+async function fetchJsonLogged(label: string, url: string, init: RequestInit): Promise<{ ok: boolean; status: number; data: Json | string }> {
   const n = ++curlSeq;
   console.log(`\n──────────────────────────────────────────────────────────────`);
   console.log(`# [${n}] ${label}`);
@@ -68,38 +74,31 @@ async function fetchJsonLogged(label: string, url: string, init: RequestInit): P
   console.log(`# RESPONSE: HTTP ${res.status} ${res.statusText}`);
   console.log(text || "(empty body)");
   console.log(`──────────────────────────────────────────────────────────────`);
-  let data: Json = {};
+  let data: Json | string = "";
   if (text) {
     try {
-      data = JSON.parse(text) as Json;
+      data = JSON.parse(text);
     } catch {
-      data = { _raw: text };
+      data = text;
     }
   }
   return { ok: res.ok, status: res.status, data };
 }
 
-async function getKeycloakAccessToken(opts: {
-  keycloakUrl: string;
-  realm: string;
-  clientId: string;
-  clientSecret: string;
-}) {
+async function getKeycloakAccessToken(opts: { keycloakUrl: string; realm: string; clientId: string; clientSecret: string }) {
   const tokenUrl = `${stripTrailingSlash(opts.keycloakUrl)}/realms/${opts.realm}/protocol/openid-connect/token`;
   const body = new URLSearchParams({
     grant_type: "client_credentials",
     client_id: opts.clientId,
     client_secret: opts.clientSecret,
   }).toString();
-
   const r = await fetchJsonLogged("Keycloak token (client_credentials)", tokenUrl, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
   });
   if (!r.ok) throw new Error(`Keycloak token request failed (${r.status})`);
-  const data = r.data;
-  const token = data.access_token;
+  const token = (r.data as any)?.access_token;
   if (typeof token !== "string" || !token) throw new Error("Keycloak response missing access_token");
   return token;
 }
@@ -114,53 +113,9 @@ async function getSynchronizerId(token: string, baseUrl: string) {
     headers: authHeaders(token),
   });
   if (!r.ok) throw new Error(`connected-synchronizers failed (${r.status})`);
-  const first = (r.data as any).connectedSynchronizers?.[0]?.synchronizerId;
-  if (!first || typeof first !== "string") throw new Error("No synchronizerId found in connected-synchronizers response");
+  const first = (r.data as any)?.connectedSynchronizers?.[0]?.synchronizerId;
+  if (typeof first !== "string" || !first) throw new Error("No synchronizerId found");
   return first;
-}
-
-async function queryActiveContractIdByTemplate(opts: {
-  token: string;
-  baseUrl: string;
-  partyId: string;
-  templateId: string;
-}) {
-  const le = await fetchJsonLogged("GET ledger-end", `${opts.baseUrl}/v2/state/ledger-end`, {
-    method: "GET",
-    headers: authHeaders(opts.token),
-  });
-  const offset = typeof (le.data as any).offset === "number" ? (le.data as any).offset : 0;
-
-  const body = JSON.stringify({
-    verbose: false,
-    activeAtOffset: String(offset),
-    eventFormat: {
-      filtersByParty: {
-        [opts.partyId]: {
-          cumulative: [
-            { identifierFilter: { TemplateFilter: { value: { templateId: opts.templateId, includeCreatedEventBlob: false } } } },
-          ],
-        },
-      },
-      verbose: false,
-    },
-  });
-  const r = await fetchJsonLogged("POST active-contracts", `${opts.baseUrl}/v2/state/active-contracts`, {
-    method: "POST",
-    headers: authHeaders(opts.token),
-    body,
-  });
-  const raw = r.data as any;
-  const list = Array.isArray(raw) ? raw : (raw.activeContracts ?? raw.contracts ?? []);
-  if (!Array.isArray(list) || list.length === 0) return "";
-  const first = list[0] as any;
-  const contractId =
-    first?.contractEntry?.JsActiveContract?.createdEvent?.contractId ??
-    first?.contractEntry?.JsActiveContract?.contractId ??
-    first?.contractId ??
-    first?.contract_id ??
-    "";
-  return typeof contractId === "string" ? contractId : "";
 }
 
 function mustEnv(value: string, name: string) {
@@ -171,50 +126,47 @@ function mustEnv(value: string, name: string) {
 async function createMarketCounter() {
   const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
   const repoRoot = path.join(scriptsDir, "..");
-
-  // Same `.env` as the Vite app (no separate scripts/.env or non-VITE aliases).
   const rootEnv = path.join(repoRoot, ".env");
   if (fs.existsSync(rootEnv)) dotenv.config({ path: rootEnv });
 
-  const BASE_URL = stripTrailingSlash(viteEnv("VITE_CANTON_PARTICIPANT_URL"));
-  if (!BASE_URL) throw new Error("Missing VITE_CANTON_PARTICIPANT_URL in .env (same as the frontend)");
-
-  const PACKAGE_ID = viteEnv("VITE_TRUTHORACLE_PACKAGE_ID");
-  if (!PACKAGE_ID) throw new Error("Missing VITE_TRUTHORACLE_PACKAGE_ID in .env (same as the frontend)");
-  // daml.yaml `name:` — the active-contracts filter wants a package-name reference, not a package id.
-  const PACKAGE_NAME = viteEnv("VITE_TRUTHORACLE_PACKAGE_NAME") || "truthoracle";
-
-  // TruthOracle Daml admin (MarketCounter signatory). Never use VALIDATOR_PARTY—that is the Cantor8 infra party.
-  const DEFAULT_ADMIN_PARTY_ID = "6ff9435fff4d4f43856f688e95a27368::12204e98dc339cc86c6d318f3746f99e880245b4a5827ef1e8bbe7ba6193ef8c0e58";
-  /** Set in .env (recommended); falls back to repo dev default. */
-  const explicitAdminPartyId = viteEnv("VITE_TRUTHORACLE_ADMIN_PARTY_ID");
+  const BASE_URL = stripTrailingSlash(mustEnv(viteEnv("VITE_CANTON_PARTICIPANT_URL"), "VITE_CANTON_PARTICIPANT_URL"));
+  const WALLET_URL = stripTrailingSlash(viteEnv("VITE_ENTERPRISE_WALLET_URL") || "http://localhost:8080");
+  const PACKAGE_ID = mustEnv(viteEnv("VITE_TRUTHORACLE_PACKAGE_ID"), "VITE_TRUTHORACLE_PACKAGE_ID");
+  const admin = mustEnv(viteEnv("VITE_ENTERPRISE_WALLET_PARTY_ID"), "VITE_ENTERPRISE_WALLET_PARTY_ID");
 
   const TEMPLATE_ID = `${PACKAGE_ID}:Truthoracle:MarketCounter`;
-  // Package-name reference, used for the active-contracts template filter.
-  const TEMPLATE_ID_BY_NAME = `#${PACKAGE_NAME}:Truthoracle:MarketCounter`;
-  // Only sent if explicitly configured; otherwise the participant derives the user from the token.
-  const PREPARE_USER_ID = viteEnv("VITE_PREPARE_USER_ID");
+  const commandId = `cmd-${Date.now()}-${randomUUID()}`;
 
-  // Always use Keycloak client_credentials (same as frontend participant API + Keycloak).
+  console.log("=== TruthOracle: create MarketCounter (hybrid: prepare on participant, sign+execute on wallet) ===");
+  console.log(`PARTICIPANT=${BASE_URL}`);
+  console.log(`WALLET=${WALLET_URL}`);
+  console.log(`TEMPLATE_ID=${TEMPLATE_ID}`);
+  console.log(`admin=${admin}`);
+  console.log(`commandId=${commandId}`);
+
+  // 1. Confirm the admin party is registered with the wallet (else the wallet has no key for it).
+  const acct = await fetchJsonLogged(
+    "GET wallet admin account",
+    `${WALLET_URL}/api/v1/accounts/${encodeURIComponent(admin)}`,
+    { method: "GET" }
+  );
+  if (!acct.ok) {
+    throw new Error(
+      `Admin party ${admin} is not registered with the wallet at ${WALLET_URL}. ` +
+        `Create it via POST /api/v1/accounts (see wallet-deploy/README.md).`
+    );
+  }
+
+  // 2. Keycloak token for the Canton participant Ledger API.
   const bearerToken = await getKeycloakAccessToken({
     keycloakUrl: mustEnv(viteEnv("VITE_KEYCLOAK_URL"), "VITE_KEYCLOAK_URL"),
     realm: viteEnv("VITE_KEYCLOAK_REALM") || "master",
     clientId: mustEnv(viteEnv("VITE_KEYCLOAK_CLIENT_ID"), "VITE_KEYCLOAK_CLIENT_ID"),
     clientSecret: mustEnv(viteEnv("VITE_KEYCLOAK_CLIENT_SECRET"), "VITE_KEYCLOAK_CLIENT_SECRET"),
   });
-
   const synchronizerId = await getSynchronizerId(bearerToken, BASE_URL);
 
-  const admin = explicitAdminPartyId || DEFAULT_ADMIN_PARTY_ID;
-  const adminSource = explicitAdminPartyId ? "VITE_TRUTHORACLE_ADMIN_PARTY_ID" : "repo default (DEFAULT_ADMIN_PARTY_ID)";
-
-  console.log("=== TruthOracle: create MarketCounter contract ===");
-  console.log(`BASE_URL=${BASE_URL}`);
-  console.log(`TEMPLATE_ID=${TEMPLATE_ID}`);
-  console.log(`admin=${admin}  (${adminSource})`);
-  console.log(`synchronizerId=${synchronizerId}`);
-
-  const commandId = `cmd-${Date.now()}-${randomUUID()}`;
+  // 3. Prepare on the participant.
   const prepareBody: Json = {
     commandId,
     synchronizerId,
@@ -223,7 +175,7 @@ async function createMarketCounter() {
       {
         CreateCommand: {
           templateId: TEMPLATE_ID,
-          // Daml `Int` (Int64) — the JSON Ledger API accepts a numeric string here.
+          // Daml `Int` (Int64) — JSON Ledger API accepts a numeric string.
           createArguments: { admin, value: "0" },
         },
       },
@@ -233,100 +185,62 @@ async function createMarketCounter() {
     disclosedContracts: [],
     packageIdSelectionPreference: [PACKAGE_ID],
   };
-  if (PREPARE_USER_ID) prepareBody.userId = PREPARE_USER_ID;
-
-  const prep = await fetchJsonLogged("POST interactive-submission/prepare", `${BASE_URL}/v2/interactive-submission/prepare`, {
-    method: "POST",
-    headers: authHeaders(bearerToken),
-    body: JSON.stringify(prepareBody),
-  });
+  const prep = await fetchJsonLogged(
+    "POST /v2/interactive-submission/prepare",
+    `${BASE_URL}/v2/interactive-submission/prepare`,
+    { method: "POST", headers: authHeaders(bearerToken), body: JSON.stringify(prepareBody) }
+  );
   if (!prep.ok) throw new Error(`prepare failed (${prep.status})`);
 
-  const preparedTransaction = (prep.data as any).preparedTransaction ?? (prep.data as any).prepared_transaction ?? "";
-  const hashingSchemeVersion = (prep.data as any).hashingSchemeVersion ?? "HASHING_SCHEME_VERSION_V2";
-  if (typeof preparedTransaction !== "string" || !preparedTransaction) {
-    throw new Error("Prepare did not return preparedTransaction");
-  }
+  const preparedTxB64 = (prep.data as any)?.preparedTransaction ?? (prep.data as any)?.prepared_transaction ?? "";
+  const hashB64 = (prep.data as any)?.preparedTransactionHash ?? (prep.data as any)?.prepared_transaction_hash ?? "";
+  const hashingSchemeVersion = (prep.data as any)?.hashingSchemeVersion ?? (prep.data as any)?.hashing_scheme_version ?? "HASHING_SCHEME_VERSION_V2";
+  if (typeof preparedTxB64 !== "string" || !preparedTxB64) throw new Error("prepare did not return preparedTransaction");
+  if (typeof hashB64 !== "string" || !hashB64) throw new Error("prepare did not return preparedTransactionHash (required by wallet sign_and_execute)");
 
-  // Interactive execute. For a participant-hosted party the participant signs (empty partySignatures works).
-  // For an external / self-custody party this fails with "did not provide an external signature" — by design;
-  // the prepared transaction above must instead be signed + executed via the Cantor8 wallet.
-  const executeBody: Json = {
-    preparedTransaction,
-    hashingSchemeVersion,
-    partySignatures: { signatures: [] },
-    deduplicationPeriod: { Empty: {} },
-    submissionId: `sub-${Date.now()}-${randomUUID()}`,
-  };
-  const exec = await fetchJsonLogged("POST interactive-submission/execute", `${BASE_URL}/v2/interactive-submission/execute`, {
-    method: "POST",
-    headers: authHeaders(bearerToken),
-    body: JSON.stringify(executeBody),
-  });
+  // 4. Wallet signs the hash with the admin party's key and executes.
+  const signBody: Json = { partyId: admin, preparedTxB64, hashingSchemeVersion, hashB64, commandId };
+  const exec = await fetchJsonLogged(
+    "POST wallet /api/v1/transaction/sign_and_execute",
+    `${WALLET_URL}/api/v1/transaction/sign_and_execute`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(signBody) }
+  );
+  if (!exec.ok) throw new Error(`wallet sign_and_execute failed (${exec.status})`);
 
-  if (!exec.ok) {
-    const cause = String((exec.data as any).cause ?? "");
-    if (/external signature/i.test(cause)) {
-      console.log(
-        [
-          "",
-          "⚠️  execute failed because the acting party is an EXTERNAL / self-custody party:",
-          `    ${admin}`,
-          "    The participant does not hold its key, so the prepared transaction (logged above)",
-          "    must be signed + executed via the Cantor8 wallet instead — or point",
-          "    VITE_TRUTHORACLE_ADMIN_PARTY_ID at a participant-hosted party for seeding.",
-        ].join("\n")
-      );
-    }
-    throw new Error(`execute failed (${exec.status})`);
-  }
-
-  const updateId = (exec.data as any).updateId ?? (exec.data as any).update_id ?? "";
-  console.log(`\nExecute done. updateId: ${updateId || "(none)"}`);
-
-  await new Promise((r) => setTimeout(r, 800));
-  const cid = await queryActiveContractIdByTemplate({
-    token: bearerToken,
-    baseUrl: BASE_URL,
-    partyId: admin,
-    templateId: TEMPLATE_ID_BY_NAME,
-  });
-  if (cid) console.log(`\nMarketCounter contract ID: ${cid}`);
-  else console.log("\nMarketCounter created, but contract id not found yet (refresh later).");
+  console.log(`\nDone. Wallet returned: ${typeof exec.data === "string" ? exec.data : JSON.stringify(exec.data)}`);
+  console.log(
+    `\nMarketCounter created. Get the contract id via the frontend's fetchMarketCounterContractId() ` +
+      `or by querying active-contracts as ${admin} (template ${TEMPLATE_ID}).`
+  );
 }
 
 export async function main() {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     console.log([
-      "TruthOracle — create DAML contracts on the participant (logs curl + response for every call).",
+      "TruthOracle — create DAML contracts (Enterprise Wallet signs).",
       "",
       "Usage:",
       "  npm run create:contract",
       "  npm run create:contract -- market-counter",
       "",
-      "Kinds:",
-      "  market-counter (default) — Create Truthoracle:MarketCounter { admin, value: 0 }",
-      "",
-      "Config: same VITE_* vars as the frontend (.env in repo root).",
-      "  VITE_CANTON_PARTICIPANT_URL, VITE_TRUTHORACLE_PACKAGE_ID, VITE_TRUTHORACLE_PACKAGE_NAME",
+      "Required .env:",
+      "  VITE_TRUTHORACLE_PACKAGE_ID — DAR package id",
+      "  VITE_ENTERPRISE_WALLET_PARTY_ID — admin party id (must be registered with the wallet)",
+      "  VITE_CANTON_PARTICIPANT_URL — participant Ledger API base URL",
       "  VITE_KEYCLOAK_URL, VITE_KEYCLOAK_REALM, VITE_KEYCLOAK_CLIENT_ID, VITE_KEYCLOAK_CLIENT_SECRET",
       "",
       "Optional:",
-      "  VITE_TRUTHORACLE_ADMIN_PARTY_ID — MarketCounter admin / actAs party (else repo dev default).",
-      "    NOTE: if this is an external/self-custody party, `execute` requires a wallet signature.",
-      "  VITE_PREPARE_USER_ID — prepare userId (default: omit; participant derives it from the token).",
+      "  VITE_ENTERPRISE_WALLET_URL — wallet base URL (default http://localhost:8080)",
     ].join("\n"));
     return;
   }
 
   const positional = process.argv.slice(2).filter((a) => !a.startsWith("-"));
   const kind = (positional[0] || "market-counter").toLowerCase();
-
   if (kind === "market-counter") {
     await createMarketCounter();
     return;
   }
-
   throw new Error(`Unknown contract kind "${kind}". Use: market-counter (or run with --help)`);
 }
 

@@ -1,0 +1,16 @@
+services:
+  enterprise-wallet:
+    image: cantor8technologies/enterprise-wallet:v0.1.21
+    container_name: truthoracle-enterprise-wallet
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      AWS_REGION: ${AWS_REGION:-}
+      CLOUDWATCH_LOG_GROUP: ${CLOUDWATCH_LOG_GROUP:-}
+      CLOUDWATCH_LOG_STREAM: ${CLOUDWATCH_LOG_STREAM:-}
+      CLOUDWATCH_ENDPOINT: ${CLOUDWATCH_ENDPOINT:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+    ports:
+      - "8080:8080"

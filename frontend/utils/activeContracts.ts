@@ -34,24 +34,32 @@ function getPayload(item: unknown): Record<string, unknown> {
 
 /**
  * Fetch the active MarketCounter contract from the participant Ledger API.
- * Restricts to the contract for this account (payload.admin === partyId) even if the API returns many.
+ *
+ * MarketCounter's signatory is the Enterprise Wallet admin party (created via wallet-deploy/),
+ * not the connected end-user wallet — so we always query as that party. The id is
+ * read from VITE_ENTERPRISE_WALLET_PARTY_ID; an unset env is a configuration bug
+ * (no contract could be visible to anyone else), so we throw rather than return null.
  */
-export async function fetchMarketCounterContractId(
-  partyId: string
-): Promise<string | null> {
+export async function fetchMarketCounterContractId(): Promise<string | null> {
+  const adminParty = String(import.meta.env.VITE_ENTERPRISE_WALLET_PARTY_ID ?? "").trim();
+  if (!adminParty) {
+    throw new Error(
+      "VITE_ENTERPRISE_WALLET_PARTY_ID is not set. Set it in .env to the Enterprise Wallet party id (see wallet-deploy/README.md)."
+    );
+  }
   try {
     const client = createParticipantClient();
     const list = await client.queryActiveContracts(
-      partyId,
+      adminParty,
       templateId(TRUTHORACLE_MODULE, "MarketCounter")
     );
-    // API may return up to 200 contracts; keep only the one for this account (MarketCounter signatory is admin).
-    const forAccount = list.filter((item) => {
+    // API may return up to 200 contracts; keep only the one signed by the admin we asked about.
+    const forAdmin = list.filter((item) => {
       const payload = getPayload(item);
       const admin = payload.admin ?? payload.Admin;
-      return admin === partyId;
+      return admin === adminParty;
     });
-    const first = forAccount[0];
+    const first = forAdmin[0];
     return first ? getContractId(first) : null;
   } catch (e) {
     console.warn("fetchMarketCounterContractId", e);
