@@ -1,118 +1,115 @@
 import { useCantonWallet } from "@/wallets";
-import {Grid, Tabs, TabList, Tab, TabPanels, TabPanel, Box, Spinner, Center} from "@chakra-ui/react";
-import {useEffect, useState, useCallback} from "react";
-import {getMarketCount, getMarketMetadata} from "../../blockend/cantonService";
+import { Grid, Tabs, TabList, Tab, TabPanels, TabPanel, Box, Spinner, Center, Text } from "@chakra-ui/react";
+import { useEffect, useState, useCallback } from "react";
+import {
+  fetchAllPredictionMarkets,
+  fetchAllResolvedMarkets,
+  type PredictionMarketRecord,
+  type ResolvedMarketRecord,
+} from "@/utils/activeContracts";
 import BetCard from "./BetCard";
 
 const Marketplace = () => {
-    const { account } = useCantonWallet();
-    const [activeBets, setActiveBets] = useState<any[]>([]);
-    const [expiredBets, setExpiredBets] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+  const { account } = useCantonWallet();
+  const [active, setActive] = useState<PredictionMarketRecord[]>([]);
+  const [resolved, setResolved] = useState<ResolvedMarketRecord[]>([]);
+  const [loading, setLoading] = useState(true);
 
-    const fetchBets = useCallback(async () => {
-        setLoading(true);
-        setActiveBets([]); // Clear previous bets
-        setExpiredBets([]); // Clear previous expired bets
+  const fetchMarkets = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Both queries hit the participant in parallel; each one already swallows its own
+      // error and returns []. So no try/catch needed around Promise.all.
+      const [act, res] = await Promise.all([fetchAllPredictionMarkets(), fetchAllResolvedMarkets()]);
+      setActive(act);
+      setResolved(res);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-        try {
-            const marketCount = await getMarketCount(); // Get the market count
-            const newActiveBets: any[] = []; // Array to collect active bets
-            const newExpiredBets: any[] = []; // Array to collect expired bets
+  useEffect(() => {
+    fetchMarkets();
+  }, [fetchMarkets, account]);
 
-            for (let i = 0; i < marketCount; i++) {
-                const marketMetadata: any = await getMarketMetadata(i); // Fetch market metadata
-                console.log("i", i);
+  // Allow other parts of the app (e.g. AdminForm) to refresh after creating a market.
+  useEffect(() => {
+    (window as { refreshMarketplace?: () => void }).refreshMarketplace = fetchMarkets;
+    return () => {
+      delete (window as { refreshMarketplace?: () => void }).refreshMarketplace;
+    };
+  }, [fetchMarkets]);
 
-                if (marketMetadata.length > 0) {
-                    if (marketMetadata[0].status === 0) { // Active market
-                        if (i != 8 && i != 5) {
-                            newActiveBets.push(marketMetadata[0]);
-                        }
-                    } else if (marketMetadata[0].status === 1) { // Expired market
-                        newExpiredBets.push(marketMetadata[0]);
-                    }
-                }
-            }
+  const gridTemplate = {
+    base: "repeat(2, 1fr)",
+    sm: "repeat(2, 1fr)",
+    md: "repeat(3, 1fr)",
+    lg: "repeat(3, 1fr)",
+  };
 
-            setActiveBets(newActiveBets); // Update state with active bets
-            setExpiredBets(newExpiredBets); // Update state with expired bets
-            console.log("Active Bets:", newActiveBets);
-            console.log("Expired Bets:", newExpiredBets);
-        } catch (error) {
-            console.error("Error fetching bets:", error);
-        }
-        setLoading(false);
-    }, []);
-
-    useEffect(() => {
-        fetchBets();
-    }, [fetchBets, account]);
-
-    // Expose the refresh function to the window object
-    useEffect(() => {
-        (window as any).refreshMarketplace = fetchBets;
-        return () => {
-            delete (window as any).refreshMarketplace;
-        };
-    }, [fetchBets]);
-
-    return (
-        <Box p={6} className="font-jbm">
-            <Tabs variant="soft-rounded" colorScheme="blue" align="center" mb={6}>
-                <TabList>
-                    <Tab color="white">Active Markets</Tab>
-                    <Tab color="white">Expired Markets</Tab>
-                </TabList>
-                <TabPanels>
-                    <TabPanel>
-                        {loading ? (
-                            <Center minH="200px"><Spinner size="xl" color="#CCCCFF" /></Center>
-                        ) : (
-                        <Grid
-                            templateColumns={{
-                                base: "repeat(2, 1fr)",
-                                sm: "repeat(2, 1fr)",
-                                md: "repeat(3, 1fr)",
-                                lg: "repeat(3, 1fr)",
-                            }}
-                            gap={8}
-                            alignItems={"center"}
-                        >
-                            {activeBets?.map((bet) => (
-                                <div key={bet?.id} className="font-jbm">
-                                    <BetCard {...bet} />
-                                </div>
-                            ))}
-                        </Grid>
-                        )}
-                    </TabPanel>
-                    <TabPanel>
-                        {loading ? (
-                            <Center minH="200px"><Spinner size="xl" color="#CCCCFF" /></Center>
-                        ) : (
-                        <Grid
-                            templateColumns={{
-                                base: "repeat(2, 1fr)",
-                                sm: "repeat(2, 1fr)",
-                                md: "repeat(3, 1fr)",
-                                lg: "repeat(3, 1fr)",
-                            }}
-                            gap={8}
-                            alignItems={"center"}
-                        >
-                            {expiredBets?.map((bet) => (
-                                <div key={bet?.id} className="font-jbm">
-                                    <BetCard {...bet} />
-                                </div>
-                            ))}
-                        </Grid>
-                        )}
-                    </TabPanel>
-                </TabPanels>
-            </Tabs>
-        </Box>
-    );
+  return (
+    <Box p={6} className="font-jbm">
+      <Tabs variant="soft-rounded" colorScheme="blue" align="center" mb={6}>
+        <TabList>
+          <Tab color="white">Active Markets ({active.length})</Tab>
+          <Tab color="white">Expired Markets ({resolved.length})</Tab>
+        </TabList>
+        <TabPanels>
+          <TabPanel>
+            {loading ? (
+              <Center minH="200px">
+                <Spinner size="xl" color="#CCCCFF" />
+              </Center>
+            ) : active.length === 0 ? (
+              <Center minH="200px">
+                <Text color="gray.400">No active markets yet.</Text>
+              </Center>
+            ) : (
+              <Grid templateColumns={gridTemplate} gap={8} alignItems={"center"}>
+                {active.map((m) => (
+                  <BetCard
+                    key={m.contractId}
+                    id={m.marketId}
+                    question={m.question}
+                    imageUrl={m.imageUrl}
+                    option1={m.option1}
+                    option2={m.option2}
+                    status={0}
+                  />
+                ))}
+              </Grid>
+            )}
+          </TabPanel>
+          <TabPanel>
+            {loading ? (
+              <Center minH="200px">
+                <Spinner size="xl" color="#CCCCFF" />
+              </Center>
+            ) : resolved.length === 0 ? (
+              <Center minH="200px">
+                <Text color="gray.400">No resolved markets yet.</Text>
+              </Center>
+            ) : (
+              <Grid templateColumns={gridTemplate} gap={8} alignItems={"center"}>
+                {resolved.map((m) => (
+                  <BetCard
+                    key={m.contractId}
+                    id={m.marketId}
+                    question={m.question}
+                    imageUrl=""
+                    option1={m.option1}
+                    option2={m.option2}
+                    status={1}
+                    result={m.result}
+                  />
+                ))}
+              </Grid>
+            )}
+          </TabPanel>
+        </TabPanels>
+      </Tabs>
+    </Box>
+  );
 };
 
 export default Marketplace;

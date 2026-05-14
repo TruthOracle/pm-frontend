@@ -1,4 +1,5 @@
 import { useCantonWallet } from "@/wallets";
+import { useIsAdmin } from "@/lib/useIsAdmin";
 import { WalletSelector } from "./WalletSelector";
 import { Link } from 'react-router-dom';
 import {Button, useToast} from "@chakra-ui/react";
@@ -6,6 +7,7 @@ import {Button, useToast} from "@chakra-ui/react";
 export function Header() {
 
     const { account } = useCantonWallet();
+    const isAdmin = useIsAdmin();
 
    const toast = useToast()
 
@@ -65,7 +67,9 @@ export function Header() {
         <Link to="/portfolio"  style={{marginRight:"40px", zIndex:1}} className="font-jbm text-l">Portfolio</Link>
         <Link to="/rewards" className="font-jbm text-l" style={{marginRight:"40px", zIndex:1}}>Rewards</Link>
         <Link to="/faq" className="font-jbm text-l" style={{marginRight:"40px", zIndex:1}}>FAQ's</Link>
-        <Link to="/admin" className="font-jbm text-l" style={{marginRight:"40px", zIndex:1}}>Create Market</Link>
+        {isAdmin && (
+          <Link to="/admin" className="font-jbm text-l" style={{marginRight:"40px", zIndex:1}}>Create Market</Link>
+        )}
                 <Button onClick={handleClick} style={{zIndex:1, borderRadius:"20px", "height":"30px"}}>Get Canton Coin</Button>
 
 

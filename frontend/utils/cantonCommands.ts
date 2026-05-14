@@ -4,6 +4,16 @@ import { TRUTHORACLE_PACKAGE_ID } from "@/constants";
 const TRUTHORACLE_MODULE = "Truthoracle";
 const INCENTIVES_MODULE = "Incentives";
 
+/**
+ * Daml `Int` (Int64) and `Decimal`/`Numeric` fields must be JSON-encoded as strings
+ * on the JSON Ledger API — JSON numbers can't represent Int64 precisely. The participant
+ * rejects raw numbers with "Expected ujson.Str (data: <value>)" / LEDGER_API_INTERNAL_ERROR.
+ * Use this everywhere a Daml Int/Decimal field appears in choiceArguments / createArguments.
+ */
+function damlInt(n: number): string {
+  return Math.trunc(n).toString();
+}
+
 function templateId(moduleName: string, entityName: string) {
   return {
     packageId: TRUTHORACLE_PACKAGE_ID,
@@ -48,10 +58,11 @@ export function buildInitMarketParams(
           description,
           option1,
           option2,
-          createdAt,
-          initialOptionShares1: initialShares,
-          initialOptionShares2: initialShares,
-          liquidityParam,
+          // Daml Int → JSON string (see damlInt comment).
+          createdAt: damlInt(createdAt),
+          initialOptionShares1: damlInt(initialShares),
+          initialOptionShares2: damlInt(initialShares),
+          liquidityParam: damlInt(liquidityParam),
         },
       },
     },
@@ -79,9 +90,10 @@ export function buildBuySharesParams(
         choice: "Trade",
         choiceArgument: {
           buyer: partyId,
-          option,
-          numShares,
-          cost,
+          // Daml Int → JSON string.
+          option: damlInt(option),
+          numShares: damlInt(numShares),
+          cost: damlInt(cost),
           existingPosition: existingPositionContractId ?? null,
         },
       },
@@ -106,11 +118,11 @@ export function buildClaimAllRewardsParams(
         contractId: userRewardsSummaryContractId,
         choice: "ClaimRewardsBatch",
         choiceArgument: {
-          // DAML RewardClaim: { marketId, rewardType, amount }
+          // DAML RewardClaim: { marketId: Int, rewardType, amount: Int } — Int → JSON string.
           claims: claimArgs.map(({ marketId, rewardType, amount }) => ({
-            marketId,
+            marketId: damlInt(marketId),
             rewardType,
-            amount,
+            amount: damlInt(amount),
           })),
         },
       },
