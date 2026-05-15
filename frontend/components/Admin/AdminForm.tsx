@@ -3,6 +3,7 @@ import React, {useState, useEffect} from 'react'
 import { useCantonWallet } from "@/wallets";
 import { buildInitMarketParams } from "@/utils/cantonCommands";
 import { fetchMarketCounterContractId } from "@/utils/activeContracts";
+import { enterpriseWalletPartyId, submitAdminTransaction } from "@/lib/enterpriseWalletSubmit";
 
 type Props = {}
 
@@ -76,8 +77,9 @@ function AdminForm({}: Props) {
         }
         setMarketCounterCid(freshCid);
 
+        const adminParty = enterpriseWalletPartyId() || account.address;
         const params = buildInitMarketParams(
-            account.address,
+            adminParty,
             formData.question,
             formData.imageURL,
             formData.description,
@@ -87,11 +89,12 @@ function AdminForm({}: Props) {
             freshCid
         );
         try {
-            const committedTxn = await signAndSubmitTransaction(params);
+            const committedTxn = await submitAdminTransaction(params, signAndSubmitTransaction);
             console.log(`Committed transaction: ${committedTxn.hash}`);
+            (window as { refreshMarketplace?: () => void }).refreshMarketplace?.();
             toast({
                 title: "Market Created",
-                description: "We've created the market successfully!",
+                description: "Market created on ledger. Check Marketplace if the card does not appear yet.",
                 status: "success",
                 duration: 9000,
                 isClosable: true,

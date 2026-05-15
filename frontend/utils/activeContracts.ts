@@ -116,6 +116,25 @@ function asString(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
+/** JSON Ledger API may return Party lists as strings or wrapped objects. */
+function parseParticipants(v: unknown): string[] {
+  const raw = v ?? (v as undefined);
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item === "string" && item.trim()) {
+      out.push(item.trim());
+      continue;
+    }
+    if (item && typeof item === "object") {
+      const o = item as Record<string, unknown>;
+      const party = o.party ?? o.Party ?? o.value ?? o.id;
+      if (typeof party === "string" && party.trim()) out.push(party.trim());
+    }
+  }
+  return out;
+}
+
 /**
  * List every active PredictionMarket. Queries as the Enterprise Wallet admin party
  * because that party is the template's `signatory admin` — end users only see contracts
@@ -146,7 +165,7 @@ export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecor
         optionShares1: num(p.optionShares1),
         optionShares2: num(p.optionShares2),
         liquidityParam: num(p.liquidityParam),
-        participants: Array.isArray(p.participants) ? (p.participants as string[]) : [],
+        participants: parseParticipants(p.participants ?? p.Participants),
       });
     }
     out.sort((a, b) => b.marketId - a.marketId);
