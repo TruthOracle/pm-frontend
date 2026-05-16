@@ -7,7 +7,8 @@ import {
   type PredictionMarketRecord,
   type ResolvedMarketRecord,
 } from "@/utils/activeContracts";
-import BetCard from "./BetCard";
+import MarketCard from "./MarketCard";
+
 
 const Marketplace = () => {
   const { account } = useCantonWallet();
@@ -67,7 +68,7 @@ const Marketplace = () => {
             ) : (
               <Grid templateColumns={gridTemplate} gap={8} alignItems={"center"}>
                 {active.map((m) => (
-                  <BetCard
+                  <MarketCard
                     key={m.contractId}
                     id={m.marketId}
                     question={m.question}
@@ -92,7 +93,7 @@ const Marketplace = () => {
             ) : (
               <Grid templateColumns={gridTemplate} gap={8} alignItems={"center"}>
                 {resolved.map((m) => (
-                  <BetCard
+                  <MarketCard
                     key={m.contractId}
                     id={m.marketId}
                     question={m.question}

@@ -1,7 +1,7 @@
 import { Avatar, Flex, Stack, Text } from "@chakra-ui/react";
 import { useNavigate } from "react-router-dom";
 
-export type BetCardProps = {
+export type MarketCardProps = {
   /** Stable id for routing — typically the Daml `marketId`. */
   id: string | number;
   question: string;
@@ -14,9 +14,13 @@ export type BetCardProps = {
   result?: "Option1" | "Option2" | "Draw" | string;
 };
 
-const BetCard = (props: BetCardProps) => {
+const MarketCard = (props: MarketCardProps) => {
   const navigate = useNavigate();
-  const handleCardClick = () => navigate(`/bet/${props.id}`);
+  // Active and resolved markets can collide on marketId after a participant/counter
+  // reset (counter restarts at 1 but old ResolvedMarket cids stay on-ledger).
+  // Carry status in the query string so the detail page can pick the right one.
+  const statusParam = props.status === 0 ? "active" : "resolved";
+  const handleCardClick = () => navigate(`/market/${props.id}?status=${statusParam}`);
 
   const resultText = (() => {
     if (props.status === 0) return null;
@@ -99,4 +103,4 @@ const BetCard = (props: BetCardProps) => {
   );
 };
 
-export default BetCard;
+export default MarketCard;

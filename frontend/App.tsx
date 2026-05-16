@@ -5,7 +5,7 @@ import Marketplace from "./components/Marketplace";
 import Homepage from "./components/Homepage";
 import Portfolio from "./components/Portfolio";
 import Admin from "./components/Admin/Admin";
-import BetDetails from './components/BetDetails';
+import MarketDetails from './components/MarketDetails';
 import Rewards from './components/Rewards';
 import { WalletProvider } from './components/WalletProvider';
 import { useIsAdmin } from "@/lib/useIsAdmin";
@@ -49,10 +49,9 @@ function App() {
               }
             />
             <Route path="/portfolio" element={<Portfolio/>} />
-            <Route path="/bet/:id" element={<BetDetails />} /> 
+            <Route path="/market/:id" element={<MarketDetails />} />
             <Route path="/admin" element={<AdminRoute />} />
             <Route path="/rewards" element={<Rewards/>} />
-            {/* <Route path="/market/:address" element={<Market/>} /> */}
 
 
           </Routes>

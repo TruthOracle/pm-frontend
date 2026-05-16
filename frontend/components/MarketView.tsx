@@ -14,7 +14,7 @@ import {
   useToast,
 } from "@chakra-ui/react";
 import React, { useState, useEffect, useCallback } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { useCantonWallet } from "@/wallets";
 import { useIsAdmin } from "@/lib/useIsAdmin";
 import {
@@ -34,7 +34,7 @@ import {
   submitAdminTransaction,
 } from "@/lib/enterpriseWalletSubmit";
 
-type MarketView = {
+type MarketViewModel = {
   marketId: number;
   question: string;
   description: string;
@@ -52,7 +52,7 @@ type MarketView = {
   result?: "Option1" | "Option2" | "Draw" | string;
 };
 
-function toView(active?: PredictionMarketRecord, resolved?: ResolvedMarketRecord): MarketView | null {
+function toView(active?: PredictionMarketRecord, resolved?: ResolvedMarketRecord): MarketViewModel | null {
   if (active) {
     return {
       marketId: active.marketId,
@@ -95,11 +95,16 @@ function getCurrentPrice(q1: number, q2: number, b: number) {
   return { val1: val_1 / (val_1 + val_2), val2: val_2 / (val_1 + val_2) };
 }
 
-const BetBuyCard = () => {
+const MarketView = () => {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  // `?status=resolved` is set by MarketCard when the user clicks a resolved tile.
+  // It disambiguates the case where an active and a resolved market share a marketId
+  // (happens when the participant/counter was reset but old ResolvedMarket cids stayed).
+  const preferResolved = searchParams.get("status") === "resolved";
   const marketIdNum = id != null && id !== "" ? Number(id) : NaN;
 
-  const [view, setView] = useState<MarketView | null>(null);
+  const [view, setView] = useState<MarketViewModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [amount, setAmount] = useState<number>(0);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
@@ -130,15 +135,19 @@ const BetBuyCard = () => {
             : matches.reduce((best, m) =>
                 m.participants.length >= best.participants.length ? m : best
               );
-        const done = !active ? resolved.find((m) => m.marketId === marketIdNum) : undefined;
-        setView(toView(active, done));
-        setPredictionMarketCid(active?.contractId ?? null);
-        return active ?? null;
+        const done = resolved.find((m) => m.marketId === marketIdNum);
+        // If the user navigated from a resolved card (?status=resolved), pin to the
+        // resolved record even when an active market with the same marketId exists
+        // (post-redeploy counter collision). Otherwise prefer active.
+        const useResolved = preferResolved && done;
+        setView(useResolved ? toView(undefined, done) : toView(active, done));
+        setPredictionMarketCid(useResolved ? null : active?.contractId ?? null);
+        return useResolved ? null : active ?? null;
       } finally {
         if (!opts?.silent) setLoading(false);
       }
     },
-    [marketIdNum]
+    [marketIdNum, preferResolved]
   );
 
   useEffect(() => {
@@ -413,14 +422,30 @@ const BetBuyCard = () => {
           <Stack width={"70%"}>
             <Flex>
               <Text mr={2}>{view.option1}</Text>
-              <Text> - {view.optionShares1} Shares</Text>
+              <Text>
+                {" - "}
+                {view.optionShares1} Shares ({((currentPrice?.val1 ?? 0) * 100).toFixed(1)}%)
+              </Text>
             </Flex>
-            <Progress width={"50%"} colorScheme="green" size="sm" value={view.optionShares1} />
+            <Progress
+              width={"50%"}
+              colorScheme="green"
+              size="sm"
+              value={(currentPrice?.val1 ?? 0) * 100}
+            />
             <Flex width={"100%"}>
               <Text mr={2}>{view.option2} </Text>
-              <Text> - {view.optionShares2} Shares</Text>
+              <Text>
+                {" - "}
+                {view.optionShares2} Shares ({((currentPrice?.val2 ?? 0) * 100).toFixed(1)}%)
+              </Text>
             </Flex>
-            <Progress width={"50%"} colorScheme="red" size="sm" value={view.optionShares2} />
+            <Progress
+              width={"50%"}
+              colorScheme="red"
+              size="sm"
+              value={(currentPrice?.val2 ?? 0) * 100}
+            />
           </Stack>
 
           <StatGroup>
@@ -430,9 +455,11 @@ const BetBuyCard = () => {
                 {"$"}
                 {currentPrice?.val1.toFixed(2)}
               </StatNumber>
-              <StatHelpText>
-                <StatArrow type="increase" />
-              </StatHelpText>
+              {view.status === 0 && (
+                <StatHelpText>
+                  <StatArrow type="increase" />
+                </StatHelpText>
+              )}
             </Stat>
 
             <Stat>
@@ -441,9 +468,11 @@ const BetBuyCard = () => {
                 {"$"}
                 {currentPrice?.val2.toFixed(2)}
               </StatNumber>
-              <StatHelpText>
-                <StatArrow type="decrease" />
-              </StatHelpText>
+              {view.status === 0 && (
+                <StatHelpText>
+                  <StatArrow type="decrease" />
+                </StatHelpText>
+              )}
             </Stat>
           </StatGroup>
         </Flex>
@@ -710,12 +739,57 @@ const BetBuyCard = () => {
               <Text color="#CCCCFF" fontSize="lg" mt={4}>
                 {getResultText()}
               </Text>
+              <div className="mt-4 text-left text-sm text-gray-300 space-y-1">
+                <div className="flex justify-between">
+                  <span>{view.option1}</span>
+                  <span>
+                    {view.optionShares1} ({((currentPrice?.val1 ?? 0) * 100).toFixed(1)}%)
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>{view.option2}</span>
+                  <span>
+                    {view.optionShares2} ({((currentPrice?.val2 ?? 0) * 100).toFixed(1)}%)
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
+
+          {isAdmin && (
+            <div
+              style={{ color: "white", backgroundColor: "#18191C" }}
+              className="font-jbm p-4 mt-4 rounded-lg border-2 border-[#CCCCFF] shadow-md w-full max-w-sm mx-auto"
+            >
+              <div className="text-center mb-3">
+                <h2 className="text-lg font-bold">Participants</h2>
+                <p className="text-xs text-gray-400 mt-1">
+                  Market is resolved — read-only. {view.participants.length} participant
+                  {view.participants.length === 1 ? "" : "s"}.
+                </p>
+              </div>
+              {view.participants.length > 0 ? (
+                <ul
+                  className="text-left text-xs text-gray-300 max-h-48 overflow-y-auto rounded border border-gray-700 divide-y divide-gray-700"
+                  aria-label="Market participants"
+                >
+                  {view.participants.map((partyId) => (
+                    <li key={partyId} className="break-all px-2 py-2 font-mono">
+                      {partyId}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-gray-500 text-center">
+                  Participant list isn't preserved on the ResolvedMarket contract.
+                </p>
+              )}
+            </div>
+          )}
         </Stack>
       )}
     </Flex>
   );
 };
 
-export default BetBuyCard;
+export default MarketView;
