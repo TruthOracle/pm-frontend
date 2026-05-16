@@ -29,6 +29,10 @@ import {
   type PredictionMarketRecord,
   type ResolvedMarketRecord,
 } from "@/utils/activeContracts";
+import {
+  enterpriseWalletPartyId,
+  submitAdminTransaction,
+} from "@/lib/enterpriseWalletSubmit";
 
 type MarketView = {
   marketId: number;
@@ -110,27 +114,32 @@ const BetBuyCard = () => {
   const isAdmin = useIsAdmin();
   const toast = useToast();
 
-  const refreshMarket = useCallback(async () => {
-    if (isNaN(marketIdNum)) return;
-    setLoading(true);
-    try {
-      const [actives, resolved] = await Promise.all([
-        fetchAllPredictionMarkets(),
-        fetchAllResolvedMarkets(),
-      ]);
-      const active = actives.find((m) => m.marketId === marketIdNum);
-      const done = !active ? resolved.find((m) => m.marketId === marketIdNum) : undefined;
-      setView(toView(active, done));
-      // fetchAllPredictionMarkets queries via the Enterprise Wallet admin party (template
-      // signatory), so its cid is the canonical one to use for Trade/RecordResult — both
-      // admin and end users submit against the same cid. Querying as a non-admin user
-      // returns nothing until they've been added via AddParticipant, which would leave the
-      // BUY button stuck on "Loading market…".
-      setPredictionMarketCid(active?.contractId ?? null);
-    } finally {
-      setLoading(false);
-    }
-  }, [marketIdNum]);
+  const refreshMarket = useCallback(
+    async (opts?: { silent?: boolean }): Promise<PredictionMarketRecord | null> => {
+      if (isNaN(marketIdNum)) return null;
+      if (!opts?.silent) setLoading(true);
+      try {
+        const [actives, resolved] = await Promise.all([
+          fetchAllPredictionMarkets(),
+          fetchAllResolvedMarkets(),
+        ]);
+        const matches = actives.filter((m) => m.marketId === marketIdNum);
+        const active =
+          matches.length === 0
+            ? undefined
+            : matches.reduce((best, m) =>
+                m.participants.length >= best.participants.length ? m : best
+              );
+        const done = !active ? resolved.find((m) => m.marketId === marketIdNum) : undefined;
+        setView(toView(active, done));
+        setPredictionMarketCid(active?.contractId ?? null);
+        return active ?? null;
+      } finally {
+        if (!opts?.silent) setLoading(false);
+      }
+    },
+    [marketIdNum]
+  );
 
   useEffect(() => {
     refreshMarket();
@@ -269,8 +278,9 @@ const BetBuyCard = () => {
     const payout = Math.max(0, Math.floor(payoutPerShare));
     setResolving(true);
     try {
-      const params = buildRecordResultParams(account.address, predictionMarketCid, resolveResult, payout);
-      const committedTxn = await signAndSubmitTransaction(params);
+      const adminParty = enterpriseWalletPartyId() || account.address;
+      const params = buildRecordResultParams(adminParty, predictionMarketCid, resolveResult, payout);
+      const committedTxn = await submitAdminTransaction(params, signAndSubmitTransaction);
       void committedTxn.hash;
 
       const w = window as unknown as { refreshPortfolio?: () => void; refreshMarketplace?: () => void };
@@ -326,18 +336,38 @@ const BetBuyCard = () => {
     }
     setAddingParticipant(true);
     try {
-      const params = buildAddParticipantParams(account.address, predictionMarketCid, newParty);
-      const committedTxn = await signAndSubmitTransaction(params);
+      const adminParty = enterpriseWalletPartyId() || account.address;
+      const params = buildAddParticipantParams(adminParty, predictionMarketCid, newParty);
+      const committedTxn = await submitAdminTransaction(params, signAndSubmitTransaction);
       void committedTxn.hash;
       setAddParticipantInput("");
-      await refreshMarket();
-      toast({
-        title: "Participant added",
-        description: `${newParty} can now trade on this market.`,
-        status: "success",
-        duration: 6000,
-        isClosable: true,
-      });
+
+      // AddParticipant archives the old cid and creates a new contract — poll until visible.
+      let synced: PredictionMarketRecord | null = null;
+      for (let i = 0; i < 12; i++) {
+        synced = await refreshMarket({ silent: true });
+        if (synced?.participants.includes(newParty)) break;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+
+      if (synced?.participants.includes(newParty)) {
+        toast({
+          title: "Participant added",
+          description: `${newParty} can now trade on this market.`,
+          status: "success",
+          duration: 6000,
+          isClosable: true,
+        });
+      } else {
+        toast({
+          title: "Participant submitted",
+          description:
+            "Transaction was sent. If the list is still empty, click Refresh below or reload the page.",
+          status: "info",
+          duration: 8000,
+          isClosable: true,
+        });
+      }
     } catch (e) {
       console.error(e);
       toast({
@@ -546,6 +576,20 @@ const BetBuyCard = () => {
                   {view.participants.length === 1 ? "" : "s"} so far.
                 </p>
               </div>
+              {view.participants.length > 0 ? (
+                <ul
+                  className="text-left text-xs text-gray-300 mb-3 max-h-36 overflow-y-auto rounded border border-gray-700 divide-y divide-gray-700"
+                  aria-label="Market participants"
+                >
+                  {view.participants.map((partyId) => (
+                    <li key={partyId} className="break-all px-2 py-2 font-mono">
+                      {partyId}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-gray-500 mb-3 text-center">No participants yet — add a party id below.</p>
+              )}
               <input
                 type="text"
                 value={addParticipantInput}
@@ -554,14 +598,25 @@ const BetBuyCard = () => {
                 className="text-black py-2 px-3 w-full text-sm mb-2 rounded"
                 style={{ borderColor: "#333", borderWidth: "2px" }}
               />
-              <button
-                onClick={handleAddParticipantClick}
-                className="text-black font-bold py-2 px-4 rounded bg-[#ebebf0] hover:bg-[#CCCCFF] hover:text-white disabled:bg-[#2a2b30] disabled:text-gray-500 disabled:cursor-not-allowed"
-                style={{ borderColor: "#333", borderWidth: "2px", width: "100%" }}
-                disabled={addingParticipant || !predictionMarketCid || !account || !addParticipantInput.trim()}
-              >
-                {addingParticipant ? "Adding…" : "ADD"}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleAddParticipantClick}
+                  className="text-black font-bold py-2 px-4 rounded bg-[#ebebf0] hover:bg-[#CCCCFF] hover:text-white disabled:bg-[#2a2b30] disabled:text-gray-500 disabled:cursor-not-allowed flex-1"
+                  style={{ borderColor: "#333", borderWidth: "2px" }}
+                  disabled={addingParticipant || !predictionMarketCid || !account || !addParticipantInput.trim()}
+                >
+                  {addingParticipant ? "Adding…" : "ADD"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void refreshMarket()}
+                  className="text-gray-300 font-bold py-2 px-3 rounded border-2 border-gray-600 hover:border-[#CCCCFF] hover:text-white disabled:opacity-50"
+                  disabled={addingParticipant}
+                  title="Reload participants from ledger"
+                >
+                  Refresh
+                </button>
+              </div>
             </div>
           )}
 
