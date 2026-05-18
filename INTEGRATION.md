@@ -348,7 +348,7 @@ After a successful execute, the participant has one active `MarketCounter` contr
 - Ensure the package is uploaded and vetted on the participant
 
 ### Transaction rejected
-- Check that the party has authority (signatory/controller) for the choice
+- Check that the party has authorities (signatory/controller) for the choice
 - Verify all required contract IDs are correct
 - Check choice arguments match the DAML template signature
 - Review participant logs for detailed error messages
