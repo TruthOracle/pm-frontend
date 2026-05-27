@@ -1,5 +1,5 @@
 import type { PrepareExecuteParams } from "@/lib/cantonDapp";
-import { TRUTHORACLE_PACKAGE_ID, TRUTHORACLE_PACKAGE_NAME } from "@/constants";
+import { TRUTHORACLE_PACKAGE_ID } from "@/constants";
 
 const TRUTHORACLE_MODULE = "Truthoracle";
 const INCENTIVES_MODULE = "Incentives";
@@ -15,13 +15,14 @@ function damlInt(n: number): string {
 }
 
 // JSON Ledger API templateId reference. Two valid forms:
-//   "<packageId>:<Module>:<Entity>"   — bare package id
+//   "<packageId>:<Module>:<Entity>"   — bare package id (used here; Cantor8's popup
+//                                       expects the bare id in commands AND
+//                                       disclosedContracts payloads — see Vasiliy's note)
 //   "#<packageName>:<Module>:<Entity>" — package-name reference (lets the participant
-//                                       pick the upgraded version)
-// The Cantor8 popup wallet expects the #name form (per Kate's working example);
-// the JSON Ledger API and Enterprise Wallet /external/submit both accept it too.
-function templateId(moduleName: string, entityName: string): string {
-  return `#${TRUTHORACLE_PACKAGE_NAME}:${moduleName}:${entityName}`;
+//                                       pick the upgraded version; still required for
+//                                       active-contracts queries — see activeContracts.ts)
+export function templateId(moduleName: string, entityName: string): string {
+  return `${TRUTHORACLE_PACKAGE_ID}:${moduleName}:${entityName}`;
 }
 
 function baseParams(partyId: string, commands: unknown[]): PrepareExecuteParams {

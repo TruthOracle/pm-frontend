@@ -21,9 +21,9 @@ import {
   buildAddParticipantParams,
   buildBuySharesParams,
   buildRecordResultParams,
+  templateId,
   type DisclosedContractArg,
 } from "@/utils/cantonCommands";
-import { TRUTHORACLE_PACKAGE_NAME } from "@/constants";
 import {
   fetchAllPredictionMarkets,
   fetchAllResolvedMarkets,
@@ -285,7 +285,7 @@ const MarketView = () => {
       const disclosed: DisclosedContractArg[] = predictionMarketDisclosure?.createdEventBlob
         ? [
             {
-              templateId: `#${TRUTHORACLE_PACKAGE_NAME}:Truthoracle:PredictionMarket`,
+              templateId: templateId("Truthoracle", "PredictionMarket"),
               contractId: predictionMarketCid,
               createdEventBlob: predictionMarketDisclosure.createdEventBlob,
               synchronizerId: predictionMarketDisclosure.synchronizerId,

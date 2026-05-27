@@ -201,15 +201,15 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
           }),
         );
 
-        // NOTE: SDK 0.3 .d.ts types `disclosedContracts` as `string`, but the
-        // popup wallet's runtime expects an array (matches the working example
-        // shared by C8). Cast to silence TS.
+        // SDK 0.3 .d.ts types `disclosedContracts` as `string`; per Vasiliy this
+        // should be a JSON-stringified array — same shape as `commandsJson` —
+        // not a raw array. Stringify the DisclosedContract[] from the dApp.
         const signAndExecuteInput = {
           note: "TruthOracle transaction",
           partyId: params.actAs?.[0] ?? partyId,
           commandId,
           commandsJson: JSON.stringify(normalizeCommands(params.commands)),
-          disclosedContracts: (params.disclosedContracts ?? []) as unknown as string,
+          disclosedContracts: JSON.stringify(params.disclosedContracts ?? []),
         };
         console.log(
           "[Cantor8] signAndExecute payload:\n" + JSON.stringify(signAndExecuteInput, null, 2),
