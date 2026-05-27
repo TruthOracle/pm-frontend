@@ -68,7 +68,7 @@ Front-end: [https://truth-oracle.vercel.app/](https://truth-oracle.vercel.app/)
 ## Documentation
 
 - **Getting Started:**  
-  See this README for setup, installation, and deployment.
+  See this README for setup, installation, and deployments.
 
 - **Architecture Overview:**  
   - [Market Resolution System](https://github.com/Truth-Oracle/truthoracle/tree/main/market-resolution)
