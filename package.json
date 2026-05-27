@@ -12,7 +12,9 @@
     "_fmt": "prettier 'frontend/**/*.ts'",
     "fmt": "npm run _fmt -- --write",
     "create:contract": "tsx scripts/create-contract.ts",
-    "ledger:query": "tsx scripts/ledger-query.ts"
+    "ledger:query": "tsx scripts/ledger-query.ts",
+    "dars:build": "cd daml && dpm build",
+    "dars:upload": "tsx scripts/upload-dar.ts"
   },
   "dependencies": {
     "@canton-network/core-splice-provider": "^0.23.0",

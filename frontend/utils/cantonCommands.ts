@@ -73,8 +73,24 @@ export function buildInitMarketParams(
 }
 
 /**
+ * A DisclosedContract entry as accepted by JsPrepareSubmissionRequest.disclosedContracts
+ * and forwarded by the wallet (Cantor8/Loop). `createdEventBlob` is required; templateId,
+ * contractId, and synchronizerId are optional but should be set when known.
+ */
+export interface DisclosedContractArg {
+  templateId?: string;
+  contractId?: string;
+  createdEventBlob: string;
+  synchronizerId?: string;
+}
+
+/**
  * Exercise PredictionMarket.Trade. Requires the PredictionMarket contract ID.
  * existingPositionContractId can be null when the user has no position yet.
+ *
+ * Pass `disclosedContracts` when the buyer's participant can't see the PredictionMarket cid
+ * directly (external/self-custody party that hasn't been added via AddParticipant) — the
+ * wallet forwards them to the participant so the prepare call resolves the contract.
  */
 export function buildBuySharesParams(
   partyId: string,
@@ -82,7 +98,8 @@ export function buildBuySharesParams(
   option: number, // 1 or 2
   numShares: number,
   cost: number,
-  existingPositionContractId: string | null
+  existingPositionContractId: string | null,
+  disclosedContracts?: DisclosedContractArg[],
 ): PrepareExecuteParams {
   const commands = [
     {
@@ -101,7 +118,11 @@ export function buildBuySharesParams(
       },
     },
   ];
-  return baseParams(partyId, commands);
+  const params = baseParams(partyId, commands);
+  if (disclosedContracts && disclosedContracts.length > 0) {
+    params.disclosedContracts = disclosedContracts;
+  }
+  return params;
 }
 
 /**

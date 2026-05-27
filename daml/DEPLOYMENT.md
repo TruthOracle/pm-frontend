@@ -4,6 +4,56 @@ Step-by-step guide to build the DAR and deploy it on Canton (local node or Canto
 
 ---
 
+## Quick: build & upload to a remote participant (npm scripts)
+
+For the Cantor8 zkpc (MainNet) node — or any other remote participant exposing the JSON Ledger API with Keycloak client_credentials auth — use the npm scripts from the repo root.
+
+1. Fill these in `.env` (placeholders are pre-populated for the zkpc node; client id/secret come from Cantor8):
+
+   ```
+   ZKPC_LEDGER_API_URL=https://api.validator.main.zkpc.cantor8.tech/api/ledger
+   ZKPC_KEYCLOAK_URL=https://auth.main.zkpc.cantor8.tech
+   ZKPC_KEYCLOAK_REALM=master
+   ZKPC_KEYCLOAK_CLIENT_ID=<from Cantor8>
+   ZKPC_KEYCLOAK_CLIENT_SECRET=<from Cantor8>
+   ```
+
+2. Build the DAR:
+
+   ```
+   npm run dars:build
+   ```
+
+   Produces `daml/.daml/dist/truthoracle-1.0.0.dar`.
+
+3. Upload it:
+
+   ```
+   npm run dars:upload
+   ```
+
+   On success the script prints the participant's response (empty `{}` for `POST /v2/packages` in Canton 3.4). To upload a different DAR, pass a path: `npm run dars:upload -- path/to/file.dar`. Run `npm run dars:upload -- --help` for details.
+
+4. **Get the package ID** (the upload response doesn't contain it — Canton 3.4 returns `{}`). The ID lives inside the DAR's `META-INF/MANIFEST.MF` as the `Main-Dalf` suffix:
+
+   ```
+   # With the Daml SDK on PATH (recommended):
+   daml damlc inspect-dar daml/.daml/dist/truthoracle-1.0.0.dar --json | jq -r .main_package_id
+
+   # Or read the manifest directly (no SDK required — MANIFEST.MF wraps at 72 chars
+   # with leading-space continuation, so strip whitespace before parsing):
+   unzip -p daml/.daml/dist/truthoracle-1.0.0.dar META-INF/MANIFEST.MF \
+     | tr -d '\r\n ' \
+     | grep -oE 'Main-Dalf:[^/]+' \
+     | sed -E 's/.*-([0-9a-f]{64})$/\1/'
+   ```
+
+   Both print the 64-hex package ID (e.g. `193d7a7edc7229ab83e61452889dbfb066fa6fd497f1e847d3cb6bef7a27df34`). Set it in the repo-root `.env` as `VITE_TRUTHORACLE_PACKAGE_ID=…` so the frontend's `frontend/constants.ts` fallback is overridden, and the participant resolves choices to the freshly uploaded package.
+
+   To confirm the participant has it, `curl -H "Authorization: Bearer $TOKEN" "$LEDGER_API/v2/packages"` returns `{"packageIds":[…]}` — the new ID will be in that list (the endpoint doesn't label them, so cross-reference by the ID you extracted above).
+
+---
+
 ## Quick deploy with DPM (local sandbox)
 
 From the `daml/` directory after building:

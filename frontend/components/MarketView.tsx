@@ -21,7 +21,9 @@ import {
   buildAddParticipantParams,
   buildBuySharesParams,
   buildRecordResultParams,
+  type DisclosedContractArg,
 } from "@/utils/cantonCommands";
+import { TRUTHORACLE_PACKAGE_NAME } from "@/constants";
 import {
   fetchAllPredictionMarkets,
   fetchAllResolvedMarkets,
@@ -137,6 +139,13 @@ const MarketView = () => {
   const [amount, setAmount] = useState<number>(0);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [predictionMarketCid, setPredictionMarketCid] = useState<string | null>(null);
+  // Captured from the active PredictionMarket record so Trade can pass the contract
+  // as a DisclosedContract — external (Cantor8) buyers don't see the cid via their
+  // own participant view, and the wallet's prepare call needs the blob to resolve it.
+  const [predictionMarketDisclosure, setPredictionMarketDisclosure] = useState<{
+    createdEventBlob: string;
+    synchronizerId?: string;
+  } | null>(null);
   const [userMarketDataCid, setUserMarketDataCid] = useState<string | null>(null);
   const [resolveResult, setResolveResult] = useState<"Option1" | "Option2" | "Draw">("Option1");
   const [payoutPerShare, setPayoutPerShare] = useState<number>(0);
@@ -171,6 +180,11 @@ const MarketView = () => {
         const useResolved = preferResolved && done;
         setView(useResolved ? toView(undefined, done) : toView(active, done));
         setPredictionMarketCid(useResolved ? null : active?.contractId ?? null);
+        setPredictionMarketDisclosure(
+          useResolved || !active?.createdEventBlob
+            ? null
+            : { createdEventBlob: active.createdEventBlob, synchronizerId: active.synchronizerId },
+        );
         return useResolved ? null : active ?? null;
       } finally {
         if (!opts?.silent) setLoading(false);
@@ -268,6 +282,17 @@ const MarketView = () => {
     });
 
     try {
+      const disclosed: DisclosedContractArg[] = predictionMarketDisclosure?.createdEventBlob
+        ? [
+            {
+              templateId: `#${TRUTHORACLE_PACKAGE_NAME}:Truthoracle:PredictionMarket`,
+              contractId: predictionMarketCid,
+              createdEventBlob: predictionMarketDisclosure.createdEventBlob,
+              synchronizerId: predictionMarketDisclosure.synchronizerId,
+            },
+          ]
+        : [];
+
       const params = buildBuySharesParams(
         account.address,
         predictionMarketCid,
@@ -275,6 +300,7 @@ const MarketView = () => {
         numShares,
         cost,
         userMarketDataCid,
+        disclosed.length > 0 ? disclosed : undefined,
       );
 
       let txId = "";

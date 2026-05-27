@@ -3,17 +3,18 @@
 
 module Incentives where
 
-import DA.List (all, elem, nub, null, reverse)
+import DA.List (dedup)
 
 -- Reward type
 data RewardType = EarlyParticipant | CreatorReward | WinningPrediction
   deriving (Eq, Show)
 
 -- One row in a batch claim (Ledger API / JSON maps to this record)
-data RewardClaim = RewardClaim with
-  marketId : Int
-  rewardType : RewardType
-  amount : Int
+data RewardClaim = RewardClaim
+  with
+    marketId : Int
+    rewardType : RewardType
+    amount : Int
   deriving (Eq, Show)
 
 -- Claimed reward record
@@ -64,18 +65,13 @@ template UserRewardsSummary
       do
         assert (not (null claims))
         let newIds = map (\c -> c.marketId) claims
-        assert (newIds == nub newIds)
+        assert (newIds == dedup newIds)
         assert (all (\m -> not (elem m claimedMarkets)) newIds)
-        rewardCids <- do
-          let collect [] acc = return (reverse acc)
-              collect (c :: cs) acc = do
-                cid <- create ClaimedReward with
-                  user = user
-                  marketId = c.marketId
-                  rewardType = c.rewardType
-                  amount = c.amount
-                collect cs (cid :: acc)
-          collect claims []
+        rewardCids <- mapA (\c -> create ClaimedReward with
+            user = user
+            marketId = c.marketId
+            rewardType = c.rewardType
+            amount = c.amount) claims
         let delta = foldl (\acc c -> acc + c.amount) 0 claims
         summaryCid <- create UserRewardsSummary with
           user = user
