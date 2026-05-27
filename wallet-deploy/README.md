@@ -4,7 +4,7 @@ Self-hosted Cantor8 Enterprise Wallet that signs admin-side TruthOracle transact
 (creating `MarketCounter`, future admin-only operations). End users keep using the
 popup `@cantor8/wallet-connect-sdk` — this deployment is for the **admin / house** party.
 
-- Image: `cantor8technologies/enterprise-wallet:v0.1.21`
+- Image: `cantor8technologies/enterprise-wallet:v0.1.28`
 - Backend: DevNet (`wallet-backend.dev.digik.cantor8.tech`)
 - Tenant (`CLIENT_ID`): `truthoracle`
 - Auth: `noop` (DevNet only — see "Production" below)
@@ -86,14 +86,32 @@ The wallet doesn't auto-create an account on first start — you create one via 
 
 ## Frontend integration
 
-`scripts/create-contract.ts` uses a **hybrid** flow (matches what the popup SDK does):
+v0.1.28 supports `POST /api/v1/external/submit` for arbitrary transactions, so
+`scripts/create-contract.ts` and `frontend/lib/enterpriseWalletSubmit.ts` use a
+**single-call** flow: hand the wallet `{ partyId, appName, commandId, commands,
+disclosedContracts }` and the wallet prepares + signs + executes against its
+backend's synchronizer.
 
-1. Prepare on the Canton participant via `POST /v2/interactive-submission/prepare` (Keycloak token) → returns `preparedTransaction`, `preparedTransactionHash`, `hashingSchemeVersion`.
-2. POST those to the wallet's `POST /api/v1/transaction/sign_and_execute` — the wallet signs the hash with the admin party's key and executes.
+```bash
+curl -sS -X POST http://localhost:8080/api/v1/external/submit \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "partyId": "<admin party id>",
+    "appName": "truthoracle",
+    "commandId": "cmd-<unique>",
+    "commands": [{"CreateCommand": {"templateId": "<pkg>:Truthoracle:MarketCounter", "createArguments": {"admin": "<admin party id>", "value": "0"}}}],
+    "disclosedContracts": []
+  }'
+```
 
-Why not `POST /api/v1/external/submit`? In v0.1.21 the wallet's HTTP validator types `commands[]` as JSON-strings while the downstream backend expects dicts; the wallet doesn't translate, so the call always fails with "Input should be a valid dictionary".
+The endpoint replaces the previous hybrid flow (prepare on participant +
+`/transaction/sign_and_execute`) — neither step is needed anymore. Earlier
+versions (≤ v0.1.21) typed `commands[]` as JSON-strings; that was fixed in
+v0.1.28.
 
-Wallet command-status endpoint (`GET /api/v1/command/{partyId}/{commandId}`) keeps reporting `submitted` because no participant callback is registered. Verify by querying active-contracts on the participant directly.
+Verify the result by querying active-contracts on the participant directly
+(`npm run ledger:query`); the wallet's `GET /api/v1/command/{partyId}/{commandId}`
+status callback is not always wired through to the participant.
 
 ## Production / mainnet
 

@@ -15,12 +15,12 @@
     "ledger:query": "tsx scripts/ledger-query.ts"
   },
   "dependencies": {
-    "@cantor8/wallet-connect-sdk": "file:./cantor8-wallet-connect-sdk-0.2.0-alpha.3.tgz",
     "@canton-network/core-splice-provider": "^0.23.0",
     "@canton-network/core-types": "^0.18.0",
     "@canton-network/core-wallet-dapp-rpc-client": "^0.22.0",
     "@canton-network/core-wallet-ui-components": "^0.23.0",
     "@canton-network/wallet-sdk": "^0.20.0",
+    "@cantor8/wallet-connect-sdk": "^0.3.0-alpha.2",
     "@chakra-ui/icons": "^2.2.4",
     "@chakra-ui/react": "^2.8.2",
     "@emotion/react": "^11.13.3",

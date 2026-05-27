@@ -263,6 +263,88 @@ export async function fetchUserMarketDataContractId(
   }
 }
 
+export interface UserMarketPosition {
+  contractId: string;
+  marketId: number;
+  optionShares1: number;
+  optionShares2: number;
+  amountInvested: number;
+}
+
+/**
+ * Fetch the buyer's UserMarketData payload (not just the cid) for a given market.
+ *
+ * Used to verify a Trade committed on-ledger: the Cantor8 SDK polls a transfer-only
+ * status endpoint (`/api/transfer/status?command_id=`) that 404s for non-transfer
+ * commands like Trade, so we can't trust its synthetic `txChanged: failed`. Instead
+ * the dApp confirms the trade by checking the position's optionShares advanced.
+ */
+export async function fetchUserMarketDataPosition(
+  partyId: string,
+  marketId: number
+): Promise<UserMarketPosition | null> {
+  try {
+    const client = createParticipantClient();
+    const list = await client.queryActiveContracts(
+      partyId,
+      templateId(TRUTHORACLE_MODULE, "UserMarketData")
+    );
+    for (const item of list) {
+      const cid = getContractId(item);
+      const p = getPayload(item);
+      const mid = p.marketId ?? p.market_id;
+      if (cid && p.user === partyId && Number(mid) === marketId) {
+        return {
+          contractId: cid,
+          marketId: Number(mid),
+          optionShares1: num(p.optionShares1 ?? p.option_shares1),
+          optionShares2: num(p.optionShares2 ?? p.option_shares2),
+          amountInvested: num(p.amountInvested ?? p.amount_invested),
+        };
+      }
+    }
+    return null;
+  } catch (e) {
+    console.warn("fetchUserMarketDataPosition", e);
+    return null;
+  }
+}
+
+/**
+ * List every UserMarketData position the buyer holds across all markets.
+ */
+export async function fetchAllUserMarketDataPositions(
+  partyId: string
+): Promise<UserMarketPosition[]> {
+  try {
+    const client = createParticipantClient();
+    const list = await client.queryActiveContracts(
+      partyId,
+      templateId(TRUTHORACLE_MODULE, "UserMarketData")
+    );
+    const out: UserMarketPosition[] = [];
+    for (const item of list) {
+      const cid = getContractId(item);
+      const p = getPayload(item);
+      const mid = p.marketId ?? p.market_id;
+      if (cid && p.user === partyId && mid != null) {
+        out.push({
+          contractId: cid,
+          marketId: Number(mid),
+          optionShares1: num(p.optionShares1 ?? p.option_shares1),
+          optionShares2: num(p.optionShares2 ?? p.option_shares2),
+          amountInvested: num(p.amountInvested ?? p.amount_invested),
+        });
+      }
+    }
+    out.sort((a, b) => b.marketId - a.marketId);
+    return out;
+  } catch (e) {
+    console.warn("fetchAllUserMarketDataPositions", e);
+    return [];
+  }
+}
+
 /**
  * Fetch UserRewardsSummary contract for the given party from the participant.
  */

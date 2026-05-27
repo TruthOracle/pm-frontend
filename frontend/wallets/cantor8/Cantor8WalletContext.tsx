@@ -1,18 +1,17 @@
 /**
  * Cantor8 Wallet – C8WalletProvider implementation.
- * Uses @cantor8/wallet-connect-sdk (>=0.2.0) for the Cantor8 wallet.
+ * Uses @cantor8/wallet-connect-sdk (>=0.3.0) for the Cantor8 wallet.
  *
  * Transaction submission: the connected C8 party is an external / self-custody party — the
- * dApp's participant cannot sign for it. So we use the interactive-submission flow:
- *   1. prepare the transaction against the Canton JSON Ledger API (VITE_CANTON_PARTICIPANT_URL),
- *   2. hand the prepared transaction + hash to the wallet, which signs the hash with the party's
- *      key and executes (`signAndExecutePreparedTransfer`),
- *   3. return the resulting txId.
+ * wallet's participant prepares, signs, and executes via the new `signAndExecute({ note,
+ * partyId, commandId, commandsJson, disclosedContracts })` API. Resolution flows through
+ * events (`txInitiated` / `txChanged`).
  */
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { C8WalletProvider } from "@cantor8/wallet-connect-sdk";
 import type { AccountInfoPayload } from "@cantor8/wallet-connect-sdk";
 import type { PrepareExecuteParams } from "@/lib/cantonDapp";
+import { normalizeCommands } from "@/utils/normalizeCommand";
 import type {
   CantonAccount,
   CantonNetworkInfo,
@@ -27,26 +26,22 @@ const APP_NAME = "TruthOracle";
 
 type C8Network = "devnet" | "mainnet" | "local";
 
-/**
- * `signAndExecute` exists on the SDK provider at runtime but is typed `private` in
- * the published .d.ts (provider.d.ts:26). Cast through this standalone interface +
- * `unknown` at the call site.
- *
- * Unlike `signAndExecutePreparedTransfer` (which only posts to an already-open
- * popup and silently no-ops if the popup is closed), `signAndExecute` auto-opens
- * the wallet popup via init("signAndExecute"). The wallet's participant handles
- * prepare + sign + execute. Resolution returns `void`; the txId arrives via the
- * `txInitiated` event, and pass/fail via `txChanged`.
- */
-interface C8Signer {
-  signAndExecute(input: { message?: string; commands: unknown }): Promise<void>;
-}
-
 /** Resolve the C8 network from env, falling back to devnet for unsupported values. */
 function resolveNetwork(): C8Network {
   const raw = String(import.meta.env.VITE_APP_NETWORK ?? "devnet").toLowerCase().trim();
   if (raw === "mainnet" || raw === "local") return raw;
   return "devnet";
+}
+
+/**
+ * Popup origin per network — matches the SDK's `e`/`origin` constants. We use this
+ * to filter raw `window.message` events so we can log everything the popup sends
+ * (the SDK only re-exposes `kind: "event"` messages via `wallet.on()`; responses,
+ * auth-flow, internal_event, handshake-ack are handled internally).
+ */
+function popupOriginFor(network: C8Network): string {
+  if (network === "mainnet") return "https://wallet.cantor8.tech";
+  return "https://wallet.dev.digik.cantor8.tech";
 }
 
 function partyIdFromAccounts(accounts?: AccountInfoPayload[] | null): string {
@@ -80,18 +75,37 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
       }
     };
 
+    // Log EVERY postMessage from the wallet popup origin (including the kinds the
+    // SDK consumes internally: `response`, `auth-flow`, `internal_event`,
+    // `handshake-ack`). The SDK only re-exposes `kind:"event"` via wallet.on().
+    const popupOrigin = popupOriginFor(network.networkId as C8Network);
+    const onRawPopupMessage = (ev: MessageEvent) => {
+      if (ev.origin !== popupOrigin) return;
+      const data = ev.data as { kind?: string } | undefined;
+      const kind = data && typeof data === "object" ? data.kind ?? "(no-kind)" : typeof data;
+      console.log(`[Cantor8] raw popup message kind=${kind}:`, ev.data);
+    };
+    window.addEventListener("message", onRawPopupMessage);
+
     // The "connected" event in 0.2.x carries no accounts payload — fetch them explicitly.
-    wallet.on("connected", () => {
+    wallet.on("connected", (e) => {
+      console.log("[Cantor8] event=connected:", e);
       void refreshAccount();
     });
 
-    wallet.on("disconnected", () => {
+    wallet.on("disconnected", (e) => {
+      console.log("[Cantor8] event=disconnected:", e);
       setAccount(null);
     });
 
     // 0.2.x: accountChanged delivers the updated account list directly.
     wallet.on("accountChanged", (e) => {
+      console.log("[Cantor8] event=accountChanged:", e);
       applyPartyId(partyIdFromAccounts(e.accounts));
+    });
+
+    wallet.on("themeChanged", (e) => {
+      console.log("[Cantor8] event=themeChanged:", e);
     });
 
     walletRef.current = wallet;
@@ -105,6 +119,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
       .catch(() => {});
 
     return () => {
+      window.removeEventListener("message", onRawPopupMessage);
       walletRef.current = null;
     };
   }, [network]);
@@ -141,14 +156,13 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
       const partyId = account?.partyId ?? params.actAs?.[0] ?? "";
       if (!partyId) throw new Error("Cantor8 wallet not connected (no partyId)");
 
-      // signAndExecute (not signAndExecutePreparedTransfer): the SDK auto-opens
-      // the wallet popup for this method via init("signAndExecute"). The wallet's
-      // participant prepares + signs + executes — we pass the JSON Ledger API
-      // command shape directly. Resolution is via events:
+      // 0.3.0 signAndExecute({ note, partyId, commandId, commandsJson, disclosedContracts }):
+      // the SDK auto-opens the wallet popup; the wallet's participant prepares + signs +
+      // executes. The returned Promise<void> doesn't carry the txId — resolution flows via:
       //   - txInitiated → wallet submitted; resolve with txId
       //   - txChanged status=failed → reject
       //   - operationCanceled → user closed the popup → reject
-      const signer = wallet as unknown as C8Signer;
+      const commandId = (params.commandId as string | undefined) ?? crypto.randomUUID();
 
       return new Promise<{ hash: string }>((resolve, reject) => {
         let settled = false;
@@ -168,11 +182,13 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
 
         cleanup.push(
           wallet.on("txInitiated", (e) => {
-            finish(() => resolve({ hash: e.txId ?? "" }));
+            console.log("[Cantor8] txInitiated event:", JSON.stringify(e, null, 2));
+            finish(() => resolve({ hash: e.txId ?? commandId }));
           }),
         );
         cleanup.push(
           wallet.on("txChanged", (e) => {
+            console.log("[Cantor8] txChanged event:", JSON.stringify(e, null, 2));
             if (e.status === "failed") {
               finish(() => reject(new Error(`Wallet failed to submit tx ${e.txId}`)));
             }
@@ -180,21 +196,31 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
         );
         cleanup.push(
           wallet.on("operationCanceled", (e) => {
+            console.log("[Cantor8] operationCanceled event:", JSON.stringify(e, null, 2));
             finish(() => reject(new Error(e.reason || "Wallet operation canceled")));
           }),
         );
 
-        signer
-          .signAndExecute({
-            message: "TruthOracle transaction",
-            commands: {
-              actAs: params.actAs ?? [partyId],
-              commands: params.commands ?? [],
-              packageIdSelectionPreference: params.packageIdSelectionPreference ?? [],
-              disclosedContracts: params.disclosedContracts ?? [],
-            },
+        // NOTE: SDK 0.3 .d.ts types `disclosedContracts` as `string`, but the
+        // popup wallet's runtime expects an array (matches the working example
+        // shared by C8). Cast to silence TS.
+        const signAndExecuteInput = {
+          note: "TruthOracle transaction",
+          partyId: params.actAs?.[0] ?? partyId,
+          commandId,
+          commandsJson: JSON.stringify(normalizeCommands(params.commands)),
+          disclosedContracts: (params.disclosedContracts ?? []) as unknown as string,
+        };
+        console.log(
+          "[Cantor8] signAndExecute payload:\n" + JSON.stringify(signAndExecuteInput, null, 2),
+        );
+        wallet
+          .signAndExecute(signAndExecuteInput)
+          .then((result) => {
+            console.log("[Cantor8] signAndExecute resolved:", result);
           })
           .catch((err) => {
+            console.log("[Cantor8] signAndExecute rejected:", err);
             finish(() => reject(err instanceof Error ? err : new Error(String(err))));
           });
 
