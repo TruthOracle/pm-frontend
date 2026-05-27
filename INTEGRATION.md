@@ -107,8 +107,8 @@ All commands are built in `frontend/utils/cantonCommands.ts` using the Ledger AP
 - **`buildInitMarketParams(partyId, question, imageURL, description, option1, option2, liquidityParam, marketCounterContractId)`**  
   Exercise `MarketCounter.CreateMarket` to create a new prediction market.
 
-- **`buildBuySharesParams(partyId, predictionMarketContractId, option, numShares, cost, existingPositionContractId)`**  
-  Exercise `PredictionMarket.Trade` to buy shares (option 1 or 2).
+- **`buildBuySharesParams(partyId, predictionMarketContractId, option, numShares, cost, existingPositionContractId, disclosedContracts?)`**  
+  Exercise `PredictionMarket.Trade` to buy shares (option 1 or 2). Pass `disclosedContracts` (built from the active `PredictionMarketRecord`'s `createdEventBlob` and `synchronizerId`) when the buyer is an external/self-custody party whose participant can't see the cid directly — without it, the wallet's prepare call fails to resolve the contract.
 
 - **`buildClaimAllRewardsParams(partyId, userRewardsSummaryContractId, claimArgs)`**  
   Exercise `UserRewardsSummary.ClaimRewardsBatch` once with a `claims` array (Incentives module). Avoids multiple consuming `ClaimReward` exercises on the same contract id in one transaction.
@@ -158,9 +158,9 @@ If the Loop/Canton API returns a 500 error for active-contracts, verify:
 
 ### Bet Buy Card (Trade)
 
-1. On mount, fetches `PredictionMarket` contract (by market ID) and `UserMarketData` (for user + market)
-2. When user clicks "BUY", calls `buildBuySharesParams(..., predictionMarketCid, option, numShares, cost, userMarketDataCid)`
-3. Submits via `signAndSubmitTransaction(params)`
+1. On mount, fetches `PredictionMarket` contract (by market ID) and `UserMarketData` (for user + market). `fetchAllPredictionMarkets` requests `includeCreatedEventBlob: true` so the record carries the `createdEventBlob` + `synchronizerId` needed for disclosure.
+2. When user clicks "BUY", builds a single-entry `disclosedContracts` array from the active record and calls `buildBuySharesParams(..., predictionMarketCid, option, numShares, cost, userMarketDataCid, disclosed)`
+3. Submits via `signAndSubmitTransaction(params)` — the Cantor8 wallet forwards `disclosedContracts` to its participant's prepare call.
 
 ### Rewards (Claim)
 

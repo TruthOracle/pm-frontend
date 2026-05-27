@@ -277,10 +277,15 @@ export class CantonParticipantClient {
    * The template filter must reference the template by *package name* ("#<pkgName>:<module>:<entity>"),
    * not by package ID — the JSON Ledger API rejects package-ID identifiers in active-contracts filters
    * ("expected a package name"). Pass `packageName`; `packageId` is accepted as a legacy fallback only.
+   *
+   * Pass `options.includeCreatedEventBlob: true` to also get the base64 createdEventBlob and
+   * synchronizerId on each item — those are required to build a `DisclosedContract` so a party
+   * that doesn't see the contract directly (e.g. an external wallet party) can still exercise it.
    */
   async queryActiveContracts(
     partyId: string,
-    templateId: { packageName?: string; packageId?: string; moduleName: string; entityName: string }
+    templateId: { packageName?: string; packageId?: string; moduleName: string; entityName: string },
+    options?: { includeCreatedEventBlob?: boolean }
   ): Promise<unknown[]> {
     const headers = await this.ledgerHeaders();
 
@@ -303,6 +308,7 @@ export class CantonParticipantClient {
       : `${templateId.packageId}:${templateId.moduleName}:${templateId.entityName}`;
 
     // Payload shape: top-level verbose, activeAtOffset as string, eventFormat with filtersByParty and verbose.
+    const includeBlob = options?.includeCreatedEventBlob === true;
     const body = {
       verbose: false,
       activeAtOffset: String(activeAtOffset),
@@ -315,7 +321,7 @@ export class CantonParticipantClient {
                   TemplateFilter: {
                     value: {
                       templateId: templateIdStr,
-                      includeCreatedEventBlob: false,
+                      includeCreatedEventBlob: includeBlob,
                     },
                   },
                 },
@@ -361,36 +367,42 @@ export class CantonParticipantClient {
     const items = Array.isArray(list) ? list : [];
     for (const item of items) {
       const rec = item as Record<string, unknown>;
-      const entry =
+      const jsActive =
         rec?.contractEntry != null
-          ? (rec.contractEntry as Record<string, unknown>)?.JsActiveContract != null
-            ? ((rec.contractEntry as Record<string, unknown>).JsActiveContract as Record<string, unknown>)
-                ?.createdEvent
-            : undefined
+          ? ((rec.contractEntry as Record<string, unknown>)?.JsActiveContract as Record<string, unknown> | undefined)
           : undefined;
+      const entry = jsActive?.createdEvent as Record<string, unknown> | undefined;
       let contractId =
-        (entry as Record<string, unknown> | undefined)?.contractId ??
-        (entry as Record<string, unknown> | undefined)?.contract_id ??
+        entry?.contractId ??
+        entry?.contract_id ??
         rec.contractId ??
         rec.contract_id;
       // Some APIs return workflowId at top level; never use it as contractId (exercise would fail with CONTRACT_NOT_FOUND).
       const workflowId = rec.workflowId as string | undefined;
       if (typeof contractId === "string" && typeof workflowId === "string" && contractId === workflowId) {
-        contractId = (entry as Record<string, unknown> | undefined)?.contractId ?? (entry as Record<string, unknown> | undefined)?.contract_id ?? undefined;
+        contractId = entry?.contractId ?? entry?.contract_id ?? undefined;
       }
       const payload =
-        (entry as Record<string, unknown> | undefined)?.createArgument ??
-        (entry as Record<string, unknown> | undefined)?.create_argument ??
+        entry?.createArgument ??
+        entry?.create_argument ??
         rec.createArgument ??
         rec.create_argument ??
         rec.payload ??
         {};
+      const createdEventBlob =
+        (entry?.createdEventBlob as string | undefined) ??
+        (entry?.created_event_blob as string | undefined);
+      const synchronizerId =
+        (jsActive?.synchronizerId as string | undefined) ??
+        (jsActive?.synchronizer_id as string | undefined);
       if (contractId && typeof contractId === "string") {
         results.push({
           contractId,
           contract_id: contractId,
           payload: payload as Record<string, unknown>,
           contract: payload as Record<string, unknown>,
+          createdEventBlob,
+          synchronizerId,
         });
       }
     }

@@ -34,6 +34,17 @@ function getPayload(item: unknown): Record<string, unknown> {
   return (c.payload ?? c.contract ?? c) as Record<string, unknown>;
 }
 
+/** Pull the optional disclosed-contract fields (only present when includeCreatedEventBlob was set). */
+function getDisclosure(
+  item: unknown,
+): { createdEventBlob?: string; synchronizerId?: string } {
+  const c = item as Record<string, unknown>;
+  return {
+    createdEventBlob: typeof c.createdEventBlob === "string" ? c.createdEventBlob : undefined,
+    synchronizerId: typeof c.synchronizerId === "string" ? c.synchronizerId : undefined,
+  };
+}
+
 /**
  * Fetch the active MarketCounter contract from the participant Ledger API.
  *
@@ -82,6 +93,10 @@ export interface PredictionMarketRecord {
   optionShares2: number;
   liquidityParam: number;
   participants: string[];
+  /** Base64 created-event blob, needed to build a DisclosedContract for parties that can't see the cid directly. */
+  createdEventBlob?: string;
+  /** Synchronizer the contract lives on; required alongside createdEventBlob on a disclosed contract. */
+  synchronizerId?: string;
 }
 
 export interface ResolvedMarketRecord {
@@ -144,15 +159,19 @@ function parseParticipants(v: unknown): string[] {
 export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecord[]> {
   try {
     const client = createParticipantClient();
+    // Fetch with createdEventBlob so handleBuyClick can pass the market as a DisclosedContract
+    // to the wallet — the external buyer's participant may not have direct visibility.
     const list = await client.queryActiveContracts(
       adminParty(),
-      templateId(TRUTHORACLE_MODULE, "PredictionMarket")
+      templateId(TRUTHORACLE_MODULE, "PredictionMarket"),
+      { includeCreatedEventBlob: true },
     );
     const out: PredictionMarketRecord[] = [];
     for (const item of list) {
       const cid = getContractId(item);
       if (!cid) continue;
       const p = getPayload(item);
+      const { createdEventBlob, synchronizerId } = getDisclosure(item);
       out.push({
         contractId: cid,
         marketId: num(p.marketId),
@@ -166,6 +185,8 @@ export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecor
         optionShares2: num(p.optionShares2),
         liquidityParam: num(p.liquidityParam),
         participants: parseParticipants(p.participants ?? p.Participants),
+        createdEventBlob,
+        synchronizerId,
       });
     }
     out.sort((a, b) => b.marketId - a.marketId);
