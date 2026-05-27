@@ -26,13 +26,16 @@ import {
   fetchAllPredictionMarkets,
   fetchAllResolvedMarkets,
   fetchUserMarketDataContractId,
+  fetchUserMarketDataPosition,
   type PredictionMarketRecord,
   type ResolvedMarketRecord,
+  type UserMarketPosition,
 } from "@/utils/activeContracts";
 import {
   enterpriseWalletPartyId,
   submitAdminTransaction,
 } from "@/lib/enterpriseWalletSubmit";
+import { probeWalletStatusEndpoints } from "@/lib/cantor8Status";
 
 type MarketViewModel = {
   marketId: number;
@@ -88,6 +91,31 @@ function toView(active?: PredictionMarketRecord, resolved?: ResolvedMarketRecord
   return null;
 }
 
+/**
+ * Poll the participant for the buyer's UserMarketData until optionShares reflect the
+ * pending trade. Returns the updated position, or null on timeout. The Cantor8 SDK's
+ * own status tracker polls a transfer-only endpoint that 404s for Trade commands —
+ * this is the dApp-side verification that the choice actually committed.
+ */
+async function waitForPositionUpdate(
+  partyId: string,
+  marketId: number,
+  expectedShares1: number,
+  expectedShares2: number,
+  timeoutMs = 30_000,
+  intervalMs = 1500,
+): Promise<UserMarketPosition | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const pos = await fetchUserMarketDataPosition(partyId, marketId);
+    if (pos && pos.optionShares1 >= expectedShares1 && pos.optionShares2 >= expectedShares2) {
+      return pos;
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return null;
+}
+
 function getCurrentPrice(q1: number, q2: number, b: number) {
   if (!b || b === 0) return { val1: 0.5, val2: 0.5 };
   const val_1 = Math.exp(q1 / b);
@@ -115,6 +143,7 @@ const MarketView = () => {
   const [resolving, setResolving] = useState(false);
   const [addParticipantInput, setAddParticipantInput] = useState<string>("");
   const [addingParticipant, setAddingParticipant] = useState(false);
+  const [submittingBet, setSubmittingBet] = useState(false);
   const { account, signAndSubmitTransaction } = useCantonWallet();
   const isAdmin = useIsAdmin();
   const toast = useToast();
@@ -223,6 +252,21 @@ const MarketView = () => {
     // asserts cost >= 0, so this stays consistent with the on-ledger accounting.
     const cost = numShares;
 
+    // Snapshot the pre-trade position so we can verify the trade committed on-ledger:
+    // expected post-trade shares = pre-trade + delta on the chosen option.
+    const prePosition = await fetchUserMarketDataPosition(account.address, marketIdNum);
+    const expectedShares1 = (prePosition?.optionShares1 ?? 0) + (damlOption === 1 ? numShares : 0);
+    const expectedShares2 = (prePosition?.optionShares2 ?? 0) + (damlOption === 2 ? numShares : 0);
+
+    setSubmittingBet(true);
+    const submittingToastId = toast({
+      title: "Submitting bet…",
+      description: "Confirm the transaction in the wallet popup.",
+      status: "info",
+      duration: null,
+      isClosable: false,
+    });
+
     try {
       const params = buildBuySharesParams(
         account.address,
@@ -232,31 +276,74 @@ const MarketView = () => {
         cost,
         userMarketDataCid,
       );
-      const committedTxn = await signAndSubmitTransaction(params);
-      void committedTxn.hash;
 
-      // Refresh portfolio + marketplace listings if those views are mounted.
+      let txId = "";
+      try {
+        const committedTxn = await signAndSubmitTransaction(params);
+        txId = committedTxn.hash;
+        // Probe both v1 wallet endpoints to see which one returns data for this
+        // commandId. Logs status transitions over ~30s in the console.
+        if (txId) {
+          void probeWalletStatusEndpoints(account.address, txId);
+        }
+      } catch (e) {
+        if (submittingToastId !== undefined) toast.close(submittingToastId);
+        console.error(e);
+        toast({
+          title: "Trade failed",
+          description: e instanceof Error ? e.message : "Wallet could not submit the trade.",
+          status: "error",
+          duration: 5000,
+          isClosable: true,
+        });
+        return;
+      }
+
+      // Wallet popup accepted submission. The SDK's status tracker polls a transfer-only
+      // endpoint that 404s for Trade — so verify on the dApp's participant instead.
+      if (submittingToastId !== undefined) {
+        toast.update(submittingToastId, {
+          title: "Confirming on-ledger…",
+          description: "Waiting for the participant to reflect the trade.",
+          status: "info",
+        });
+      }
+
+      const verified = await waitForPositionUpdate(
+        account.address,
+        marketIdNum,
+        expectedShares1,
+        expectedShares2,
+      );
+
+      if (submittingToastId !== undefined) toast.close(submittingToastId);
+
       const w = window as unknown as { refreshPortfolio?: () => void; refreshMarketplace?: () => void };
       w.refreshPortfolio?.();
       w.refreshMarketplace?.();
       await refreshMarket();
 
-      toast({
-        title: "Bet Placed",
-        description: "We've added your bet to the market.",
-        status: "success",
-        duration: 9000,
-        isClosable: true,
-      });
-    } catch (e) {
-      console.error(e);
-      toast({
-        title: "Trade failed",
-        description: e instanceof Error ? e.message : "Could not submit trade.",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
+      if (verified) {
+        toast({
+          title: "Bet Placed",
+          description: `Position now ${verified.optionShares1} / ${verified.optionShares2} shares (Δ ${numShares} on ${damlOption === 1 ? view.option1 : view.option2}).`,
+          status: "success",
+          duration: 7000,
+          isClosable: true,
+        });
+      } else {
+        toast({
+          title: "Bet submitted — confirmation pending",
+          description:
+            `Wallet accepted the transaction${txId ? ` (id ${txId})` : ""}, ` +
+            "but the participant hasn't shown the new position yet. Refresh in a moment.",
+          status: "warning",
+          duration: 9000,
+          isClosable: true,
+        });
+      }
+    } finally {
+      setSubmittingBet(false);
     }
   };
 
@@ -556,11 +643,13 @@ const MarketView = () => {
                     ? "Loading market…"
                     : !isParticipant
                       ? "Awaiting admin access"
-                      : !selectedOption
-                        ? "Select an option"
-                        : amount <= 0
-                          ? "Enter shares to buy"
-                          : null;
+                      : submittingBet
+                        ? "Submitting…"
+                        : !selectedOption
+                          ? "Select an option"
+                          : amount <= 0
+                            ? "Enter shares to buy"
+                            : null;
                 const isDisabled = buyDisabledReason !== null;
                 return (
                   <button

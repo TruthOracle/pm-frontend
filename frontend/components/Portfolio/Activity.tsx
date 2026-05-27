@@ -1,101 +1,164 @@
 import { useCantonWallet } from "@/wallets";
-import { buildWithdrawPayoutParams } from "@/utils/cantonCommands";
 import {
-    Button,
     Table,
     TableCaption,
     TableContainer,
     Tbody,
     Td,
+    Text,
     Th,
     Thead,
     Tr,
-} from '@chakra-ui/react';
-import {useEffect, useState, useCallback} from 'react';
-import {getMarketMetadata, getUserMarketData} from "../../../blockend/cantonService";
+} from "@chakra-ui/react";
+import { useCallback, useEffect, useState } from "react";
+import {
+    fetchAllPredictionMarkets,
+    fetchAllResolvedMarkets,
+    fetchAllUserMarketDataPositions,
+    type PredictionMarketRecord,
+    type ResolvedMarketRecord,
+    type UserMarketPosition,
+} from "@/utils/activeContracts";
+
+/**
+ * One row per market the user has a position in. Combines on-ledger UserMarketData
+ * with the active/resolved PredictionMarket so we can render the question + option labels.
+ */
+type ActivityRow = {
+    position: UserMarketPosition;
+    market: PredictionMarketRecord | ResolvedMarketRecord | null;
+    /** "active" if PredictionMarket, "resolved" if ResolvedMarket, "unknown" if neither found. */
+    state: "active" | "resolved" | "unknown";
+    /** Resolved market result, only set when state === "resolved". */
+    result?: string;
+    /** Payout for this position if resolved (winning shares × payoutPerShare). */
+    payout?: number;
+};
+
+function buildRows(
+    positions: UserMarketPosition[],
+    actives: PredictionMarketRecord[],
+    resolved: ResolvedMarketRecord[],
+): ActivityRow[] {
+    const activeById = new Map(actives.map((m) => [m.marketId, m]));
+    const resolvedById = new Map(resolved.map((m) => [m.marketId, m]));
+
+    return positions.map((position) => {
+        const active = activeById.get(position.marketId);
+        if (active) {
+            return { position, market: active, state: "active" as const };
+        }
+        const done = resolvedById.get(position.marketId);
+        if (done) {
+            const winningShares =
+                done.result === "Option1"
+                    ? position.optionShares1
+                    : done.result === "Option2"
+                        ? position.optionShares2
+                        : 0;
+            return {
+                position,
+                market: done,
+                state: "resolved" as const,
+                result: done.result,
+                payout: winningShares * done.payoutPerShare,
+            };
+        }
+        return { position, market: null, state: "unknown" as const };
+    });
+}
 
 function Activity() {
-    function hexToAscii(hex:any) {
-        let str = '';
-        for (let i = 2; i < hex.length; i += 2) {
-            str += String.fromCharCode(parseInt(hex.substr(i, 2), 16));
-        }
-        return str;
-    }
-
-    const { account, signAndSubmitTransaction } = useCantonWallet();
-    const [userMarketData, setUserMarketData] = useState<any>(null);
+    const { account } = useCantonWallet();
+    const [rows, setRows] = useState<ActivityRow[]>([]);
+    const [loading, setLoading] = useState(false);
 
     const fetchBets = useCallback(async () => {
-        if (!account) return;
-
-        const userData = await getUserMarketData(account?.address);
-        console.log("User Data:", userData[0].length);
-
-        const updatedUserMarketData:any[] = [];
-
-        for (let i = 0; i < userData[0].length; i++) {
-            console.log(i)
-            const marketMetadata = await getMarketMetadata(i);
-            console.log("Market Metadata:", marketMetadata[0]);
-
-            if(userData[0][i]?.amount_invested!=0)
-            updatedUserMarketData.push({ userData: userData[0][i], betData: marketMetadata[0] });
+        if (!account?.address) {
+            setRows([]);
+            return;
         }
-
-        setUserMarketData(updatedUserMarketData);
-    }, [account]);
+        setLoading(true);
+        try {
+            const [positions, actives, resolved] = await Promise.all([
+                fetchAllUserMarketDataPositions(account.address),
+                fetchAllPredictionMarkets(),
+                fetchAllResolvedMarkets(),
+            ]);
+            setRows(buildRows(positions, actives, resolved));
+        } finally {
+            setLoading(false);
+        }
+    }, [account?.address]);
 
     useEffect(() => {
         fetchBets();
     }, [fetchBets]);
 
+    // Expose so MarketView.handleBuyClick can refresh us after a trade commits.
     useEffect(() => {
-        console.log("Updated User Market Data:", userMarketData);
-    }, [userMarketData]);
-
-    const handlePayout = async (data:any) => {
-        if (!account) return;
-        const params = buildWithdrawPayoutParams(account.address, data?.id);
-        const committedTxn = await signAndSubmitTransaction(params);
-        void committedTxn.hash;
-        await fetchBets();
-    }
-
-    // Expose the refresh function to the window object so it can be called from other components
-    useEffect(() => {
-        (window as any).refreshPortfolio = fetchBets;
+        (window as unknown as { refreshPortfolio?: () => void }).refreshPortfolio = fetchBets;
         return () => {
-            delete (window as any).refreshPortfolio;
+            delete (window as unknown as { refreshPortfolio?: () => void }).refreshPortfolio;
         };
     }, [fetchBets]);
 
     return (
-        <div className='font-jbm'> 
+        <div className="font-jbm">
             <TableContainer color={"white"} mt={10}>
-                <Table variant='simple'>
-                    <TableCaption style={{ fontFamily: "'JetBrains Mono'" }}>Your Activity on TruthOracle</TableCaption>
+                <Table variant="simple">
+                    <TableCaption style={{ fontFamily: "'JetBrains Mono'" }}>
+                        Your Activity on TruthOracle
+                    </TableCaption>
                     <Thead>
                         <Tr>
-                            <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Question</Th> 
-                            <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Amount Invested</Th>
-                            <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Prediction 1 - Shares Owned</Th>
-                            <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Prediction 2 - Shares Owned</Th> 
-                            <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Payout</Th> 
+                            <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Question</Th>
+                            <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Status</Th>
+                            <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Invested</Th>
+                            <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Option 1 Shares</Th>
+                            <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Option 2 Shares</Th>
+                            <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Payout</Th>
                         </Tr>
                     </Thead>
                     <Tbody>
-                        {userMarketData?.map((data:any) => (
-                            <Tr color={"#CCCCFF"} key={data.betData?.id}>
-                                <Td className='font-jbm'>{hexToAscii(data?.betData?.question)}</Td> 
-                                <Td className='font-jbm'>{"$"}{data?.userData?.amount_invested/10**8}</Td> 
-                                <Td className='font-jbm'>{hexToAscii(data?.betData?.option_1)} - {data?.userData?.option_shares_1}</Td> 
-                                <Td className='font-jbm'>{hexToAscii(data?.betData?.option_2)} - {data?.userData?.option_shares_2}</Td> 
-                                <Td className='font-jbm'><Button onClick={()=>handlePayout(data?.betData)} bg={"#CCCCFF"} className=" text-black p-3 rounded-md">Withdraw</Button></Td>
-                            </Tr>
-                        ))}
+                        {rows.map((row) => {
+                            const m = row.market;
+                            const option1Label = m && "option1" in m ? m.option1 : "Option 1";
+                            const option2Label = m && "option2" in m ? m.option2 : "Option 2";
+                            const question = m && "question" in m ? m.question : `Market #${row.position.marketId}`;
+                            const statusLabel =
+                                row.state === "active"
+                                    ? "Active"
+                                    : row.state === "resolved"
+                                        ? `Resolved (${row.result ?? "?"})`
+                                        : "Unknown";
+                            return (
+                                <Tr color={"#CCCCFF"} key={row.position.contractId}>
+                                    <Td className="font-jbm">{question}</Td>
+                                    <Td className="font-jbm">{statusLabel}</Td>
+                                    <Td className="font-jbm">{row.position.amountInvested}</Td>
+                                    <Td className="font-jbm">{option1Label} – {row.position.optionShares1}</Td>
+                                    <Td className="font-jbm">{option2Label} – {row.position.optionShares2}</Td>
+                                    <Td className="font-jbm">
+                                        {row.state === "resolved" ? row.payout ?? 0 : "—"}
+                                    </Td>
+                                </Tr>
+                            );
+                        })}
                     </Tbody>
                 </Table>
+                {!loading && rows.length === 0 && (
+                    <Text textAlign="center" color="gray.400" py={6} className="font-jbm">
+                        {account
+                            ? "No positions yet. Place a bet on a market to see it here."
+                            : "Connect a wallet to see your bets."}
+                    </Text>
+                )}
+                {loading && (
+                    <Text textAlign="center" color="gray.400" py={6} className="font-jbm">
+                        Loading positions…
+                    </Text>
+                )}
             </TableContainer>
         </div>
     );

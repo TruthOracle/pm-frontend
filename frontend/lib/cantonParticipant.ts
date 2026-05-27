@@ -6,6 +6,7 @@
  */
 
 import type { PrepareExecuteParams } from "./cantonDapp";
+import { normalizeCommand } from "@/utils/normalizeCommand";
 
 /** In-memory cache for OAuth2 client_credentials access token (Keycloak). */
 let keycloakTokenCache: { accessToken: string; expiresAt: number } | null = null;
@@ -178,50 +179,6 @@ export class CantonParticipantClient {
   }
 
   /**
-   * Convert frontend command shape to Ledger API Command (OpenAPI JsPrepareSubmissionRequest).
-   * Frontend: { exercise: { templateId: { packageId, moduleName, entityName }, ... } } or { create: { ... } }
-   * API: { ExerciseCommand: { templateId: "pkg:mod:ent", ... } } or { CreateCommand: { ... } }
-   */
-  private normalizeCommand(cmd: unknown): Record<string, unknown> {
-    const c = cmd as Record<string, unknown>;
-    if (c.exercise && typeof c.exercise === "object") {
-      const ex = c.exercise as Record<string, unknown>;
-      const tid = ex.templateId;
-      const templateIdStr =
-        typeof tid === "string"
-          ? tid
-          : tid && typeof tid === "object" && "packageId" in tid && "moduleName" in tid && "entityName" in tid
-            ? `${(tid as Record<string, string>).packageId}:${(tid as Record<string, string>).moduleName}:${(tid as Record<string, string>).entityName}`
-            : "";
-      return {
-        ExerciseCommand: {
-          templateId: templateIdStr,
-          contractId: ex.contractId,
-          choice: ex.choice,
-          choiceArgument: ex.choiceArgument ?? ex.choice_argument,
-        },
-      };
-    }
-    if (c.create && typeof c.create === "object") {
-      const cr = c.create as Record<string, unknown>;
-      const tid = cr.templateId;
-      const templateIdStr =
-        typeof tid === "string"
-          ? tid
-          : tid && typeof tid === "object" && "packageId" in tid && "moduleName" in tid && "entityName" in tid
-            ? `${(tid as Record<string, string>).packageId}:${(tid as Record<string, string>).moduleName}:${(tid as Record<string, string>).entityName}`
-            : "";
-      return {
-        CreateCommand: {
-          templateId: templateIdStr,
-          createArguments: cr.createArguments ?? cr.create_arguments ?? {},
-        },
-      };
-    }
-    return c as Record<string, unknown>;
-  }
-
-  /**
    * Prepare a transaction using /v2/interactive-submission/prepare.
    * Request body matches JsPrepareSubmissionRequest (camelCase: commandId, synchronizerId, actAs, …).
    * Returns the prepared transaction + hash + hashing scheme — hand these to the wallet to sign,
@@ -235,8 +192,8 @@ export class CantonParticipantClient {
 
     const rawCommands = params.commands ?? [];
     const commands = Array.isArray(rawCommands)
-      ? rawCommands.map((cmd) => this.normalizeCommand(cmd))
-      : [this.normalizeCommand(rawCommands)];
+      ? rawCommands.map(normalizeCommand)
+      : [normalizeCommand(rawCommands)];
 
     const body = {
       commandId: cmdId,

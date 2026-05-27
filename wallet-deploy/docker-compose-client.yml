@@ -1,6 +1,6 @@
 services:
   enterprise-wallet:
-    image: cantor8technologies/enterprise-wallet:v0.1.21
+    image: cantor8technologies/enterprise-wallet:v0.1.28
     container_name: truthoracle-enterprise-wallet
     restart: unless-stopped
     env_file:
