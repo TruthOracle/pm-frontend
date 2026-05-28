@@ -86,13 +86,11 @@ export interface PredictionMarketRecord {
   question: string;
   imageUrl: string;
   description: string;
-  option1: string;
-  option2: string;
+  resolutionDescription: string;
   createdAt: number;
-  optionShares1: number;
-  optionShares2: number;
+  yesShares: number;
+  noShares: number;
   liquidityParam: number;
-  participants: string[];
   /** Base64 created-event blob, needed to build a DisclosedContract for parties that can't see the cid directly. */
   createdEventBlob?: string;
   /** Synchronizer the contract lives on; required alongside createdEventBlob on a disclosed contract. */
@@ -103,11 +101,9 @@ export interface ResolvedMarketRecord {
   contractId: string;
   marketId: number;
   question: string;
-  option1: string;
-  option2: string;
-  /** Daml `MarketResult` variant. The JSON Ledger API serializes `Option1 | Option2 | Draw` as a string tag. */
-  result: "Option1" | "Option2" | "Draw" | string;
-  payoutPerShare: number;
+  /** Daml `MarketResult` variant. The JSON Ledger API serializes `Yes | No | Draw` as a string tag. */
+  result: "Yes" | "No" | "Draw" | string;
+  payoutPerShareCC: number;
 }
 
 function adminParty(): string {
@@ -131,36 +127,18 @@ function asString(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
-/** JSON Ledger API may return Party lists as strings or wrapped objects. */
-function parseParticipants(v: unknown): string[] {
-  const raw = v ?? (v as undefined);
-  if (!Array.isArray(raw)) return [];
-  const out: string[] = [];
-  for (const item of raw) {
-    if (typeof item === "string" && item.trim()) {
-      out.push(item.trim());
-      continue;
-    }
-    if (item && typeof item === "object") {
-      const o = item as Record<string, unknown>;
-      const party = o.party ?? o.Party ?? o.value ?? o.id;
-      if (typeof party === "string" && party.trim()) out.push(party.trim());
-    }
-  }
-  return out;
-}
-
 /**
  * List every active PredictionMarket. Queries as the Enterprise Wallet admin party
- * because that party is the template's `signatory admin` — end users only see contracts
- * they've been added to via `AddParticipant`, so they cannot enumerate the marketplace
- * directly. The Keycloak service-account token has read authority for any party.
+ * because that party is the template's `signatory admin`. End-user wallets reach
+ * the market via disclosed contracts (the createdEventBlob captured here) — no
+ * participants list is needed any more. The Keycloak service-account token has
+ * read authority for any party.
  */
 export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecord[]> {
   try {
     const client = createParticipantClient();
     // Fetch with createdEventBlob so handleBuyClick can pass the market as a DisclosedContract
-    // to the wallet — the external buyer's participant may not have direct visibility.
+    // to the wallet — external buyer participants don't see admin-only contracts directly.
     const list = await client.queryActiveContracts(
       adminParty(),
       templateId(TRUTHORACLE_MODULE, "PredictionMarket"),
@@ -178,13 +156,11 @@ export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecor
         question: asString(p.question),
         imageUrl: asString(p.imageUrl),
         description: asString(p.description),
-        option1: asString(p.option1),
-        option2: asString(p.option2),
+        resolutionDescription: asString(p.resolutionDescription),
         createdAt: num(p.createdAt),
-        optionShares1: num(p.optionShares1),
-        optionShares2: num(p.optionShares2),
+        yesShares: num(p.yesShares),
+        noShares: num(p.noShares),
         liquidityParam: num(p.liquidityParam),
-        participants: parseParticipants(p.participants ?? p.Participants),
         createdEventBlob,
         synchronizerId,
       });
@@ -217,10 +193,8 @@ export async function fetchAllResolvedMarkets(): Promise<ResolvedMarketRecord[]>
         contractId: cid,
         marketId: num(p.marketId),
         question: asString(p.question),
-        option1: asString(p.option1),
-        option2: asString(p.option2),
         result: typeof p.result === "string" ? p.result : "",
-        payoutPerShare: num(p.payoutPerShare),
+        payoutPerShareCC: num(p.payoutPerShareCC ?? p.payoutPerShare),
       });
     }
     out.sort((a, b) => b.marketId - a.marketId);
@@ -287,18 +261,15 @@ export async function fetchUserMarketDataContractId(
 export interface UserMarketPosition {
   contractId: string;
   marketId: number;
-  optionShares1: number;
-  optionShares2: number;
-  amountInvested: number;
+  yesShares: number;
+  noShares: number;
+  /** Lifetime CC invested in this market (informational, not money authoritative). */
+  amountInvestedCC: number;
 }
 
 /**
- * Fetch the buyer's UserMarketData payload (not just the cid) for a given market.
- *
- * Used to verify a Trade committed on-ledger: the Cantor8 SDK polls a transfer-only
- * status endpoint (`/api/transfer/status?command_id=`) that 404s for non-transfer
- * commands like Trade, so we can't trust its synthetic `txChanged: failed`. Instead
- * the dApp confirms the trade by checking the position's optionShares advanced.
+ * Fetch the buyer's UserMarketData payload for a given market. Used to detect
+ * trade confirmation by polling for the new share counts.
  */
 export async function fetchUserMarketDataPosition(
   partyId: string,
@@ -318,9 +289,9 @@ export async function fetchUserMarketDataPosition(
         return {
           contractId: cid,
           marketId: Number(mid),
-          optionShares1: num(p.optionShares1 ?? p.option_shares1),
-          optionShares2: num(p.optionShares2 ?? p.option_shares2),
-          amountInvested: num(p.amountInvested ?? p.amount_invested),
+          yesShares: num(p.yesShares ?? p.yes_shares),
+          noShares: num(p.noShares ?? p.no_shares),
+          amountInvestedCC: num(p.amountInvestedCC ?? p.amount_invested_cc),
         };
       }
     }
@@ -352,9 +323,9 @@ export async function fetchAllUserMarketDataPositions(
         out.push({
           contractId: cid,
           marketId: Number(mid),
-          optionShares1: num(p.optionShares1 ?? p.option_shares1),
-          optionShares2: num(p.optionShares2 ?? p.option_shares2),
-          amountInvested: num(p.amountInvested ?? p.amount_invested),
+          yesShares: num(p.yesShares ?? p.yes_shares),
+          noShares: num(p.noShares ?? p.no_shares),
+          amountInvestedCC: num(p.amountInvestedCC ?? p.amount_invested_cc),
         });
       }
     }
@@ -362,6 +333,51 @@ export async function fetchAllUserMarketDataPositions(
     return out;
   } catch (e) {
     console.warn("fetchAllUserMarketDataPositions", e);
+    return [];
+  }
+}
+
+export interface PendingPayoutRecord {
+  contractId: string;
+  admin: string;
+  user: string;
+  marketId: number;
+  amountCC: number;
+  reason: string;
+  createdAt: number;
+}
+
+/**
+ * Fetch pending payouts the admin owes the given party. The user is an observer
+ * of PendingPayout, so querying as the user surfaces ones owed to them; querying
+ * as admin surfaces all of them (for the admin payout queue).
+ */
+export async function fetchPendingPayouts(partyId: string): Promise<PendingPayoutRecord[]> {
+  try {
+    const client = createParticipantClient();
+    const list = await client.queryActiveContracts(
+      partyId,
+      templateId(TRUTHORACLE_MODULE, "PendingPayout")
+    );
+    const out: PendingPayoutRecord[] = [];
+    for (const item of list) {
+      const cid = getContractId(item);
+      if (!cid) continue;
+      const p = getPayload(item);
+      out.push({
+        contractId: cid,
+        admin: asString(p.admin),
+        user: asString(p.user),
+        marketId: num(p.marketId),
+        amountCC: num(p.amountCC ?? p.amount_cc),
+        reason: asString(p.reason),
+        createdAt: num(p.createdAt),
+      });
+    }
+    out.sort((a, b) => b.createdAt - a.createdAt);
+    return out;
+  } catch (e) {
+    console.warn("fetchPendingPayouts", e);
     return [];
   }
 }

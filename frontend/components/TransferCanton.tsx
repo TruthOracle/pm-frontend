@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getAccountCantonBalance } from "@/view-functions/getAccountBalance";
+import { getCantonCoinHoldings } from "@/view-functions/getAccountBalance";
 
 export function TransferCanton() {
   const { account, signAndSubmitTransaction } = useCantonWallet();
@@ -16,30 +16,13 @@ export function TransferCanton() {
   const [transferAmount, setTransferAmount] = useState<number>();
 
   const { data } = useQuery({
-    queryKey: ["canton-balance", account?.address],
+    queryKey: ["canton-coin-holdings", account?.address],
     refetchInterval: 10_000,
     queryFn: async () => {
-      try {
-        if (account === null) {
-          console.error("Account not available");
-        }
-
-        const balance = await getAccountCantonBalance({ accountAddress: account!.address });
-
-        return {
-          balance,
-        };
-      } catch (error: any) {
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: error,
-        });
-        return {
-          balance: 0,
-        };
-      }
+      const holdings = await getCantonCoinHoldings();
+      return { balance: holdings.balance };
     },
+    enabled: !!account?.address,
   });
 
   const onClickButton = async () => {
@@ -69,7 +52,7 @@ export function TransferCanton() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h4 className="text-lg font-medium">Canton Coin balance: {cantonBalance / Math.pow(10, 8)}</h4>
+      <h4 className="text-lg font-medium">Canton Coin balance: {cantonBalance.toFixed(2)} CC</h4>
       Recipient <Input disabled={!account} placeholder="0x1" onChange={(e) => setRecipient(e.target.value)} />
       Amount{" "}
       <Input disabled={!account} placeholder="100" onChange={(e) => setTransferAmount(parseFloat(e.target.value))} />

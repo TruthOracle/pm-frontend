@@ -99,43 +99,19 @@ export async function getWalletTransferHistory(_partyId: string): Promise<Wallet
 }
 
 /**
- * Probe both v1 status endpoints at several timestamps so the developer can see in
- * the console which one actually returns data for our `Trade` commandId, and watch
- * the status transition (pending → success/failed). Fire-and-forget; never throws.
+ * Probe wallet command status. Was broken (401) because we read the bearer
+ * token via localStorage and the SDK has its own session manager. Now disabled
+ * by default — set `VITE_DEBUG_WALLET_STATUS=true` to re-enable for debugging.
+ *
+ * The actual trade flow doesn't depend on this; it's diagnostic logging only.
+ * For real "did the trade commit" checks, poll the participant for
+ * UserMarketData (see `waitForPositionUpdate` in MarketView).
  */
 export async function probeWalletStatusEndpoints(partyId: string, commandId: string): Promise<void> {
+  if (import.meta.env.VITE_DEBUG_WALLET_STATUS !== "true") return;
   console.log(
-    `[wallet-status] probing for commandId=${commandId} party=${partyId.slice(0, 24)}…`,
+    `[wallet-status] probing for commandId=${commandId} party=${partyId.slice(0, 24)}… (enable VITE_DEBUG_WALLET_STATUS=true to see this)`,
   );
-
-  // Run once at start: confirm the v1 API is live, our auth works, and whether
-  // the wallet has any history at all for this party.
-  const [health, account, history] = await Promise.all([
-    getWalletHealth(),
-    getWalletAccount(partyId),
-    getWalletTransferHistory(partyId),
-  ]);
-  console.log("[wallet-status] preflight:", {
-    "GET /healthz": { status: health.status, body: health.body },
-    "GET /api/balance": { status: account.status, body: account.body },
-    "GET /api/transfer/history?limit=10": { status: history.status, body: history.body },
-  });
-
-  // Then poll the per-command endpoints over ~30s to catch status transitions.
-  // /api/command/{id}/status is the generic endpoint (covers Trade);
-  // /api/transfer/status is transfer-only and is expected to 404 for Trade.
-  const checkpoints = [0, 2000, 5000, 15000, 30000];
-  for (const delay of checkpoints) {
-    if (delay) await new Promise((r) => setTimeout(r, delay));
-    const [cmdRes, xferRes] = await Promise.all([
-      getWalletCommandStatus(partyId, commandId),
-      getWalletTransferStatus(partyId, commandId),
-    ]);
-    console.log(
-      `[wallet-status] t+${delay}ms\n` +
-        `  GET /api/command/{commandId}/status        → ${cmdRes.status}\n` +
-        `  GET /api/transfer/status?command_id=…      → ${xferRes.status}`,
-      { command: cmdRes, transfer: xferRes },
-    );
-  }
+  const cmdRes = await getWalletCommandStatus(partyId, commandId);
+  console.log("[wallet-status]", { command: cmdRes });
 }

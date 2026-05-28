@@ -31,7 +31,7 @@ type ActivityRow = {
     state: "active" | "resolved" | "unknown";
     /** Resolved market result, only set when state === "resolved". */
     result?: string;
-    /** Payout for this position if resolved (winning shares × payoutPerShare). */
+    /** Payout for this position if resolved (winning shares × payoutPerShareCC). */
     payout?: number;
 };
 
@@ -51,17 +51,17 @@ function buildRows(
         const done = resolvedById.get(position.marketId);
         if (done) {
             const winningShares =
-                done.result === "Option1"
-                    ? position.optionShares1
-                    : done.result === "Option2"
-                        ? position.optionShares2
+                done.result === "Yes"
+                    ? position.yesShares
+                    : done.result === "No"
+                        ? position.noShares
                         : 0;
             return {
                 position,
                 market: done,
                 state: "resolved" as const,
                 result: done.result,
-                payout: winningShares * done.payoutPerShare,
+                payout: winningShares * done.payoutPerShareCC,
             };
         }
         return { position, market: null, state: "unknown" as const };
@@ -115,16 +115,14 @@ function Activity() {
                             <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Question</Th>
                             <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Status</Th>
                             <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Invested</Th>
-                            <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Option 1 Shares</Th>
-                            <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Option 2 Shares</Th>
+                            <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Yes Shares</Th>
+                            <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>No Shares</Th>
                             <Th color={"white"} style={{ fontFamily: "'JetBrains Mono'" }}>Payout</Th>
                         </Tr>
                     </Thead>
                     <Tbody>
                         {rows.map((row) => {
                             const m = row.market;
-                            const option1Label = m && "option1" in m ? m.option1 : "Option 1";
-                            const option2Label = m && "option2" in m ? m.option2 : "Option 2";
                             const question = m && "question" in m ? m.question : `Market #${row.position.marketId}`;
                             const statusLabel =
                                 row.state === "active"
@@ -136,11 +134,11 @@ function Activity() {
                                 <Tr color={"#CCCCFF"} key={row.position.contractId}>
                                     <Td className="font-jbm">{question}</Td>
                                     <Td className="font-jbm">{statusLabel}</Td>
-                                    <Td className="font-jbm">{row.position.amountInvested}</Td>
-                                    <Td className="font-jbm">{option1Label} – {row.position.optionShares1}</Td>
-                                    <Td className="font-jbm">{option2Label} – {row.position.optionShares2}</Td>
+                                    <Td className="font-jbm">{row.position.amountInvestedCC.toFixed(2)} CC</Td>
+                                    <Td className="font-jbm">{row.position.yesShares}</Td>
+                                    <Td className="font-jbm">{row.position.noShares}</Td>
                                     <Td className="font-jbm">
-                                        {row.state === "resolved" ? row.payout ?? 0 : "—"}
+                                        {row.state === "resolved" ? `${(row.payout ?? 0).toFixed(2)} CC` : "—"}
                                     </Td>
                                 </Tr>
                             );

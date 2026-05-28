@@ -17,8 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/use-toast";
-import { getAccountCantonBalance } from "@/view-functions/getAccountBalance";
-import { getPlatformCantonBalance } from "../../blockend/cantonService";
+import { getCantonCoinHoldings, type AmuletHoldings } from "@/view-functions/getAccountBalance";
 import { useQuery } from "@tanstack/react-query";
 import Pusher from "pusher-js";
 
@@ -52,35 +51,10 @@ export function WalletSelector() {
   const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("disconnected");
   const [events, setEvents] = useState<any[]>([]);
 
-  const { data: balanceData } = useQuery({
-    queryKey: ["canton-balance", account?.address],
+  const { data: holdings } = useQuery<AmuletHoldings>({
+    queryKey: ["canton-coin-holdings", account?.address],
     refetchInterval: 10_000,
-    queryFn: async () => {
-      if (!account?.address) return { balance: 0 };
-      try {
-        const balance = await getAccountCantonBalance({ accountAddress: account.address });
-        return { balance };
-      } catch (error: any) {
-        toast({ variant: "destructive", title: "Error", description: error.message });
-        return { balance: 0 };
-      }
-    },
-    enabled: !!account?.address,
-  });
-
-  const { data: usdcBalanceData } = useQuery({
-    queryKey: ["canton-balance", account?.address],
-    refetchInterval: 10_000,
-    queryFn: async () => {
-      if (!account?.address) return { balance: 0 };
-      try {
-        const balance = await getPlatformCantonBalance(account.address);
-        return { balance };
-      } catch (error: any) {
-        toast({ variant: "destructive", title: "Error", description: error.message });
-        return { balance: 0 };
-      }
-    },
+    queryFn: () => getCantonCoinHoldings(),
     enabled: !!account?.address,
   });
 
@@ -147,13 +121,20 @@ export function WalletSelector() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80" style={{ zIndex: 1101 }}>
         <div className="px-4 py-2">
-          <p className="text-sm font-medium">Balance</p>
+          <p className="text-sm font-medium">Canton Coin</p>
           <p className="text-2xl font-bold">
-            {balanceData?.balance ? (balanceData.balance / Math.pow(10, 8)).toFixed(4) : "0"} Canton
+            {(holdings?.balance ?? 0).toFixed(2)} CC
           </p>
-          <p className="text-sm font-medium mt-2">Canton Coin Balance</p>
-          <p className="text-2xl font-bold">
-            {usdcBalanceData?.balance ? (usdcBalanceData.balance / 1e8).toFixed(2) : "0"} Canton Coin
+          <p className="text-xs text-gray-400">
+            ≈ ${(holdings?.balanceUsd ?? 0).toFixed(2)} USD
+          </p>
+          {(holdings?.lockedBalance ?? 0) > 0 && (
+            <p className="text-xs text-amber-400 mt-1">
+              Locked: {(holdings?.lockedBalance ?? 0).toFixed(2)} CC (≈ ${(holdings?.lockedBalanceUsd ?? 0).toFixed(2)})
+            </p>
+          )}
+          <p className="text-xs text-gray-500 mt-2">
+            Native validator balance. Separate from your TruthOracle trading balance (Portfolio page).
           </p>
         </div>
         <DropdownMenuSeparator />

@@ -73,8 +73,6 @@ const Marketplace = () => {
                     id={m.marketId}
                     question={m.question}
                     imageUrl={m.imageUrl}
-                    option1={m.option1}
-                    option2={m.option2}
                     status={0}
                   />
                 ))}
@@ -98,8 +96,6 @@ const Marketplace = () => {
                     id={m.marketId}
                     question={m.question}
                     imageUrl=""
-                    option1={m.option1}
-                    option2={m.option2}
                     status={1}
                     result={m.result}
                   />
