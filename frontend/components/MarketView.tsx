@@ -307,8 +307,9 @@ const MarketView = () => {
       try {
         const committedTxn = await signAndSubmitTransaction(params);
         txId = committedTxn.hash;
-        // Probe both v1 wallet endpoints to see which one returns data for this
-        // commandId. Logs status transitions over ~30s in the console.
+        // Probe /api/command/{id}/status and /api/transfer/status for this commandId
+        // and log status transitions over ~30s in the console. /api/transfer/status
+        // is expected to 404 for Trade — the command endpoint is the source of truth.
         if (txId) {
           void probeWalletStatusEndpoints(account.address, txId);
         }

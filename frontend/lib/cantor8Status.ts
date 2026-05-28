@@ -1,13 +1,20 @@
 /**
- * Direct probes against the v1 Cantor8 wallet API for command/transfer status.
+ * Direct probes against the Cantor8 wallet backend
+ * (https://wallet-backend.dev.digik.cantor8.tech/openapi.json — devnet,
+ * https://wallet-backend.main.cantor8.tech for mainnet).
  *
- * Why this exists: the bundled @cantor8/wallet-connect-sdk@0.2.0-alpha.3 polls a
- * legacy `/api/transfer/status?command_id=...` path that's not in the v1 OpenAPI
- * spec, returning 404 for non-transfer commands. The current spec defines:
- *   GET /api/v1/command/{partyId}/{commandId}   — generic command status
- *   GET /api/v1/transfer/{partyId}/{commandId}  — transfer-only status
- * These helpers call those endpoints directly so we can confirm which one returns
- * useful data for a Daml `Trade` command.
+ * Why this exists: the bundled @cantor8/wallet-connect-sdk polls
+ * `/api/transfer/status?command_id=...` which only knows about *transfers* — for a
+ * Daml `Trade` (which is submitted via `/api/external/execute`) the right status
+ * endpoint is `/api/command/{command_id}/status`. These helpers call the real
+ * endpoints from the OpenAPI spec so the dApp can confirm a Trade committed.
+ *
+ * Endpoints (all require Bearer auth except /healthz):
+ *   GET /healthz                              — liveness
+ *   GET /api/balance                          — party_id + holdings (auth proof)
+ *   GET /api/command/{command_id}/status      — generic command status (works for Trade)
+ *   GET /api/transfer/status?command_id=...   — transfer-only status (404s for Trade)
+ *   GET /api/transfer/history?limit=10        — recent transfers (deprecated but functional)
  */
 
 /** Devnet/mainnet wallet backend URL — mirrors the SDK's `origin → backend` switch. */
@@ -62,27 +69,33 @@ async function callWalletApi(path: string): Promise<WalletApiResult> {
   }
 }
 
-export async function getWalletCommandStatus(partyId: string, commandId: string): Promise<WalletApiResult> {
-  return callWalletApi(`/api/v1/command/${encodeURIComponent(partyId)}/${encodeURIComponent(commandId)}`);
+/** Generic command status — works for Trade and other /api/external/execute commands. */
+export async function getWalletCommandStatus(_partyId: string, commandId: string): Promise<WalletApiResult> {
+  return callWalletApi(`/api/command/${encodeURIComponent(commandId)}/status`);
 }
 
-export async function getWalletTransferStatus(partyId: string, commandId: string): Promise<WalletApiResult> {
-  return callWalletApi(`/api/v1/transfer/${encodeURIComponent(partyId)}/${encodeURIComponent(commandId)}`);
+/** Transfer-only status — 404s for non-transfer commands like Trade; kept for parity logging. */
+export async function getWalletTransferStatus(_partyId: string, commandId: string): Promise<WalletApiResult> {
+  return callWalletApi(`/api/transfer/status?command_id=${encodeURIComponent(commandId)}`);
 }
 
-/** Liveness probe — no auth required per the v1 spec. */
+/** Liveness probe — no auth required. */
 export async function getWalletHealth(): Promise<WalletApiResult> {
-  return callWalletApi(`/health`);
+  return callWalletApi(`/healthz`);
 }
 
-/** Account details — proves the bearer token works and the partyId is valid. */
-export async function getWalletAccount(partyId: string): Promise<WalletApiResult> {
-  return callWalletApi(`/api/v1/accounts/${encodeURIComponent(partyId)}`);
+/**
+ * Auth/account proof. The OpenAPI spec has no per-party `/accounts/{id}` endpoint; the
+ * authenticated `/api/balance` call returns the bearer-token's `party_id` + holdings,
+ * which serves the same diagnostic purpose (confirms auth works for this party).
+ */
+export async function getWalletAccount(_partyId: string): Promise<WalletApiResult> {
+  return callWalletApi(`/api/balance`);
 }
 
-/** Recent transfers — does the wallet record this party's activity at all? */
-export async function getWalletTransferHistory(partyId: string): Promise<WalletApiResult> {
-  return callWalletApi(`/api/v1/transfer/${encodeURIComponent(partyId)}?limit=10`);
+/** Recent transfers — `/api/transfer/history?limit=N`. Marked deprecated in the spec but still functional. */
+export async function getWalletTransferHistory(_partyId: string): Promise<WalletApiResult> {
+  return callWalletApi(`/api/transfer/history?limit=10`);
 }
 
 /**
@@ -103,12 +116,14 @@ export async function probeWalletStatusEndpoints(partyId: string, commandId: str
     getWalletTransferHistory(partyId),
   ]);
   console.log("[wallet-status] preflight:", {
-    "GET /health": { status: health.status, body: health.body },
-    "GET /api/v1/accounts/{partyId}": { status: account.status, body: account.body },
-    "GET /api/v1/transfer/{partyId}?limit=10": { status: history.status, body: history.body },
+    "GET /healthz": { status: health.status, body: health.body },
+    "GET /api/balance": { status: account.status, body: account.body },
+    "GET /api/transfer/history?limit=10": { status: history.status, body: history.body },
   });
 
   // Then poll the per-command endpoints over ~30s to catch status transitions.
+  // /api/command/{id}/status is the generic endpoint (covers Trade);
+  // /api/transfer/status is transfer-only and is expected to 404 for Trade.
   const checkpoints = [0, 2000, 5000, 15000, 30000];
   for (const delay of checkpoints) {
     if (delay) await new Promise((r) => setTimeout(r, delay));
@@ -118,8 +133,8 @@ export async function probeWalletStatusEndpoints(partyId: string, commandId: str
     ]);
     console.log(
       `[wallet-status] t+${delay}ms\n` +
-        `  GET /api/v1/command/{partyId}/{commandId}  → ${cmdRes.status}\n` +
-        `  GET /api/v1/transfer/{partyId}/{commandId} → ${xferRes.status}`,
+        `  GET /api/command/{commandId}/status        → ${cmdRes.status}\n` +
+        `  GET /api/transfer/status?command_id=…      → ${xferRes.status}`,
       { command: cmdRes, transfer: xferRes },
     );
   }
