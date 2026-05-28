@@ -119,6 +119,19 @@ export function CantonWalletProvider({ children }: { children: React.ReactNode }
     []
   );
 
+  /**
+   * Loop wallet path doesn't have an Amulet send equivalent in this SDK build,
+   * so we throw. End users on this codebase connect via Cantor8 in practice.
+   */
+  const transferCC = useCallback(
+    async (_args: { to: string; amount: number; memo?: string; metadata?: Record<string, string> }): Promise<{ txId: string }> => {
+      throw new Error(
+        "Canton Coin transfer is only wired through the Cantor8 wallet. Connect via Cantor8 to send CC.",
+      );
+    },
+    [],
+  );
+
   const wallets: CantonWalletItem[] | null = account
     ? [{ partyId: account.partyId, primary: true, publicKey: account.publicKey }]
     : null;
@@ -129,6 +142,7 @@ export function CantonWalletProvider({ children }: { children: React.ReactNode }
     connect,
     disconnect,
     signAndSubmitTransaction,
+    transferCC,
     wallets,
     network,
   };

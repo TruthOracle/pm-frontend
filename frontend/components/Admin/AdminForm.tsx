@@ -1,11 +1,11 @@
-import {Button, Center, Input, useToast, Text} from '@chakra-ui/react'
-import React, {useState, useEffect} from 'react'
+import { Button, Center, Input, useToast, Text, Textarea } from "@chakra-ui/react";
+import React, { useState, useEffect } from "react";
 import { useCantonWallet } from "@/wallets";
 import { buildInitMarketParams } from "@/utils/cantonCommands";
 import { fetchMarketCounterContractId } from "@/utils/activeContracts";
 import { enterpriseWalletPartyId, submitAdminTransaction } from "@/lib/enterpriseWalletSubmit";
 
-type Props = {}
+type Props = {};
 
 function AdminForm({}: Props) {
     const { account, signAndSubmitTransaction } = useCantonWallet();
@@ -25,36 +25,29 @@ function AdminForm({}: Props) {
     }, [account?.address]);
 
     const [formData, setFormData] = useState({
-		question: "",
-        imageURL:"",
-        description:"",
-        firstShareOption:"",
-        secondShareOption:"",
-        liquidityParameter:100
-	})
+        question: "",
+        imageURL: "",
+        description: "",
+        resolutionDescription: "",
+        liquidityParameter: 100,
+    });
 
-
-    const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-		const { name, value } = event.target
-		setFormData((prevFormData) => ({
-			...prevFormData,
-			[name]: value,
-		}))
-
-	}
+    const handleInputChange = (
+        event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+    ) => {
+        const { name, value } = event.target;
+        setFormData((prev) => ({ ...prev, [name]: value }));
+    };
 
     const formValid =
         formData.question.trim() !== "" &&
         formData.imageURL.trim() !== "" &&
         formData.description.trim() !== "" &&
-        formData.firstShareOption.trim() !== "" &&
-        formData.secondShareOption.trim() !== "";
+        formData.resolutionDescription.trim() !== "";
 
-    const toast = useToast()
+    const toast = useToast();
 
-
-
-    const handleSubmit = async (e: any) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
         if (!account) {
@@ -62,12 +55,13 @@ function AdminForm({}: Props) {
             return;
         }
         // Re-fetch MarketCounter contract ID immediately before submit to avoid CONTRACT_NOT_FOUND
-        // (cached ID may be stale if the counter was re-created or the contract was archived).
+        // (cached ID may be stale if the counter was re-created or archived).
         const freshCid = await fetchMarketCounterContractId();
         if (!freshCid) {
             toast({
                 title: "Market counter not found",
-                description: "Connect to the participant where TruthOracle is deployed and ensure the admin has created the MarketCounter.",
+                description:
+                    "Connect to the participant where TruthOracle is deployed and ensure the admin has created the MarketCounter.",
                 status: "warning",
                 duration: 6000,
                 isClosable: true,
@@ -83,8 +77,7 @@ function AdminForm({}: Props) {
             formData.question,
             formData.imageURL,
             formData.description,
-            formData.firstShareOption,
-            formData.secondShareOption,
+            formData.resolutionDescription,
             formData.liquidityParameter,
             freshCid
         );
@@ -94,20 +87,23 @@ function AdminForm({}: Props) {
             (window as { refreshMarketplace?: () => void }).refreshMarketplace?.();
             toast({
                 title: "Market Created",
-                description: "Market created on ledger. Check Marketplace if the card does not appear yet.",
+                description:
+                    "Yes/No market created on ledger. Check Marketplace if the card does not appear yet.",
                 status: "success",
                 duration: 9000,
                 isClosable: true,
             });
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            if (message.includes("CONTRACT_NOT_FOUND") || message.includes("Contract could not be found")) {
+            if (
+                message.includes("CONTRACT_NOT_FOUND") ||
+                message.includes("Contract could not be found")
+            ) {
                 setMarketCounterCid(null);
-                const partyHint =
-                    " Bring up wallet-deploy/ (see its README), set VITE_ENTERPRISE_WALLET_PARTY_ID in .env to the wallet's party id, then `npm run create:contract`.";
                 toast({
                     title: "Market counter not found",
-                    description: `The participant rejected the counter contract.${partyHint} Then try again.`,
+                    description:
+                        "The participant rejected the counter contract. Re-run `npm run create:contract` and try again.",
                     status: "warning",
                     duration: 8000,
                     isClosable: true,
@@ -123,97 +119,82 @@ function AdminForm({}: Props) {
             }
             throw err;
         }
-    }
+    };
 
-  return (
-    <>
-    <Center className="font-jbm" width={"50%"} bgColor={"white"} padding={"20px"} borderRadius={"10px"} boxShadow={"2xl"}>
-    <form onSubmit={handleSubmit}>
-									
-        <label htmlFor="question">Question</label>
-		<Input
-			required
-			type="text"
-			marginBottom="20px"
-			marginTop="2px"
-			name="question"
-			placeholder="Prediction Question"
-			value={formData.question}
-			onChange={handleInputChange}
-		/>
+    return (
+        <Center
+            className="font-jbm"
+            width={"50%"}
+            bgColor={"white"}
+            padding={"20px"}
+            borderRadius={"10px"}
+            boxShadow={"2xl"}
+        >
+            <form onSubmit={handleSubmit}>
+                <label htmlFor="question">Question</label>
+                <Input
+                    required
+                    type="text"
+                    marginBottom="20px"
+                    marginTop="2px"
+                    name="question"
+                    placeholder="e.g. Will Bitcoin close above $100k on Dec 31?"
+                    value={formData.question}
+                    onChange={handleInputChange}
+                />
 
-        <label htmlFor="imageURL">Image URL</label>
-		<Input
-			required
-			type="text"
-			marginBottom="20px"
-			marginTop="2px"
-			name="imageURL"
-			placeholder="Add Image URL"
-			value={formData.imageURL}
-			onChange={handleInputChange}
-		/>
+                <label htmlFor="imageURL">Image URL</label>
+                <Input
+                    required
+                    type="text"
+                    marginBottom="20px"
+                    marginTop="2px"
+                    name="imageURL"
+                    placeholder="Add Image URL"
+                    value={formData.imageURL}
+                    onChange={handleInputChange}
+                />
 
-        <label htmlFor="description">Description</label>
-		<Input
-			required
-			type="text"
-			marginBottom="20px"
-			marginTop="2px"
-			name="description"
-			placeholder="Add Description"
-			value={formData.description}
-			onChange={handleInputChange}
-		/>
+                <label htmlFor="description">Description</label>
+                <Input
+                    required
+                    type="text"
+                    marginBottom="20px"
+                    marginTop="2px"
+                    name="description"
+                    placeholder="Short description shown on the market card"
+                    value={formData.description}
+                    onChange={handleInputChange}
+                />
 
-		<label htmlFor="firstShareOption">Prediction Option - 1</label>
-		<Input
-			type="text"
-			marginBottom="25px"
-			marginTop="2px"
-			placeholder="Prediction Option"
-			name="firstShareOption"
-			value={formData.firstShareOption}
-			onChange={handleInputChange}
-			required={true}
-		/>
+                <label htmlFor="resolutionDescription">Resolution criteria</label>
+                <Textarea
+                    required
+                    marginBottom="20px"
+                    marginTop="2px"
+                    name="resolutionDescription"
+                    placeholder="How will this market resolve? Cite the authoritative source."
+                    value={formData.resolutionDescription}
+                    onChange={handleInputChange}
+                />
 
-   
-        <label htmlFor="secondShareOption">Prediction Option - 2</label>
-		<Input
-			type="text"
-			marginBottom="20px"
-			marginTop="2px"
-			placeholder="Prediction Option"
-			name="secondShareOption"
-			value={formData.secondShareOption}
-			onChange={handleInputChange}
-			required
-		/>
+                <Text fontSize="xs" color="gray.500" mb={3}>
+                    Every market is binary Yes / No — no per-market option labels.
+                </Text>
 
-    
-
-        {/* <label htmlFor="liquidityParameter">Liquidity Parameter</label>
-		<Input
-			type="number"
-			marginBottom="20px"
-			marginTop="2px"
-			placeholder="Liquidity Parameter"
-			name="liquidityParameter"
-			value={formData.liquidityParameter}
-			onChange={handleInputChange}
-		/> */}
-		{loadingCid && <Text color="gray.400" fontSize="sm">Loading contract...</Text>}
-		{!loadingCid && !marketCounterCid && account && (
-			<Text color="orange.400" fontSize="sm" mb={2}>Market counter not found on this participant. Deploy TruthOracle and create the counter first.</Text>
-		)}
-		<Button type="submit" colorScheme='green' isDisabled={loadingCid || !formValid}>Submit</Button>
-
-		</form>
-    </Center>
-
-    </>
-  )
+                {loadingCid && <Text color="gray.400" fontSize="sm">Loading contract...</Text>}
+                {!loadingCid && !marketCounterCid && account && (
+                    <Text color="orange.400" fontSize="sm" mb={2}>
+                        Market counter not found on this participant. Deploy TruthOracle and create
+                        the counter first.
+                    </Text>
+                )}
+                <Button type="submit" colorScheme="green" isDisabled={loadingCid || !formValid}>
+                    Create Yes/No Market
+                </Button>
+            </form>
+        </Center>
+    );
 }
 
-export default AdminForm
+export default AdminForm;

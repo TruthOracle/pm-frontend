@@ -235,6 +235,31 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     [account],
   );
 
+  /**
+   * High-level Amulet (Canton Coin) transfer via Cantor8 SDK's wallet.send().
+   * The SDK handles popup signing + AmuletRules / OpenMiningRound / fee plumbing
+   * internally — we just say "transfer X CC to Y".
+   */
+  const transferCC = useCallback(
+    async ({ to, amount, memo, metadata }: { to: string; amount: number; memo?: string; metadata?: Record<string, string> }): Promise<{ txId: string }> => {
+      const wallet = walletRef.current;
+      if (!wallet) throw new Error("Cantor8 wallet not initialized");
+      if (!account?.partyId) throw new Error("Cantor8 wallet not connected (no partyId)");
+      if (!(amount > 0)) throw new Error("Transfer amount must be positive");
+
+      const result = await wallet.send({
+        senderPartyId: account.partyId,
+        instrumentId: "Amulet",
+        amount,
+        receiverPartyId: to,
+        ...(memo ? { memo } : {}),
+        ...(metadata ? { metadata } : {}),
+      });
+      return { txId: result?.txId ?? "" };
+    },
+    [account],
+  );
+
   const wallets: CantonWalletItem[] | null = account
     ? [{ partyId: account.partyId, primary: true, publicKey: account.publicKey }]
     : null;
@@ -245,6 +270,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     connect,
     disconnect,
     signAndSubmitTransaction,
+    transferCC,
     wallets,
     network,
   };

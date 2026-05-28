@@ -6,21 +6,19 @@ const INCENTIVES_MODULE = "Incentives";
 
 /**
  * Daml `Int` (Int64) and `Decimal`/`Numeric` fields must be JSON-encoded as strings
- * on the JSON Ledger API — JSON numbers can't represent Int64 precisely. The participant
- * rejects raw numbers with "Expected ujson.Str (data: <value>)" / LEDGER_API_INTERNAL_ERROR.
- * Use this everywhere a Daml Int/Decimal field appears in choiceArguments / createArguments.
+ * on the JSON Ledger API — JSON numbers can't represent Int64 / arbitrary-precision
+ * Decimals safely. The participant rejects raw numbers with "Expected ujson.Str".
  */
 function damlInt(n: number): string {
   return Math.trunc(n).toString();
 }
 
-// JSON Ledger API templateId reference. Two valid forms:
-//   "<packageId>:<Module>:<Entity>"   — bare package id (used here; Cantor8's popup
-//                                       expects the bare id in commands AND
-//                                       disclosedContracts payloads — see Vasiliy's note)
-//   "#<packageName>:<Module>:<Entity>" — package-name reference (lets the participant
-//                                       pick the upgraded version; still required for
-//                                       active-contracts queries — see activeContracts.ts)
+/** Daml Decimal — 10 decimal places, no exponent. Use for CC amounts. */
+function damlDecimal(n: number): string {
+  if (!Number.isFinite(n)) return "0.0000000000";
+  return n.toFixed(10);
+}
+
 export function templateId(moduleName: string, entityName: string): string {
   return `${TRUTHORACLE_PACKAGE_ID}:${moduleName}:${entityName}`;
 }
@@ -33,17 +31,32 @@ function baseParams(partyId: string, commands: unknown[]): PrepareExecuteParams 
   };
 }
 
+export interface DisclosedContractArg {
+  templateId?: string;
+  contractId?: string;
+  createdEventBlob: string;
+  synchronizerId?: string;
+}
+
+function withDisclosure(
+  params: PrepareExecuteParams,
+  disclosedContracts?: DisclosedContractArg[],
+): PrepareExecuteParams {
+  if (disclosedContracts && disclosedContracts.length > 0) {
+    params.disclosedContracts = disclosedContracts;
+  }
+  return params;
+}
+
 /**
- * Exercise MarketCounter.CreateMarket. Requires the active MarketCounter contract ID
- * (fetch via wallet getActiveContracts or participant query).
+ * Exercise MarketCounter.CreateMarket. Markets are always Yes/No.
  */
 export function buildInitMarketParams(
   partyId: string,
   question: string,
   imageURL: string,
   description: string,
-  option1: string,
-  option2: string,
+  resolutionDescription: string,
   liquidityParam: number,
   marketCounterContractId: string
 ): PrepareExecuteParams {
@@ -59,12 +72,10 @@ export function buildInitMarketParams(
           question,
           imageUrl: imageURL,
           description,
-          option1,
-          option2,
-          // Daml Int → JSON string (see damlInt comment).
+          resolutionDescription,
           createdAt: damlInt(createdAt),
-          initialOptionShares1: damlInt(initialShares),
-          initialOptionShares2: damlInt(initialShares),
+          initialYesShares: damlInt(initialShares),
+          initialNoShares: damlInt(initialShares),
           liquidityParam: damlInt(liquidityParam),
         },
       },
@@ -74,31 +85,18 @@ export function buildInitMarketParams(
 }
 
 /**
- * A DisclosedContract entry as accepted by JsPrepareSubmissionRequest.disclosedContracts
- * and forwarded by the wallet (Cantor8/Loop). `createdEventBlob` is required; templateId,
- * contractId, and synchronizerId are optional but should be set when known.
+ * Exercise PredictionMarket.Buy. costCC is the CC cost the user is paying.
+ * NOTE: the contract does NOT verify that a CC transfer of `costCC` actually
+ * happened — the frontend must trigger that transfer first (via Cantor8 popup)
+ * and only then exercise this choice. Until reconciliation is wired up this is
+ * trust-the-frontend.
  */
-export interface DisclosedContractArg {
-  templateId?: string;
-  contractId?: string;
-  createdEventBlob: string;
-  synchronizerId?: string;
-}
-
-/**
- * Exercise PredictionMarket.Trade. Requires the PredictionMarket contract ID.
- * existingPositionContractId can be null when the user has no position yet.
- *
- * Pass `disclosedContracts` when the buyer's participant can't see the PredictionMarket cid
- * directly (external/self-custody party that hasn't been added via AddParticipant) — the
- * wallet forwards them to the participant so the prepare call resolves the contract.
- */
-export function buildBuySharesParams(
+export function buildBuyParams(
   partyId: string,
   predictionMarketContractId: string,
-  option: number, // 1 or 2
+  side: number,
   numShares: number,
-  cost: number,
+  costCC: number,
   existingPositionContractId: string | null,
   disclosedContracts?: DisclosedContractArg[],
 ): PrepareExecuteParams {
@@ -107,70 +105,121 @@ export function buildBuySharesParams(
       exercise: {
         templateId: templateId(TRUTHORACLE_MODULE, "PredictionMarket"),
         contractId: predictionMarketContractId,
-        choice: "Trade",
+        choice: "Buy",
         choiceArgument: {
           buyer: partyId,
-          // Daml Int → JSON string.
-          option: damlInt(option),
+          side: damlInt(side),
           numShares: damlInt(numShares),
-          cost: damlInt(cost),
+          costCC: damlDecimal(costCC),
           existingPosition: existingPositionContractId ?? null,
         },
       },
     },
   ];
-  const params = baseParams(partyId, commands);
-  if (disclosedContracts && disclosedContracts.length > 0) {
-    params.disclosedContracts = disclosedContracts;
-  }
-  return params;
+  return withDisclosure(baseParams(partyId, commands), disclosedContracts);
 }
 
 /**
- * Exercise PredictionMarket.AddParticipant. Admin-only on the DAML side
- * (`controller admin`). Adds `newParticipant` as an observer on the market so
- * the participant node will surface the cid from that party's view — without
- * this, Trade prepare fails with CONTRACT_NOT_FOUND because the buyer can't
- * see the contract.
- *
- * Returns a new PredictionMarket cid; the previous one is archived by the
- * choice. Callers should refresh after the tx settles.
+ * Exercise PredictionMarket.Sell. Burns shares and creates a PendingPayout
+ * (admin pays the user CC asynchronously via Enterprise Wallet).
  */
-export function buildAddParticipantParams(
+export function buildSellParams(
   partyId: string,
   predictionMarketContractId: string,
-  newParticipantPartyId: string,
+  side: number,
+  numShares: number,
+  proceedsCC: number,
+  positionContractId: string,
+  disclosedContracts?: DisclosedContractArg[],
+): PrepareExecuteParams {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const commands = [
+    {
+      exercise: {
+        templateId: templateId(TRUTHORACLE_MODULE, "PredictionMarket"),
+        contractId: predictionMarketContractId,
+        choice: "Sell",
+        choiceArgument: {
+          seller: partyId,
+          side: damlInt(side),
+          numShares: damlInt(numShares),
+          proceedsCC: damlDecimal(proceedsCC),
+          positionCid: positionContractId,
+          nowSeconds: damlInt(nowSeconds),
+        },
+      },
+    },
+  ];
+  return withDisclosure(baseParams(partyId, commands), disclosedContracts);
+}
+
+/**
+ * Exercise PredictionMarket.Split — mint `amount` Yes + No share pairs.
+ * Costs `amount` CC (1 pair = 1 CC). Frontend must transfer CC to admin first.
+ */
+export function buildSplitParams(
+  partyId: string,
+  predictionMarketContractId: string,
+  amount: number,
+  existingPositionContractId: string | null,
+  disclosedContracts?: DisclosedContractArg[],
 ): PrepareExecuteParams {
   const commands = [
     {
       exercise: {
         templateId: templateId(TRUTHORACLE_MODULE, "PredictionMarket"),
         contractId: predictionMarketContractId,
-        choice: "AddParticipant",
+        choice: "Split",
         choiceArgument: {
-          newParticipant: newParticipantPartyId,
+          user: partyId,
+          amount: damlInt(amount),
+          existingPosition: existingPositionContractId ?? null,
         },
       },
     },
   ];
-  return baseParams(partyId, commands);
+  return withDisclosure(baseParams(partyId, commands), disclosedContracts);
 }
 
 /**
- * Exercise PredictionMarket.RecordResult. Admin-only on the DAML side
- * (`controller admin` in Truthoracle.daml) — the wallet must be connected as
- * the admin party (VITE_ENTERPRISE_WALLET_PARTY_ID). On success the underlying
- * PredictionMarket is archived and a ResolvedMarket is created on the participant.
- *
- * `result` is a Daml `MarketResult` enum (`Option1 | Option2 | Draw`); the JSON
- * Ledger API encodes nullary enum constructors as plain tag strings — same as
- * `rewardType` in buildClaimAllRewardsParams.
+ * Exercise PredictionMarket.Merge — burn `amount` Yes + No pairs, create
+ * a PendingPayout for `amount` CC.
+ */
+export function buildMergeParams(
+  partyId: string,
+  predictionMarketContractId: string,
+  amount: number,
+  positionContractId: string,
+  disclosedContracts?: DisclosedContractArg[],
+): PrepareExecuteParams {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const commands = [
+    {
+      exercise: {
+        templateId: templateId(TRUTHORACLE_MODULE, "PredictionMarket"),
+        contractId: predictionMarketContractId,
+        choice: "Merge",
+        choiceArgument: {
+          user: partyId,
+          amount: damlInt(amount),
+          positionCid: positionContractId,
+          nowSeconds: damlInt(nowSeconds),
+        },
+      },
+    },
+  ];
+  return withDisclosure(baseParams(partyId, commands), disclosedContracts);
+}
+
+/**
+ * Exercise PredictionMarket.RecordResult. Admin-only. payoutPerShareCC is the
+ * CC each winning share is worth (e.g. 1.0 for Yes-wins paying 1 CC/share).
  */
 export function buildRecordResultParams(
   partyId: string,
   predictionMarketContractId: string,
-  result: "Option1" | "Option2" | "Draw",
-  payoutPerShare: number,
+  result: "Yes" | "No" | "Draw",
+  payoutPerShareCC: number,
 ): PrepareExecuteParams {
   const commands = [
     {
@@ -180,7 +229,7 @@ export function buildRecordResultParams(
         choice: "RecordResult",
         choiceArgument: {
           result,
-          payoutPerShare: damlInt(payoutPerShare),
+          payoutPerShareCC: damlDecimal(payoutPerShareCC),
         },
       },
     },
@@ -189,8 +238,49 @@ export function buildRecordResultParams(
 }
 
 /**
- * Exercise UserRewardsSummary.ClaimRewardsBatch on Incentives (all claims in one choice).
- * One exercise avoids archiving the summary on the first ClaimReward and failing on the rest.
+ * Admin: archive a PendingPayout after sending CC via the Enterprise Wallet.
+ * txHash is a reference for off-chain audit.
+ */
+export function buildMarkPaidParams(
+  partyId: string,
+  pendingPayoutContractId: string,
+  txHash: string,
+): PrepareExecuteParams {
+  const commands = [
+    {
+      exercise: {
+        templateId: templateId(TRUTHORACLE_MODULE, "PendingPayout"),
+        contractId: pendingPayoutContractId,
+        choice: "MarkPaid",
+        choiceArgument: { txHash },
+      },
+    },
+  ];
+  return baseParams(partyId, commands);
+}
+
+/**
+ * User: cancel their own pending payout (escape hatch — rarely used).
+ */
+export function buildCancelPayoutParams(
+  partyId: string,
+  pendingPayoutContractId: string,
+): PrepareExecuteParams {
+  const commands = [
+    {
+      exercise: {
+        templateId: templateId(TRUTHORACLE_MODULE, "PendingPayout"),
+        contractId: pendingPayoutContractId,
+        choice: "CancelPayout",
+        choiceArgument: {},
+      },
+    },
+  ];
+  return baseParams(partyId, commands);
+}
+
+/**
+ * Exercise UserRewardsSummary.ClaimRewardsBatch on Incentives.
  */
 export function buildClaimAllRewardsParams(
   partyId: string,
@@ -204,7 +294,6 @@ export function buildClaimAllRewardsParams(
         contractId: userRewardsSummaryContractId,
         choice: "ClaimRewardsBatch",
         choiceArgument: {
-          // DAML RewardClaim: { marketId: Int, rewardType, amount: Int } — Int → JSON string.
           claims: claimArgs.map(({ marketId, rewardType, amount }) => ({
             marketId: damlInt(marketId),
             rewardType,
@@ -217,17 +306,10 @@ export function buildClaimAllRewardsParams(
   return baseParams(partyId, commands);
 }
 
-/**
- * No-arg version: use when contract ID or claim args are not yet available.
- * Submits with packageIdSelectionPreference only (no commands).
- */
 export function buildClaimAllRewardsParamsNoArgs(partyId: string): PrepareExecuteParams {
   return baseParams(partyId, []);
 }
 
-/**
- * Simplified claim: single ClaimReward exercise. Use when you have one reward to claim.
- */
 export function buildClaimRewardParams(
   partyId: string,
   userRewardsSummaryContractId: string,
@@ -240,24 +322,14 @@ export function buildClaimRewardParams(
   ]);
 }
 
-/**
- * Placeholder: Transfer Canton Coin. Not in TruthOracle DAML; wire to your Canton Coin module when available.
- */
 export function buildTransferParams(partyId: string, _to: string, _amount: number): PrepareExecuteParams {
   return baseParams(partyId, []);
 }
 
-/**
- * Placeholder: Withdraw payout. TruthOracle DAML has ResolvedMarket but no withdraw choice;
- * wire to your payout flow or Incentives when available.
- */
 export function buildWithdrawPayoutParams(partyId: string, _marketId: number): PrepareExecuteParams {
   return baseParams(partyId, []);
 }
 
-/**
- * Placeholder: Write message. Wire to your message template when available.
- */
 export function buildWriteMessageParams(partyId: string, _content: string): PrepareExecuteParams {
   return baseParams(partyId, []);
 }

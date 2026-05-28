@@ -1,40 +1,67 @@
 -- TruthOracle Prediction Market - Canton Network DAML contracts
+-- Two-step real-CC architecture:
+--   * Buy / Split:  frontend triggers a CC transfer (Cantor8 popup) to admin first,
+--                   then exercises the Daml choice to record the position. The contract
+--                   does NOT verify the CC transfer — trust the frontend / reconcile off-chain.
+--   * Sell / Merge: choice burns shares and creates a PendingPayout (signed by admin,
+--                   observed by user). Admin batches payouts via Enterprise Wallet.
+--   * Resolve:      admin records the result; winning shares are read by an admin daemon
+--                   that mints PendingPayouts for each winner.
+-- No UserWallet template — Cantor8 wallet IS the wallet.
 
 module Truthoracle where
 
--- Market status
 data MarketStatus = InProgress | Finished
   deriving (Eq, Show)
 
--- Market result
-data MarketResult = Option1 | Option2 | Draw
+data MarketResult = Yes | No | Draw
   deriving (Eq, Show)
 
--- Prediction market metadata (on-ledger state)
-data PredictionMarketMetaData = PredictionMarketMetaData
+-- A pending CC payout the admin owes a user (from a Sell, Merge, or winning Resolve).
+-- Admin reads these, sends CC via the Enterprise Wallet, then exercises MarkPaid to
+-- archive. User can also exercise CancelPayout (e.g. if they want to convert it back
+-- to shares, hypothetically).
+template PendingPayout
   with
-    id: Int
-    question: Text
-    imageUrl: Text
-    description: Text
-    option1: Text
-    option2: Text
+    admin: Party
+    user: Party
+    marketId: Int
+    amountCC: Decimal  -- whole CC the admin owes the user
+    reason: Text       -- "sell", "merge", "resolve"
     createdAt: Int
-    status: MarketStatus
-    result: Optional MarketResult
-    payoutPerShare: Optional Int
-  deriving (Eq, Show)
+  where
+    signatory admin
+    observer user
 
--- LMSR market maker state
-data LMSR = LMSR
+    -- Admin marks the payout settled (after the Enterprise Wallet has transferred CC).
+    choice MarkPaid : ()
+      with
+        txHash: Text  -- reference to the off-ledger CC transfer for audit
+      controller admin
+      do
+        return ()
+
+    -- User cancels (rare — they prefer to keep the share). Archives the payout
+    -- without crediting anything. Provided so the queue never gets stuck on a
+    -- user who's changed their mind.
+    choice CancelPayout : ()
+      controller user
+      do
+        return ()
+
+-- User position in a market. One per (user, marketId).
+template UserMarketData
   with
-    optionShares1: Int
-    optionShares2: Int
-    liquidityParam: Int
-  deriving (Eq, Show)
+    user: Party
+    marketId: Int
+    yesShares: Int
+    noShares: Int
+    amountInvestedCC: Decimal  -- lifetime CC spent on this market (informational)
+    profitMadeCC: Decimal
+  where
+    signatory user
 
--- Active prediction market contract
--- Only admin can create, resolve, archive. Users in participants can trade.
+-- Active prediction market. Signed by admin only.
 template PredictionMarket
   with
     admin: Party
@@ -42,126 +69,191 @@ template PredictionMarket
     question: Text
     imageUrl: Text
     description: Text
-    option1: Text
-    option2: Text
+    resolutionDescription: Text
     createdAt: Int
-    optionShares1: Int
-    optionShares2: Int
+    yesShares: Int
+    noShares: Int
     liquidityParam: Int
-    participants: [Party]
   where
     signatory admin
-    observer participants
 
-    -- Admin-only: record outcome and close market
     choice RecordResult : ContractId ResolvedMarket
       with
         result: MarketResult
-        payoutPerShare: Int
+        payoutPerShareCC: Decimal
       controller admin
       do
         create ResolvedMarket with
-          admin = admin
-          marketId = marketId
-          question = question
-          option1 = option1
-          option2 = option2
-          result = result
-          payoutPerShare = payoutPerShare
+          admin
+          marketId
+          question
+          result
+          payoutPerShareCC
 
-    -- Admin-only: archive market without resolving
     choice ArchiveMarket : ()
       controller admin
-      do
-        return ()
+      do return ()
 
-    -- Admin-only: allow a party to trade on this market (adds as observer)
-    choice AddParticipant : ContractId PredictionMarket
-      with
-        newParticipant: Party
-      controller admin
-      do
-        create this with participants = newParticipant :: participants
-
-    -- User action: buy shares in option 1 or 2 (only parties in participants may exercise)
-    choice Trade : (ContractId PredictionMarket, ContractId UserMarketData)
+    -- Anyone can buy. Frontend MUST have triggered a CC transfer to admin equal to
+    -- costCC before exercising this. The contract does not verify the transfer.
+    choice Buy : (ContractId PredictionMarket, ContractId UserMarketData)
       with
         buyer: Party
-        option: Int  -- 1 or 2
+        side: Int     -- 1 = Yes, 2 = No
         numShares: Int
-        cost: Int
+        costCC: Decimal
         existingPosition: Optional (ContractId UserMarketData)
       controller buyer
       do
-        assert (elem buyer participants)
-        assert (option == 1 || option == 2)
-        assert (numShares >= 0)
-        assert (cost >= 0)
-        let newShares1 = if option == 1 then optionShares1 + numShares else optionShares1
-        let newShares2 = if option == 1 then optionShares2 else optionShares2 + numShares
-        marketCid <- create this with
-          optionShares1 = newShares1
-          optionShares2 = newShares2
-        (pos1, pos2, invested, profit) <- case existingPosition of
-          None -> return (if option == 1 then numShares else 0, if option == 2 then numShares else 0, cost, 0)
+        assert (side == 1 || side == 2)
+        assert (numShares > 0)
+        assert (costCC > 0.0)
+
+        newPosCid <- case existingPosition of
+          None ->
+            create UserMarketData with
+              user = buyer
+              marketId
+              yesShares = if side == 1 then numShares else 0
+              noShares = if side == 2 then numShares else 0
+              amountInvestedCC = costCC
+              profitMadeCC = 0.0
           Some cid -> do
             pos <- fetch cid
+            assert (pos.user == buyer)
+            assert (pos.marketId == marketId)
             archive cid
-            return
-              ( pos.optionShares1 + (if option == 1 then numShares else 0)
-              , pos.optionShares2 + (if option == 2 then numShares else 0)
-              , pos.amountInvested + cost
-              , pos.profitMade
-              )
-        userDataCid <- create UserMarketData with
-          user = buyer
-          marketId = marketId
-          optionShares1 = pos1
-          optionShares2 = pos2
-          amountInvested = invested
-          profitMade = profit
-        return (marketCid, userDataCid)
+            create pos with
+              yesShares = pos.yesShares + (if side == 1 then numShares else 0)
+              noShares = pos.noShares + (if side == 2 then numShares else 0)
+              amountInvestedCC = pos.amountInvestedCC + costCC
 
--- Resolved market (archived outcome)
+        let newYes = if side == 1 then yesShares + numShares else yesShares
+        let newNo = if side == 2 then noShares + numShares else noShares
+        marketCid <- create this with
+          yesShares = newYes
+          noShares = newNo
+
+        return (marketCid, newPosCid)
+
+    -- Burns shares, creates a PendingPayout. Admin pays out asynchronously.
+    choice Sell : (ContractId PredictionMarket, ContractId UserMarketData, ContractId PendingPayout)
+      with
+        seller: Party
+        side: Int
+        numShares: Int
+        proceedsCC: Decimal
+        positionCid: ContractId UserMarketData
+        nowSeconds: Int
+      controller seller
+      do
+        assert (side == 1 || side == 2)
+        assert (numShares > 0)
+        assert (proceedsCC >= 0.0)
+
+        pos <- fetch positionCid
+        assert (pos.user == seller)
+        assert (pos.marketId == marketId)
+        if side == 1 then assert (pos.yesShares >= numShares)
+        else assert (pos.noShares >= numShares)
+        archive positionCid
+
+        let newYes = if side == 1 then yesShares - numShares else yesShares
+        let newNo = if side == 2 then noShares - numShares else noShares
+        assert (newYes >= 0)
+        assert (newNo >= 0)
+        marketCid <- create this with
+          yesShares = newYes
+          noShares = newNo
+
+        newPosCid <- create pos with
+          yesShares = if side == 1 then pos.yesShares - numShares else pos.yesShares
+          noShares = if side == 2 then pos.noShares - numShares else pos.noShares
+
+        payoutCid <- create PendingPayout with
+          admin
+          user = seller
+          marketId
+          amountCC = proceedsCC
+          reason = "sell"
+          createdAt = nowSeconds
+
+        return (marketCid, newPosCid, payoutCid)
+
+    -- Split: frontend must have transferred (amount * 1 CC) to admin first.
+    -- 1 share-pair = 1 CC, the no-arbitrage invariant.
+    choice Split : ContractId UserMarketData
+      with
+        user: Party
+        amount: Int
+        existingPosition: Optional (ContractId UserMarketData)
+      controller user
+      do
+        assert (amount > 0)
+        let costCC = intToDecimal amount  -- 1 pair = 1 CC
+
+        case existingPosition of
+          None ->
+            create UserMarketData with
+              user
+              marketId
+              yesShares = amount
+              noShares = amount
+              amountInvestedCC = costCC
+              profitMadeCC = 0.0
+          Some cid -> do
+            pos <- fetch cid
+            assert (pos.user == user)
+            assert (pos.marketId == marketId)
+            archive cid
+            create pos with
+              yesShares = pos.yesShares + amount
+              noShares = pos.noShares + amount
+              amountInvestedCC = pos.amountInvestedCC + costCC
+
+    -- Burn equal Yes + No shares, create a PendingPayout for amount CC.
+    choice Merge : (ContractId UserMarketData, ContractId PendingPayout)
+      with
+        user: Party
+        amount: Int
+        positionCid: ContractId UserMarketData
+        nowSeconds: Int
+      controller user
+      do
+        assert (amount > 0)
+        pos <- fetch positionCid
+        assert (pos.user == user)
+        assert (pos.marketId == marketId)
+        assert (pos.yesShares >= amount)
+        assert (pos.noShares >= amount)
+        archive positionCid
+
+        newPosCid <- create pos with
+          yesShares = pos.yesShares - amount
+          noShares = pos.noShares - amount
+
+        payoutCid <- create PendingPayout with
+          admin
+          user
+          marketId
+          amountCC = intToDecimal amount
+          reason = "merge"
+          createdAt = nowSeconds
+
+        return (newPosCid, payoutCid)
+
+-- Resolved market (archived outcome). payoutPerShareCC is CC per winning share.
 template ResolvedMarket
   with
     admin: Party
     marketId: Int
     question: Text
-    option1: Text
-    option2: Text
     result: MarketResult
-    payoutPerShare: Int
+    payoutPerShareCC: Decimal
   where
     signatory admin
 
--- User position in a market (one per user per market)
-template UserMarketData
-  with
-    user: Party
-    marketId: Int
-    optionShares1: Int
-    optionShares2: Int
-    amountInvested: Int
-    profitMade: Int
-  where
-    signatory user
-
-    choice UpdatePosition : ContractId UserMarketData
-      with
-        newShares1: Int
-        newShares2: Int
-        newInvested: Int
-      controller user
-      do
-        create this with
-          optionShares1 = newShares1
-          optionShares2 = newShares2
-          amountInvested = newInvested
-          profitMade = profitMade
-
--- Market counter and market factory (single global instance, admin-only)
--- Only the admin can create new markets or increment the counter.
+-- Market counter and factory (single global instance, admin-only)
 template MarketCounter
   with
     admin: Party
@@ -176,17 +268,15 @@ template MarketCounter
         newCid <- create this with value = newValue
         return (newCid, newValue)
 
-    -- Admin-only: create a new prediction market (gets next marketId from counter)
     choice CreateMarket : (ContractId MarketCounter, ContractId PredictionMarket)
       with
         question: Text
         imageUrl: Text
         description: Text
-        option1: Text
-        option2: Text
+        resolutionDescription: Text
         createdAt: Int
-        initialOptionShares1: Int
-        initialOptionShares2: Int
+        initialYesShares: Int
+        initialNoShares: Int
         liquidityParam: Int
       controller admin
       do
@@ -194,16 +284,14 @@ template MarketCounter
         let marketId = newValue
         newCounterCid <- create this with value = newValue
         marketCid <- create PredictionMarket with
-          admin = admin
-          marketId = marketId
-          question = question
-          imageUrl = imageUrl
-          description = description
-          option1 = option1
-          option2 = option2
-          createdAt = createdAt
-          optionShares1 = initialOptionShares1
-          optionShares2 = initialOptionShares2
-          liquidityParam = liquidityParam
-          participants = []
+          admin
+          marketId
+          question
+          imageUrl
+          description
+          resolutionDescription
+          createdAt
+          yesShares = initialYesShares
+          noShares = initialNoShares
+          liquidityParam
         return (newCounterCid, marketCid)

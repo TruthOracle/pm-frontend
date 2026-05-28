@@ -32,7 +32,7 @@ export function useEnterpriseWalletForAdmin(): boolean {
 }
 
 /**
- * Admin txs (CreateMarket, AddParticipant, RecordResult): Enterprise Wallet when configured,
+ * Admin txs (CreateMarket, RecordResult): Enterprise Wallet when configured,
  * otherwise fall back to the connected browser wallet.
  */
 export async function submitAdminTransaction(
