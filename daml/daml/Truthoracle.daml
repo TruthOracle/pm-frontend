@@ -182,7 +182,7 @@ template PredictionMarket
 
     -- Split: frontend must have transferred (amount * 1 CC) to admin first.
     -- 1 share-pair = 1 CC, the no-arbitrage invariant.
-    choice Split : ContractId UserMarketData
+    nonconsuming choice Split : ContractId UserMarketData
       with
         user: Party
         amount: Int
@@ -212,7 +212,7 @@ template PredictionMarket
               amountInvestedCC = pos.amountInvestedCC + costCC
 
     -- Burn equal Yes + No shares, create a PendingPayout for amount CC.
-    choice Merge : (ContractId UserMarketData, ContractId PendingPayout)
+    nonconsuming choice Merge : (ContractId UserMarketData, ContractId PendingPayout)
       with
         user: Party
         amount: Int
