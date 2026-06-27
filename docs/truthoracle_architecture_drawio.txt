@@ -1,0 +1,236 @@
+<mxfile host="app.diagrams.net" agent="Claude Code">
+  <diagram name="TruthOracle Canton Complete Architecture" id="truthoracle-main">
+    <mxGraphModel dx="1677" dy="1045" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2600" pageHeight="2140" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title-main" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=32;fontStyle=1;fontColor=#1A1A1A;" value="TRUTHORACLE - CANTON-NATIVE PREDICTION MARKET" vertex="1">
+          <mxGeometry height="50" width="2100" x="420" y="38" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontColor=#666666;" value="Dynamic pm-AMM Liquidity (Paradigm) · Tiered Objective Resolution (T0-T3, no token voting) · Cantor8 Enterprise Wallet · Privacy-Preserving · Built on Canton (Daml 3.4.x)" vertex="1">
+          <mxGeometry height="30" width="2100" x="420" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="flows-title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;fontColor=#1A1A1A;" value="KEY FLOWS &amp; MATH" vertex="1">
+          <mxGeometry height="30" width="320" x="40" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="flow1-c" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1976d2;strokeWidth=2;" value="" vertex="1">
+          <mxGeometry height="300" width="350" x="40" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="flow1-t" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=14;fontStyle=1;fontColor=#1976d2;" value="💵 TRADING FLOW (pm-AMM)" vertex="1">
+          <mxGeometry height="25" width="330" x="50" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="flow1-x" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;fontSize=11;spacingLeft=10;spacingTop=5;" value="1. Trader connects Cantor8 wallet&lt;br&gt;2. Browses market, picks YES / NO&lt;br&gt;3. Frontend quotes via pm-AMM&lt;br&gt;4. Exercise &lt;b&gt;Buy&lt;/b&gt;(amount, maxPrice)&lt;br&gt;5. pm-AMM solves dynamic invariant&lt;br&gt;6. price P = Φ((y−x)/L√(T−t))&lt;br&gt;7. Reserves (x,y) updated; fee → LP&lt;br&gt;8. &lt;b&gt;Position&lt;/b&gt; contract created&lt;br&gt;9. Wallet reconciles collateral&lt;br&gt;&lt;br&gt;&lt;b&gt;All-or-nothing&lt;/b&gt; - one Daml tx&lt;br&gt;&lt;b&gt;Slippage:&lt;/b&gt; bounded by maxPrice" vertex="1">
+          <mxGeometry height="255" width="330" x="50" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="flow2-c" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#2e7d32;strokeWidth=2;" value="" vertex="1">
+          <mxGeometry height="240" width="350" x="40" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="flow2-t" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=14;fontStyle=1;fontColor=#2e7d32;" value="💧 LIQUIDITY PROVISION FLOW" vertex="1">
+          <mxGeometry height="25" width="330" x="50" y="490" as="geometry" />
+        </mxCell>
+        <mxCell id="flow2-x" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;fontSize=11;spacingLeft=10;spacingTop=5;" value="&lt;b&gt;PROVIDE:&lt;/b&gt;&lt;br&gt;1. LP exercises &lt;b&gt;ProvideLiquidity&lt;/b&gt;&lt;br&gt;2. Value-based: ΔL = ΔV / φ(Φ⁻¹(P))&lt;br&gt;3. Optimal reserves added at price P&lt;br&gt;4. &lt;b&gt;LiquidityPosition&lt;/b&gt; minted (pro-rata)&lt;br&gt;&lt;b&gt;WITHDRAW:&lt;/b&gt;&lt;br&gt;5. Redeem → proportional reserves + fees&lt;br&gt;&lt;br&gt;&lt;b&gt;Dynamic:&lt;/b&gt; L&lt;sub&gt;eff&lt;/sub&gt; = L·√(T−t) decays&lt;br&gt;→ uniform LVR, predictable LP loss" vertex="1">
+          <mxGeometry height="195" width="330" x="50" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="flow3-c" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffebee;strokeColor=#c62828;strokeWidth=2;" value="" vertex="1">
+          <mxGeometry height="350" width="350" x="40" y="740" as="geometry" />
+        </mxCell>
+        <mxCell id="flow3-t" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=14;fontStyle=1;fontColor=#c62828;" value="⚠ TIERED RESOLUTION FLOW" vertex="1">
+          <mxGeometry height="25" width="330" x="50" y="750" as="geometry" />
+        </mxCell>
+        <mxCell id="flow3-x" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;fontSize=11;spacingLeft=10;spacingTop=5;" value="After expiry → resolution window opens&lt;br&gt;&lt;br&gt;&lt;b&gt;T0 Operator:&lt;/b&gt; operator-signed attestation&lt;br&gt;&lt;b&gt;T1 First-party:&lt;/b&gt; source signs sha256&lt;br&gt;  payload; verified on-ledger via secp256k1&lt;br&gt;&lt;b&gt;T2 Quorum:&lt;/b&gt; M-of-N reporters fetch&lt;br&gt;  source, sign, must AGREE&lt;br&gt;&lt;b&gt;T3 Optimistic:&lt;/b&gt; ProposeOutcome+bond&lt;br&gt;  → challenge window → Finalize;&lt;br&gt;  challenge escalates to T1/T2,&lt;br&gt;  losing bond slashed to winner&lt;br&gt;&lt;br&gt;&lt;b&gt;Objective only&lt;/b&gt; - never token voting&lt;br&gt;Grace elapses w/o tier → &lt;b&gt;Void&lt;/b&gt;" vertex="1">
+          <mxGeometry height="300" width="330" x="50" y="780" as="geometry" />
+        </mxCell>
+        <mxCell id="flow5-c" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#2e7d32;strokeWidth=2;" value="" vertex="1">
+          <mxGeometry height="210" width="350" x="40" y="1110" as="geometry" />
+        </mxCell>
+        <mxCell id="flow5-t" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=14;fontStyle=1;fontColor=#2e7d32;" value="💰 REDEMPTION &amp; VOID FLOW" vertex="1">
+          <mxGeometry height="25" width="330" x="50" y="1120" as="geometry" />
+        </mxCell>
+        <mxCell id="flow5-x" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;fontSize=11;spacingLeft=10;spacingTop=5;" value="&lt;b&gt;RESOLVED:&lt;/b&gt;&lt;br&gt;1. Holder exercises &lt;b&gt;Redeem&lt;/b&gt;&lt;br&gt;2. 1 collateral / winning share,&lt;br&gt;  0 / losing share&lt;br&gt;3. Treasury transfers, Position archived&lt;br&gt;&lt;b&gt;VOID:&lt;/b&gt; cost basis refunded&lt;br&gt;&lt;b&gt;SettleSet:&lt;/b&gt; burn&lt;br&gt;  YES+NO submitted, pay only winners" vertex="1">
+          <mxGeometry height="160" width="330" x="50" y="1150" as="geometry" />
+        </mxCell>
+        <mxCell id="flow6-c" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede7f6;strokeColor=#673ab7;strokeWidth=2;" value="" vertex="1">
+          <mxGeometry height="340" width="350" x="40" y="1340" as="geometry" />
+        </mxCell>
+        <mxCell id="flow6-t" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=13;fontStyle=1;fontColor=#673ab7;" value="Σ DYNAMIC pm-AMM (Paradigm)" vertex="1">
+          <mxGeometry height="25" width="330" x="50" y="1350" as="geometry" />
+        </mxCell>
+        <mxCell id="flow6-x" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;fontSize=11;spacingLeft=10;spacingTop=5;" value="&lt;b&gt;PRICE (Gaussian score dynamics):&lt;/b&gt;&lt;br&gt;P&lt;sub&gt;YES&lt;/sub&gt; = Φ((y−x)/L&lt;sub&gt;eff&lt;/sub&gt;)&lt;br&gt;P&lt;sub&gt;NO&lt;/sub&gt; = 1 − P&lt;sub&gt;YES&lt;/sub&gt;  (always in [0,1])&lt;br&gt;L&lt;sub&gt;eff&lt;/sub&gt; = L·√(T−t) → decays to expiry&lt;br&gt;&lt;br&gt;&lt;b&gt;INVARIANT:&lt;/b&gt;&lt;br&gt;(y−x)Φ(z) + L&lt;sub&gt;eff&lt;/sub&gt;·φ(z) − y = 0&lt;br&gt;z = (y−x)/L&lt;sub&gt;eff&lt;/sub&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;WHY (vs CPMM y·n=k):&lt;/b&gt;&lt;br&gt;• CPMM → guaranteed LP loss at expiry&lt;br&gt;• concentrated liquidity at P≈0.5&lt;br&gt;• uniform LVR: E[rate] = V₀/2T (const)&lt;br&gt;• total expected LVR ≈ V₀/2&lt;br&gt;&lt;br&gt;&lt;b&gt;VALUE-BASED LP:&lt;/b&gt; ΔL = ΔV / φ(Φ⁻¹(P))" vertex="1">
+          <mxGeometry height="295" width="330" x="50" y="1380" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-c" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;strokeWidth=1.5;" value="" vertex="1">
+          <mxGeometry height="230" width="350" x="40" y="1710" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-t" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=14;fontStyle=1;fontColor=#1A1A1A;" value="LEGEND" vertex="1">
+          <mxGeometry height="25" width="330" x="50" y="1718" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-x" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;fontSize=10;spacingLeft=10;spacingTop=4;" value="&lt;b&gt;Layers (trust gradient):&lt;/b&gt;&lt;br&gt;🔲 Blue = Client (public, no authority)&lt;br&gt;🟡 Orange = Off-ledger services&lt;br&gt;🟩 Green = Daml contract TRUST CORE&lt;br&gt;🟣 Purple = Canton ledger / infra&lt;br&gt;&lt;br&gt;&lt;b&gt;Inside the core:&lt;/b&gt;&lt;br&gt;🟡 Yellow = pm-AMM engine / math&lt;br&gt;🔴 Red = resolution policy / security&lt;br&gt;⚫ Dashed = sub-grouping&lt;br&gt;&lt;br&gt;&lt;b&gt;Edges:&lt;/b&gt; bold = primary data path;&lt;br&gt;dashed = reference / derivation" vertex="1">
+          <mxGeometry height="190" width="330" x="50" y="1746" as="geometry" />
+        </mxCell>
+        <mxCell id="l1-c" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=4;opacity=20;" value="" vertex="1">
+          <mxGeometry height="230" width="2060" x="440" y="180" as="geometry" />
+        </mxCell>
+        <mxCell id="l1-t" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=20;fontStyle=1;fontColor=#0066CC;" value="LAYER 1: CLIENT / PRESENTATION (Public Zone)" vertex="1">
+          <mxGeometry height="35" width="640" x="525" y="192.5" as="geometry" />
+        </mxCell>
+        <mxCell id="l1-note" parent="1" style="text;html=1;strokeColor=#6c8ebf;fillColor=#dae8fc;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=11;fontStyle=1;" value="⚠ Replaceable surface - holds NO authority the ledger does not grant | Privacy: sees only the parties&#39; own stakeholder projection" vertex="1">
+          <mxGeometry height="30" width="920" x="1500" y="195" as="geometry" />
+        </mxCell>
+        <mxCell id="l1-web" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;spacingLeft=18;spacingTop=16;strokeWidth=2;fontSize=11;" value="&lt;b style=&quot;font-size:14px;&quot;&gt;Web Trading App&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Market browse &amp; detail&lt;br&gt;• pm-AMM buy / sell UI&lt;br&gt;• Live price = Φ((y−x)/L&lt;sub&gt;eff&lt;/sub&gt;)&lt;br&gt;• Slippage / maxPrice bound&lt;br&gt;&lt;br&gt;&lt;b&gt;Tech:&lt;/b&gt; React + Vite + TS" vertex="1">
+          <mxGeometry height="150" width="470" x="460" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="l1-portfolio" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;spacingLeft=18;spacingTop=16;strokeWidth=2;fontSize=11;" value="&lt;b style=&quot;font-size:14px;&quot;&gt;Market Browser &amp; Portfolio&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Explore / create markets&lt;br&gt;• Positions, P&amp;L, history&lt;br&gt;• Liquidity &amp; rewards dashboard&lt;br&gt;&lt;br&gt;&lt;b&gt;Components:&lt;/b&gt; MarketView,&lt;br&gt;MarketDetails, Portfolio, Rewards" vertex="1">
+          <mxGeometry height="150" width="470" x="970" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="l1-wallet" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;spacingLeft=18;spacingTop=16;strokeWidth=2;fontSize=11;" value="&lt;b style=&quot;font-size:14px;&quot;&gt;Cantor8 Enterprise Wallet&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Party identity &amp; signing&lt;br&gt;• Two-step collateral transfer&lt;br&gt;• Reconciliation flow&lt;br&gt;• KYC-gated party allocation&lt;br&gt;&lt;br&gt;&lt;b&gt;SDK:&lt;/b&gt; @cantor8/wallet-connect-sdk&lt;br&gt;+ @canton-network/wallet-sdk" vertex="1">
+          <mxGeometry height="150" width="470" x="1480" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="l1-analytics" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;spacingLeft=18;spacingTop=16;strokeWidth=2;fontSize=11;" value="&lt;b style=&quot;font-size:14px;&quot;&gt;Analytics &amp; Charts&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Price history &amp; volume&lt;br&gt;• Open interest &amp; depth&lt;br&gt;• Market activity feed&lt;br&gt;• Reads PUBLIC projection only&lt;br&gt;&lt;br&gt;&lt;b&gt;Fed by:&lt;/b&gt; Read Model (PQS)" vertex="1">
+          <mxGeometry height="150" width="470" x="1990" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="l2-c" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=4;opacity=20;" value="" vertex="1">
+          <mxGeometry height="330" width="2060" x="440" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="l2-t" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=20;fontStyle=1;fontColor=#D79B00;" value="LAYER 2: APPLICATION SERVICES (Off-Ledger Orchestration)" vertex="1">
+          <mxGeometry height="35" width="820" x="525" y="531.5" as="geometry" />
+        </mxCell>
+        <mxCell id="l2-note" parent="1" style="text;html=1;strokeColor=#d79b00;fillColor=#ffe6cc;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=11;fontStyle=1;" value="⚠ Fetch · sign · submit · index · present - orchestration only. Authority is granted by Daml choices, not held by these services." vertex="1">
+          <mxGeometry height="30" width="920" x="1500" y="534" as="geometry" />
+        </mxCell>
+        <mxCell id="l2-sources" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=top;spacingLeft=18;spacingTop=16;strokeWidth=2;fontSize=11;" value="&lt;b style=&quot;font-size:13px;&quot;&gt;External Data Sources&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Opta / Sportradar (sports)&lt;br&gt;• Exchange APIs (financial)&lt;br&gt;• Gov / state endpoints (electoral)&lt;br&gt;&lt;br&gt;&lt;b&gt;Allowlisted&lt;/b&gt; at market creation&lt;br&gt;Fetched over TLS&lt;br&gt;&lt;b&gt;No&lt;/b&gt; UMA / Pyth oracle dependency" vertex="1">
+          <mxGeometry height="250" width="320" x="460" y="580" as="geometry" />
+        </mxCell>
+        <mxCell id="l2-resolver" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;verticalAlign=top;spacingLeft=18;spacingTop=16;strokeWidth=2;fontSize=11;" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Resolver / Reporter Service&lt;/b&gt;&lt;br&gt;&lt;br&gt;• One instance per reporter (T2)&lt;br&gt;• Fetch allowlisted source (TLS)&lt;br&gt;• Optional LLM / AI parser → outcome&lt;br&gt;• sha256 payload, sign attestation&lt;br&gt;• Creates &lt;b&gt;OutcomeAttestation&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;Trust:&lt;/b&gt; reporter vouches for parse;&lt;br&gt;holds NO ledger authority" vertex="1">
+          <mxGeometry height="250" width="320" x="800" y="580" as="geometry" />
+        </mxCell>
+        <mxCell id="l2-social" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;verticalAlign=top;spacingLeft=18;spacingTop=16;strokeWidth=2;fontSize=11;" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Social &amp; Notifications&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Telegram / X bots&lt;br&gt;• Post market state &amp; price moves&lt;br&gt;• Post resolution outcomes&lt;br&gt;• Reply to users&lt;br&gt;&lt;br&gt;&lt;b&gt;Reads / writes PUBLIC projection&lt;/b&gt;&lt;br&gt;Carries no protocol authority" vertex="1">
+          <mxGeometry height="250" width="320" x="2160" y="580" as="geometry" />
+        </mxCell>
+        <mxCell id="l2-client" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;verticalAlign=top;spacingLeft=18;spacingTop=16;strokeWidth=2;fontSize=11;" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Ledger Submission Client&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Daml JSON API / gRPC&lt;br&gt;• Builds &amp; signs commands&lt;br&gt;• Create / exercise choices&lt;br&gt;• Event stream → frontend&lt;br&gt;&lt;br&gt;&lt;b&gt;scripts:&lt;/b&gt; upload-dar,&lt;br&gt;create-contract, ledger-query&lt;br&gt;&lt;b&gt;blockend:&lt;/b&gt; cantonService" vertex="1">
+          <mxGeometry height="250" width="320" x="1480" y="580" as="geometry" />
+        </mxCell>
+        <mxCell id="l2-indexer" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;verticalAlign=top;spacingLeft=16;spacingTop=16;strokeWidth=2;fontSize=11;" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Indexer / Read Model (PQS)&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Reads ledger: JSON Ledger API /&lt;br&gt;&#160;&#160;Participant Query Store (PQS)&lt;br&gt;• Read model from events + projection&lt;br&gt;• Price history, volume, open interest&lt;br&gt;• Trade / resolution metrics → dashboards&lt;br&gt;• pm-AMM quote &amp; slippage preview&lt;br&gt;• LP-loss / LVR analytics&lt;br&gt;• Audit-observer position-book reports&lt;br&gt;• Market discovery / invariant checkable&lt;br&gt;&lt;i&gt;No protocol authority&lt;/i&gt;" vertex="1">
+          <mxGeometry height="250" width="320" x="1140" y="580" as="geometry" />
+        </mxCell>
+        <mxCell id="l2-ops" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;verticalAlign=top;spacingLeft=16;spacingTop=16;strokeWidth=2;fontSize=11;" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Operator Console &amp; Key Mgmt&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;OPERATOR:&lt;/b&gt;&lt;br&gt;• Create Market + author policy&lt;br&gt;  (sources, keys, reporters, quorum,&lt;br&gt;  challenge window, bond, feeBps)&lt;br&gt;• Policy immutable after creation&lt;br&gt;• Manage audit observers (op+treasury)&lt;br&gt;&lt;b&gt;KEY MGMT (WS-F):&lt;/b&gt;&lt;br&gt;• T1 pinned source keys (on-ledger)&lt;br&gt;• Resolver / reporter signing keys&lt;br&gt;• Rotation under change-mgmt; fails safe" vertex="1">
+          <mxGeometry height="250" width="320" x="1820" y="580" as="geometry" />
+        </mxCell>
+        <mxCell id="l3-c" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=4;opacity=20;" value="" vertex="1">
+          <mxGeometry height="645" width="2060" x="440" y="910" as="geometry" />
+        </mxCell>
+        <mxCell id="l3-t" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=20;fontStyle=1;fontColor=#5E9C3E;" value="LAYER 3: DAML CONTRACT LAYER - TRUST CORE (On-Ledger · Canton)" vertex="1">
+          <mxGeometry height="35" width="960" x="525" y="921.5" as="geometry" />
+        </mxCell>
+        <mxCell id="l3-note" parent="1" style="text;html=1;strokeColor=#82b366;fillColor=#d5e8d4;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=11;fontStyle=1;" value="⚠ ALL trust-bearing state &amp; logic here | Daml authorization + DA.Crypto.Text (sha256, secp256k1) | ResolutionPolicy immutable from creation | Sub-tx privacy" vertex="1">
+          <mxGeometry height="30" width="980" x="1440" y="924" as="geometry" />
+        </mxCell>
+        <mxCell id="l3-market" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=top;spacingLeft=30;spacingTop=24;strokeWidth=3;fontSize=11;" value="&lt;b style=&quot;font-size:15px;&quot;&gt;⚙ MARKET + DYNAMIC pm-AMM ENGINE&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;Signatories:&lt;/b&gt; Operator + Treasury&lt;br&gt;&lt;b&gt;Holds:&lt;/b&gt; reserves (x=YES, y=NO), L, expiry T,&lt;br&gt;ResolutionPolicy, collateral, feeBps, status&lt;br&gt;&lt;br&gt;&lt;b style=&quot;font-size:13px;&quot;&gt;PRICING (Gaussian score dynamics):&lt;/b&gt;&lt;br&gt;P&lt;sub&gt;YES&lt;/sub&gt; = Φ((y−x)/L&lt;sub&gt;eff&lt;/sub&gt;),  P&lt;sub&gt;NO&lt;/sub&gt; = 1−P&lt;sub&gt;YES&lt;/sub&gt;&lt;br&gt;L&lt;sub&gt;eff&lt;/sub&gt; = L·√(T−t)  → decays to expiry&lt;br&gt;Φ is a CDF → price always in [0,1]&lt;br&gt;&lt;br&gt;&lt;b style=&quot;font-size:13px;&quot;&gt;INVARIANT (dynamic pm-AMM):&lt;/b&gt;&lt;br&gt;(y−x)Φ(z) + L&lt;sub&gt;eff&lt;/sub&gt;·φ(z) − y = 0,  z=(y−x)/L&lt;sub&gt;eff&lt;/sub&gt;&lt;br&gt;Buy / Sell solve invariant for reserves&lt;br&gt;Fee (bps) retained in pool → LP yield&lt;br&gt;&lt;br&gt;&lt;b style=&quot;font-size:13px;&quot;&gt;pm-AMM MATH LIB (Daml):&lt;/b&gt;&lt;br&gt;• normal dist: Φ, φ, Φ⁻¹ (rational approx)&lt;br&gt;• fixed-point Decimal arithmetic&lt;br&gt;• invariant solver + optimal reserves&lt;br&gt;&lt;br&gt;&lt;b style=&quot;font-size:13px;&quot;&gt;CHOICES:&lt;/b&gt;&lt;br&gt;• ProvideLiquidity / Buy / Sell&lt;br&gt;• Resolve / Propose / Challenge / Finalize&lt;br&gt;• Void (after expiry + grace)&lt;br&gt;&lt;br&gt;&lt;b&gt;Status:&lt;/b&gt; Trading → Expired → Proposed → Resolved / Voided" vertex="1">
+          <mxGeometry height="560" width="560" x="460" y="975" as="geometry" />
+        </mxCell>
+        <mxCell id="l3-position" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;verticalAlign=top;spacingLeft=18;spacingTop=16;strokeWidth=3;fontSize=11;" value="&lt;b style=&quot;font-size:14px;&quot;&gt;📄 Position&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;Signatory:&lt;/b&gt; Holder (trader)&lt;br&gt;&lt;b&gt;Observer:&lt;/b&gt; Operator, Audit Observers&lt;br&gt;&lt;br&gt;&lt;b&gt;Fields:&lt;/b&gt; marketRef, outcome (YES/NO),&lt;br&gt;shares, cost basis&lt;br&gt;&lt;br&gt;&lt;b&gt;Choices:&lt;/b&gt;&lt;br&gt;• Redeem (post-resolution)&lt;br&gt;• SellBack (to pm-AMM)&lt;br&gt;• Transfer&lt;br&gt;&lt;br&gt;&lt;i&gt;Operator cannot archive / modify&lt;/i&gt;" vertex="1">
+          <mxGeometry height="270" width="300" x="1045" y="975" as="geometry" />
+        </mxCell>
+        <mxCell id="l3-lp" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;verticalAlign=top;spacingLeft=18;spacingTop=16;strokeWidth=3;fontSize=11;" value="&lt;b style=&quot;font-size:14px;&quot;&gt;💧 LiquidityPosition&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;Signatory:&lt;/b&gt; LP&lt;br&gt;&lt;br&gt;Pro-rata claim on pm-AMM reserve&lt;br&gt;Redeemable: proportional collateral + fees&lt;br&gt;&lt;br&gt;&lt;b&gt;Value-based add (dynamic pm-AMM):&lt;/b&gt;&lt;br&gt;V(P) = L·φ(Φ⁻¹(P))&lt;br&gt;ΔL = ΔV(P) / φ(Φ⁻¹(P))&lt;br&gt;&lt;br&gt;&lt;b&gt;LP risk: uniform LVR&lt;/b&gt;&lt;br&gt;total ≈ V₀/2 over [0,T]&lt;br&gt;de-risk as t→T (dynamic tracking)" vertex="1">
+          <mxGeometry height="270" width="300" x="1045" y="1265" as="geometry" />
+        </mxCell>
+        <mxCell id="l3-att" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;spacingLeft=18;spacingTop=16;strokeWidth=3;fontSize=11;" value="&lt;b style=&quot;font-size:14px;&quot;&gt;✓ OutcomeAttestation&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;Signatory:&lt;/b&gt; Attester&lt;br&gt;(source / reporter / proposer)&lt;br&gt;&lt;b&gt;Observer:&lt;/b&gt; Operator&lt;br&gt;&lt;br&gt;&lt;b&gt;Fields:&lt;/b&gt;&lt;br&gt;• marketRef, sourceUri, fetchedAt&lt;br&gt;• outcome (YES / NO / Void)&lt;br&gt;• payloadHash = sha256(response)&lt;br&gt;• sourceSignature (T1 only)&lt;br&gt;• responseExcerpt (audit)&lt;br&gt;&lt;br&gt;&lt;i&gt;Created only after expiry&lt;/i&gt;" vertex="1">
+          <mxGeometry height="270" width="320" x="1370" y="975" as="geometry" />
+        </mxCell>
+        <mxCell id="l3-policy" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;verticalAlign=top;spacingLeft=18;spacingTop=16;strokeWidth=3;fontSize=11;" value="&lt;b style=&quot;font-size:14px;&quot;&gt;🔒 ResolutionPolicy (immutable)&lt;/b&gt;&lt;br&gt;&lt;br&gt;• sources[] allowlist&lt;br&gt;• sourceKeys[] pinned secp256k1 (T1)&lt;br&gt;• reporters[] + quorum M (T2)&lt;br&gt;• challengeSecs + bondCc (T3)&lt;br&gt;• enabled tiers&lt;br&gt;&lt;br&gt;&lt;b&gt;Resolve admits iff:&lt;/b&gt;&lt;br&gt;firstParty(secp256k1) OR&lt;br&gt;M reporters agree on one outcome&lt;br&gt;&lt;br&gt;&lt;i&gt;Visible to audit observers ex-ante&lt;/i&gt;" vertex="1">
+          <mxGeometry height="270" width="320" x="1370" y="1265" as="geometry" />
+        </mxCell>
+        <mxCell id="l3-tiers-c" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#b85450;strokeWidth=3;dashed=1;" value="" vertex="1">
+          <mxGeometry height="560" width="765" x="1715" y="975" as="geometry" />
+        </mxCell>
+        <mxCell id="l3-tiers-t" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=13;fontStyle=1;fontColor=#B85450;" value="🏁 TIERED OBJECTIVE RESOLUTION (T0-T3) - never intersubjective token voting" vertex="1">
+          <mxGeometry height="50" width="745" x="1725" y="985" as="geometry" />
+        </mxCell>
+        <mxCell id="l3-t0" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;verticalAlign=top;spacingLeft=16;spacingTop=14;strokeWidth=2;fontSize=10;" value="&lt;b&gt;T0 - Designated Operator&lt;/b&gt; (Kalshi)&lt;br&gt;&lt;br&gt;Operator records result from named&lt;br&gt;source via operator-signed attestation.&lt;br&gt;&lt;b&gt;Trust:&lt;/b&gt; license + legal accountability&lt;br&gt;+ immutable audit record.&lt;br&gt;Fast; requires nothing of source.&lt;br&gt;&lt;i&gt;Current reference deployment.&lt;/i&gt;" vertex="1">
+          <mxGeometry height="225" width="355" x="1735" y="1045" as="geometry" />
+        </mxCell>
+        <mxCell id="l3-t1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;verticalAlign=top;spacingLeft=16;spacingTop=14;strokeWidth=2;fontSize=10;" value="&lt;b&gt;T1 - First-Party Signed&lt;/b&gt; (Pyth/API3)&lt;br&gt;&lt;br&gt;Source signs sha256(payload).&lt;br&gt;Resolve verifies ON-LEDGER:&lt;br&gt;&lt;b&gt;secp256k1(sig, hash, pinnedKey)&lt;/b&gt;&lt;br&gt;Trust collapses to source&#39;s own key,&lt;br&gt;no intermediary to vouch.&lt;br&gt;&lt;i&gt;Strongest tier where source signs.&lt;/i&gt;" vertex="1">
+          <mxGeometry height="225" width="355" x="2110" y="1045" as="geometry" />
+        </mxCell>
+        <mxCell id="l3-t2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;spacingLeft=16;spacingTop=14;strokeWidth=2;fontSize=10;" value="&lt;b&gt;T2 - Reporter Quorum&lt;/b&gt; (Chainlink)&lt;br&gt;&lt;br&gt;M-of-N allowlisted reporters fetch&lt;br&gt;source over TLS, sign attestations;&lt;br&gt;&lt;b&gt;must AGREE&lt;/b&gt; on one outcome.&lt;br&gt;&lt;b&gt;Trust:&lt;/b&gt; redundancy + reputation&lt;br&gt;+ legal accountability.&lt;br&gt;&lt;i&gt;One bad reporter can&#39;t move result.&lt;/i&gt;" vertex="1">
+          <mxGeometry height="225" width="355" x="1735" y="1285" as="geometry" />
+        </mxCell>
+        <mxCell id="l3-t3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;verticalAlign=top;spacingLeft=16;spacingTop=14;strokeWidth=2;fontSize=10;" value="&lt;b&gt;T3 - Optimistic&lt;/b&gt; (Polymarket UX)&lt;br&gt;&lt;br&gt;ProposeOutcome + bond → challenge&lt;br&gt;window. Unchallenged → Finalize.&lt;br&gt;Challenge escalates &lt;b&gt;OBJECTIVELY&lt;/b&gt;&lt;br&gt;to T1 / T2; losing bond slashed&lt;br&gt;to winner (symmetric deterrent).&lt;br&gt;&lt;i&gt;Open &amp; fast, no token vote.&lt;/i&gt;" vertex="1">
+          <mxGeometry height="225" width="355" x="2110" y="1285" as="geometry" />
+        </mxCell>
+        <mxCell id="l4-c" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=4;opacity=20;" value="" vertex="1">
+          <mxGeometry height="275" width="2060" x="440" y="1661" as="geometry" />
+        </mxCell>
+        <mxCell id="l4-t" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=20;fontStyle=1;fontColor=#9673A6;" value="LAYER 4: CANTON LEDGER &amp; INFRASTRUCTURE (Settlement Substrate)" vertex="1">
+          <mxGeometry height="35" width="900" x="525" y="1675" as="geometry" />
+        </mxCell>
+        <mxCell id="l4-note" parent="1" style="text;html=1;strokeColor=#9673a6;fillColor=#e1d5e7;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=11;fontStyle=1;" value="⚠ No changes to Canton protocol / domain software | Entire protocol implementable at the Daml application layer | Requires CIP-56 only" vertex="1">
+          <mxGeometry height="30" width="920" x="1500" y="1680" as="geometry" />
+        </mxCell>
+        <mxCell id="l4-node" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left;verticalAlign=top;spacingLeft=18;spacingTop=16;strokeWidth=2;fontSize=11;" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Participant Node&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Hosts operator / trader /&lt;br&gt;  reporter parties&lt;br&gt;• Stakeholder projection&lt;br&gt;  (privacy boundary)&lt;br&gt;• Submits &amp; validates txns" vertex="1">
+          <mxGeometry height="175" width="380" x="460" y="1731" as="geometry" />
+        </mxCell>
+        <mxCell id="l4-domain" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left;verticalAlign=top;spacingLeft=18;spacingTop=16;strokeWidth=2;fontSize=11;" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Sync Domain&lt;/b&gt;&lt;br&gt;&lt;br&gt;• DevNet → Global Synchronizer&lt;br&gt;• Sequencer orders txns&lt;br&gt;• Sub-transaction privacy&lt;br&gt;• Multi-party atomic compose&lt;br&gt;&lt;br&gt;&lt;i&gt;party: TruthOracle::devnet&lt;/i&gt;" vertex="1">
+          <mxGeometry height="175" width="380" x="860" y="1731" as="geometry" />
+        </mxCell>
+        <mxCell id="l4-cip56" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left;verticalAlign=top;spacingLeft=18;spacingTop=16;strokeWidth=2;fontSize=11;" value="&lt;b style=&quot;font-size:13px;&quot;&gt;CIP-56 Collateral Token&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Canton-native fungible collateral&lt;br&gt;• Funds reserves &amp; payouts&lt;br&gt;• Operator policy: regulated&lt;br&gt;  stablecoin / Canton Coin&lt;br&gt;&lt;br&gt;&lt;i&gt;Only external dependency&lt;/i&gt;" vertex="1">
+          <mxGeometry height="175" width="380" x="1260" y="1731" as="geometry" />
+        </mxCell>
+        <mxCell id="l4-audit" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left;verticalAlign=top;spacingLeft=18;spacingTop=16;strokeWidth=2;fontSize=11;" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Audit Observers&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Compliance officers, sponsors&lt;br&gt;• Read full position book&lt;br&gt;  (their markets only)&lt;br&gt;• Reproduce resolution independently&lt;br&gt;&lt;br&gt;&lt;i&gt;Mutable only by operator +&lt;br&gt;treasury jointly&lt;/i&gt;" vertex="1">
+          <mxGeometry height="175" width="380" x="1660" y="1731" as="geometry" />
+        </mxCell>
+        <mxCell id="l4-crypto" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left;verticalAlign=top;spacingLeft=18;spacingTop=16;strokeWidth=2;fontSize=11;" value="&lt;b style=&quot;font-size:13px;&quot;&gt;Crypto + Build / CI&lt;/b&gt;&lt;br&gt;&lt;br&gt;• DA.Crypto.Text: sha256, secp256k1&lt;br&gt;• NO external oracle (no UMA/Pyth)&lt;br&gt;• DAR: stable name, bump version&lt;br&gt;  → in-place upgrade&lt;br&gt;• GitHub CI · truthoracle-v10 DAR" vertex="1">
+          <mxGeometry height="175" width="400" x="2060" y="1731" as="geometry" />
+        </mxCell>
+        <mxCell id="e-l1-l2" edge="1" parent="1" source="l1-c" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=4;strokeColor=#0066CC;fontSize=12;fontStyle=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;" target="l2-c" value="&lt;b&gt;USER INTENT&lt;/b&gt;&lt;br&gt;HTTPS / WebSocket&lt;br&gt;signed requests">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-l2-l3" edge="1" parent="1" source="l2-c" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=4;strokeColor=#D79B00;fontSize=12;fontStyle=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;" target="l3-c" value="&lt;b&gt;CREATE / EXERCISE CHOICES&lt;/b&gt;&lt;br&gt;Daml commands · attestations submitted&lt;br&gt;Authority granted by the ledger, not held">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-l3-l4" edge="1" parent="1" source="l3-c" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=4;strokeColor=#5E9C3E;fontSize=12;fontStyle=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;" target="l4-c" value="&lt;b&gt;COMMIT TO LEDGER&lt;/b&gt;&lt;br&gt;Atomic settlement · stakeholder projection&lt;br&gt;Sub-transaction privacy enforced">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-src-resolver" edge="1" parent="1" source="l2-sources" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#d6b656;fontSize=10;dashed=1;exitX=1.003;exitY=0.298;exitDx=0;exitDy=0;entryX=-0.007;entryY=0.634;entryDx=0;entryDy=0;exitPerimeter=0;entryPerimeter=0;" target="l2-resolver" value="fetch (TLS)">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-resolver-att" edge="1" parent="1" source="l2-resolver" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2.5;strokeColor=#b85450;fontSize=10;fontStyle=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="l3-att" value="&lt;b&gt;signed&lt;br&gt;OutcomeAttestation&lt;/b&gt;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1205" y="850" />
+              <mxPoint x="1530" y="850" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-wallet-market" edge="1" parent="1" source="l1-wallet" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2.5;strokeColor=#6c8ebf;fontSize=10;fontStyle=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" value="&lt;b&gt;collateral transfer&lt;br&gt;(2-step reconcile)&lt;/b&gt;">
+          <mxGeometry relative="1" x="-0.2433" as="geometry">
+            <mxPoint x="-1" as="offset" />
+            <Array as="points">
+              <mxPoint x="1715" y="430" />
+              <mxPoint x="760" y="430" />
+            </Array>
+            <mxPoint x="760" y="975" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-att-policy" edge="1" parent="1" source="l3-att" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#b85450;fontSize=10;dashed=1;exitX=0.572;exitY=0.994;exitDx=0;exitDy=0;entryX=0.322;entryY=-0.012;entryDx=0;entryDy=0;entryPerimeter=0;exitPerimeter=0;" target="l3-policy" value="verified by">
+          <mxGeometry relative="1" x="0.0165" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-policy-tiers" edge="1" parent="1" source="l3-policy" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#b85450;fontSize=10;dashed=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="l3-tiers-c" value="enables tiers">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-market-position" edge="1" parent="1" source="l3-market" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#d6b656;fontSize=10;exitX=0.999;exitY=0.185;exitDx=0;exitDy=0;entryX=0.001;entryY=0.71;entryDx=0;entryDy=0;exitPerimeter=0;entryPerimeter=0;" target="l3-position" value="Buy → mints">
+          <mxGeometry relative="1" x="0.0176" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-market-lp" edge="1" parent="1" source="l3-market" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#d6b656;fontSize=10;exitX=1;exitY=0.75;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" target="l3-lp" value="ProvideLiquidity → mints">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-indexer-analytics" edge="1" parent="1" source="l2-indexer" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#6c8ebf;fontSize=10;dashed=1;exitX=0.5;exitY=0;entryX=0.5;entryY=1;exitDx=0;exitDy=0;entryDx=0;entryDy=0;" target="l1-analytics" value="read model → charts">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
