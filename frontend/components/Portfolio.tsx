@@ -7,13 +7,14 @@ function Portfolio() {
   useCantonWallet();
 
   return (
-    <div className="page-container py-8">
+    <div className="page-container py-10 sm:py-14">
       <div className="mb-8">
-        <div className="mb-1 flex items-center gap-2">
-          <Briefcase className="h-5 w-5 text-primary" />
-          <h1 className="section-title">Portfolio</h1>
+        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-semibold text-primary">
+          <Briefcase className="h-3.5 w-3.5" />
+          Trading dashboard
         </div>
-        <p className="text-sm text-muted-foreground">
+        <h1 className="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">Portfolio</h1>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
           Your positions, pending payouts, and trading activity.
         </p>
       </div>
