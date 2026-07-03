@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "deploy": "vercel",
-    "hooks:install": "node scripts/install-git-hooks.cjs --force",
+    "hooks:install": "git config core.hooksPath .githooks",
     "lint": "eslint frontend --ext ts,tsx --report-unused-disable-directives",
     "preview": "vite preview",
     "_fmt": "prettier 'frontend/**/*.ts'",
