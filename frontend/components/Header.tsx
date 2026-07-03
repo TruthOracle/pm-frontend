@@ -4,11 +4,12 @@ import { WalletSelector } from "./WalletSelector";
 import { Link, useLocation } from "react-router-dom";
 import { useToast } from "@chakra-ui/react";
 import { cn } from "@/lib/utils";
-import { Coins, Gift, HelpCircle, PlusCircle, TrendingUp } from "lucide-react";
+import { Briefcase, Coins, Gift, HelpCircle, MoreVertical, PlusCircle, TrendingUp, X } from "lucide-react";
+import { useEffect, useState } from "react";
 
 const NAV_ITEMS = [
   { to: "/marketplace", label: "Markets", icon: TrendingUp },
-  { to: "/portfolio", label: "Portfolio", icon: null },
+  { to: "/portfolio", label: "Portfolio", icon: Briefcase },
   { to: "/rewards", label: "Rewards", icon: Gift },
   { to: "/faq", label: "FAQ", icon: HelpCircle },
 ];
@@ -18,6 +19,11 @@ export function Header() {
   const isAdmin = useIsAdmin();
   const location = useLocation();
   const toast = useToast();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
 
   const handleGetCantonCoin = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -44,7 +50,7 @@ export function Header() {
 
   return (
     <header className="glass-header">
-      <div className="page-container flex h-16 items-center justify-between gap-4">
+      <div className="page-container relative flex h-16 items-center justify-between gap-4">
         {/* Logo */}
         <Link to="/" className="flex shrink-0 items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-950 shadow-sm ring-1 ring-slate-950/10">
@@ -84,16 +90,73 @@ export function Header() {
         </nav>
 
         {/* Actions */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="hidden items-center gap-2 md:flex lg:gap-3">
           <button
             onClick={handleGetCantonCoin}
-            className="hidden items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-primary/40 hover:text-primary sm:flex"
+            className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-primary/40 hover:text-primary"
           >
             <Coins className="h-3.5 w-3.5" />
             Get CC
           </button>
           <WalletSelector />
         </div>
+
+        <button
+          type="button"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors hover:border-primary/30 hover:text-primary md:hidden"
+          onClick={() => setMobileMenuOpen((open) => !open)}
+          aria-label="Open navigation menu"
+          aria-expanded={mobileMenuOpen}
+        >
+          {mobileMenuOpen ? <X className="h-5 w-5" /> : <MoreVertical className="h-5 w-5" />}
+        </button>
+
+        {mobileMenuOpen && (
+          <div className="absolute left-4 right-4 top-full mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl shadow-slate-300/60 md:hidden">
+            <nav className="divide-y divide-slate-100">
+              {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
+                <Link
+                  key={to}
+                  to={to}
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 transition-colors hover:bg-emerald-50 hover:text-primary",
+                    isActive(to) && "bg-emerald-50 text-primary",
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {label}
+                </Link>
+              ))}
+              {isAdmin && (
+                <Link
+                  to="/admin"
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 transition-colors hover:bg-emerald-50 hover:text-primary",
+                    isActive("/admin") && "bg-emerald-50 text-primary",
+                  )}
+                >
+                  <PlusCircle className="h-4 w-4" />
+                  Create Market
+                </Link>
+              )}
+            </nav>
+            <div className="space-y-3 border-t border-slate-100 bg-slate-50/70 p-4">
+              <button
+                onClick={(event) => {
+                  handleGetCantonCoin(event);
+                  setMobileMenuOpen(false);
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 shadow-sm transition-colors hover:border-primary/40 hover:text-primary"
+              >
+                <Coins className="h-4 w-4" />
+                Get CC
+              </button>
+              <div className="flex justify-center">
+                <WalletSelector />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </header>
   );
