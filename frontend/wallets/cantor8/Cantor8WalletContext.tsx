@@ -214,7 +214,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
         console.log(
           "[Cantor8] signAndExecute payload:\n" + JSON.stringify(signAndExecuteInput, null, 2),
         );
-        wallet
+        (wallet as unknown as { signAndExecute(input: typeof signAndExecuteInput): Promise<unknown> })
           .signAndExecute(signAndExecuteInput)
           .then((result) => {
             console.log("[Cantor8] signAndExecute resolved:", result);
