@@ -55,6 +55,12 @@ module.exports = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        oracle: {
+          yes: "#16c784",
+          no: "#f23645",
+          blue: "#4f6ef7",
+          purple: "#7c5cfc",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -77,8 +83,9 @@ module.exports = {
         },
       },
         fontFamily: {
-          jbm: ["JetBrains Mono", "sans-serif"],
-        },   
+          sans: ["Inter", "system-ui", "-apple-system", "sans-serif"],
+          jbm: ["JetBrains Mono", "monospace"],
+        },
       fontSize: {
         12: "0.75rem",
         14: "0.875rem",

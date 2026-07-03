@@ -6,17 +6,7 @@ import {
   AlertDialogHeader,
   AlertDialogOverlay,
   Button,
-  Divider,
-  Flex,
-  Progress,
   Skeleton,
-  Stack,
-  Stat,
-  StatArrow,
-  StatGroup,
-  StatHelpText,
-  StatLabel,
-  StatNumber,
   Text,
   useDisclosure,
   useToast,
@@ -51,6 +41,7 @@ import {
   enterpriseWalletPartyId,
   submitAdminTransaction,
 } from "@/lib/enterpriseWalletSubmit";
+import { getCurrentPrice } from "@/lib/marketPricing";
 
 type MarketViewModel = {
   marketId: number;
@@ -137,13 +128,6 @@ async function waitForNewPendingPayout(
     await new Promise((r) => setTimeout(r, intervalMs));
   }
   return null;
-}
-
-function getCurrentPrice(qYes: number, qNo: number, b: number) {
-  if (!b || b === 0) return { yes: 0.5, no: 0.5 };
-  const eYes = Math.exp(qYes / b);
-  const eNo = Math.exp(qNo / b);
-  return { yes: eYes / (eYes + eNo), no: eNo / (eYes + eNo) };
 }
 
 const MarketView = () => {
@@ -241,6 +225,13 @@ const MarketView = () => {
   useEffect(() => {
     refreshMarket();
   }, [refreshMarket]);
+
+  useEffect(() => {
+    const side = searchParams.get("side");
+    if (side === "yes" || side === "no") {
+      setSelectedSide(side);
+    }
+  }, [searchParams]);
 
   const refreshUserData = useCallback(async () => {
     if (!account?.address || isNaN(marketIdNum)) {
@@ -803,249 +794,254 @@ const MarketView = () => {
 
   if (loading && !view) {
     return (
-      <Stack minHeight={"100vh"} p={5} width={"100%"} color={"white"} justifyContent={"space-between"}>
-        <Skeleton height="20px" />
-        <Skeleton height="20px" />
-        <Skeleton height="20px" />
-      </Stack>
+      <div className="space-y-4 py-8">
+        <Skeleton height="32px" borderRadius="lg" />
+        <Skeleton height="20px" borderRadius="lg" />
+        <Skeleton height="120px" borderRadius="xl" />
+      </div>
     );
   }
 
   if (!view) {
     return (
-      <Stack minHeight={"100vh"} p={5} width={"100%"} color={"white"} alignItems={"center"} justifyContent={"center"}>
-        <Text fontSize="lg">Market #{id} not found.</Text>
-      </Stack>
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-2">
+        <Text fontSize="lg" color="gray.400">Market #{id} not found.</Text>
+      </div>
     );
   }
 
   return (
-    <Flex minHeight={"100vh"} p={5} width={"100%"} color={"white"} justifyContent={"space-between"}>
-      <Stack width={"60%"}>
-        <h2 className="text-xl font-jbm font-bold mb-3" style={{ color: "#CCCCFF" }}>
-          {view.question}
-        </h2>
-        <Text fontSize={"lg"} mb={6} className="font-jbm">
-          {view.description}
-        </Text>
-        {view.resolutionDescription && (
-          <Text fontSize={"sm"} mb={10} className="font-jbm" color="gray.400">
-            <strong>Resolution:</strong> {view.resolutionDescription}
-          </Text>
+    <div className="flex min-h-[80vh] flex-col gap-8 lg:flex-row lg:gap-10">
+      {/* Left: market info */}
+      <div className="flex-1 space-y-6">
+        <div>
+          <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs font-medium text-muted-foreground">
+            Market #{view.marketId}
+            {view.status === 0 ? (
+              <span className="flex items-center gap-1 text-oracle-yes">
+                <span className="h-1.5 w-1.5 rounded-full bg-oracle-yes animate-pulse" />
+                Live
+              </span>
+            ) : (
+              <span className="text-muted-foreground">Resolved</span>
+            )}
+          </div>
+          <h1 className="text-2xl font-bold leading-tight text-foreground sm:text-3xl">
+            {view.question}
+          </h1>
+        </div>
+
+        {view.description && (
+          <p className="text-base text-muted-foreground">{view.description}</p>
         )}
-        <Flex>
-          <Stack width={"70%"}>
-            <Flex>
-              <Text mr={2}>Yes</Text>
-              <Text>
-                {" - "}
-                {view.yesShares} Shares ({((currentPrice?.yes ?? 0) * 100).toFixed(1)}%)
-              </Text>
-            </Flex>
-            <Progress
-              width={"50%"}
-              colorScheme="green"
-              size="sm"
-              value={(currentPrice?.yes ?? 0) * 100}
-            />
-            <Flex width={"100%"}>
-              <Text mr={2}>No</Text>
-              <Text>
-                {" - "}
-                {view.noShares} Shares ({((currentPrice?.no ?? 0) * 100).toFixed(1)}%)
-              </Text>
-            </Flex>
-            <Progress
-              width={"50%"}
-              colorScheme="red"
-              size="sm"
-              value={(currentPrice?.no ?? 0) * 100}
-            />
-          </Stack>
+        {view.resolutionDescription && (
+          <p className="rounded-lg border border-border bg-secondary/50 px-4 py-3 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">Resolution criteria: </span>
+            {view.resolutionDescription}
+          </p>
+        )}
 
-          <StatGroup>
-            <Stat mr={20}>
-              <StatLabel fontSize={"lg"}>Yes</StatLabel>
-              <StatNumber>${currentPrice?.yes.toFixed(2)}</StatNumber>
-              {view.status === 0 && (
-                <StatHelpText>
-                  <StatArrow type="increase" />
-                </StatHelpText>
-              )}
-            </Stat>
+        {/* Probability section */}
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Current Odds
+          </h2>
 
-            <Stat>
-              <StatLabel fontSize={"lg"}>No</StatLabel>
-              <StatNumber>${currentPrice?.no.toFixed(2)}</StatNumber>
-              {view.status === 0 && (
-                <StatHelpText>
-                  <StatArrow type="decrease" />
-                </StatHelpText>
-              )}
-            </Stat>
-          </StatGroup>
-        </Flex>
+          <div className="mb-4">
+            <div className="mb-1.5 flex items-baseline justify-between">
+              <span className="text-3xl font-bold text-oracle-yes">
+                {((currentPrice?.yes ?? 0) * 100).toFixed(0)}%
+              </span>
+              <span className="text-sm text-muted-foreground">chance of Yes</span>
+            </div>
+            <div className="prob-bar mb-1">
+              <div
+                className="prob-bar-yes"
+                style={{ width: `${(currentPrice?.yes ?? 0) * 100}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="rounded-lg bg-oracle-yes/10 px-4 py-3 ring-1 ring-oracle-yes/20">
+              <div className="text-xs font-medium text-oracle-yes">Yes</div>
+              <div className="text-2xl font-bold text-oracle-yes">
+                {((currentPrice?.yes ?? 0) * 100).toFixed(0)}¢
+              </div>
+              <div className="text-xs text-muted-foreground">{view.yesShares} shares</div>
+            </div>
+            <div className="rounded-lg bg-oracle-no/10 px-4 py-3 ring-1 ring-oracle-no/20">
+              <div className="text-xs font-medium text-oracle-no">No</div>
+              <div className="text-2xl font-bold text-oracle-no">
+                {((currentPrice?.no ?? 0) * 100).toFixed(0)}¢
+              </div>
+              <div className="text-xs text-muted-foreground">{view.noShares} shares</div>
+            </div>
+          </div>
+        </div>
 
         {userPosition && view.status === 0 && (
-          <div
-            style={{ color: "white", backgroundColor: "#18191C" }}
-            className="font-jbm p-4 mt-6 rounded-lg border-2 border-[#CCCCFF] shadow-md w-full max-w-md"
-          >
-            <h3 className="text-lg font-bold mb-2">Your Position</h3>
-            <div className="flex justify-between text-sm">
-              <span>Yes</span>
-              <span>{userPosition.yesShares} shares</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span>No</span>
-              <span>{userPosition.noShares} shares</span>
-            </div>
-            <div className="flex justify-between text-sm text-gray-400 mt-2">
-              <span>Invested</span>
-              <span>{userPosition.amountInvestedCC.toFixed(2)} CC</span>
+          <div className="rounded-xl border border-primary/20 bg-primary/5 p-5">
+            <h3 className="mb-3 text-sm font-semibold text-foreground">Your Position</h3>
+            <div className="grid grid-cols-3 gap-3 text-sm">
+              <div>
+                <div className="text-xs text-muted-foreground">Yes shares</div>
+                <div className="font-semibold text-oracle-yes">{userPosition.yesShares}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">No shares</div>
+                <div className="font-semibold text-oracle-no">{userPosition.noShares}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Invested</div>
+                <div className="font-semibold text-foreground">
+                  {userPosition.amountInvestedCC.toFixed(2)} CC
+                </div>
+              </div>
             </div>
           </div>
         )}
 
-        <Divider my={10} />
+        <div className="rounded-xl border border-border bg-card/50 p-5">
+          <h2 className="mb-2 text-sm font-semibold text-foreground">
+            About LMSR Pricing
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            The Logarithmic Market Scoring Rule (LMSR) is a mathematical tool used to evaluate
+            the accuracy of predictions. It encourages honesty and precision when making
+            predictions about uncertain events.
+          </p>
+        </div>
+      </div>
 
-        <h2 style={{ color: "#CCCCFF" }} className="text-md font-jbm font-bold">
-          About the Logarithmic Market Scoring Rule
-        </h2>
-        <Text fontSize={"sm"} mb={20} className="font-jbm">
-          The Logarithmic Market Scoring Rule (LMSR) is a mathematical tool used to evaluate the accuracy of
-          predictions. It's designed to encourage honesty and precision when making predictions about uncertain
-          events.
-        </Text>
-      </Stack>
-
+      {/* Right: trade panel */}
       {view.status === 0 ? (
-        <Stack width={"30%"} ml={20}>
-          <div
-            style={{ color: "white", backgroundColor: "#18191C" }}
-            className="font-jbm p-4 rounded-lg border-2 border-[#CCCCFF] shadow-md w-full max-w-sm mx-auto"
-          >
-            <div className="text-center mb-4">
-              <h2 className="text-lg font-bold">{tradeSide === "buy" ? "Buy Bet" : "Sell Position"}</h2>
-              <h3 className="text-sm text-gray-300 mt-2">{view.question}</h3>
+        <div className="w-full space-y-4 lg:w-80 lg:shrink-0">
+          <div className="trade-panel">
+            <div className="mb-4 text-center">
+              <h2 className="text-base font-bold text-foreground">
+                {tradeSide === "buy" ? "Place a Bet" : "Sell Position"}
+              </h2>
               {holdings && (
-                <p className="text-xs text-gray-400 mt-2">
-                  Wallet balance: <span className="text-[#CCCCFF]">{holdings.balance.toFixed(2)} CC</span>
-                  <span className="text-gray-500"> (≈ ${holdings.balanceUsd.toFixed(2)})</span>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Balance:{" "}
+                  <span className="font-medium text-primary">{holdings.balance.toFixed(2)} CC</span>
+                  <span className="text-muted-foreground/60">
+                    {" "}(≈ ${holdings.balanceUsd.toFixed(2)})
+                  </span>
                 </p>
               )}
             </div>
 
-            <div className="flex mb-3 rounded overflow-hidden border-2 border-[#CCCCFF]">
+            <div className="mb-4 flex overflow-hidden rounded-lg border border-border">
               <button
                 onClick={() => setTradeSide("buy")}
-                className={`flex-1 py-2 font-bold ${tradeSide === "buy" ? "bg-[#CCCCFF] text-black" : "bg-transparent text-[#CCCCFF]"}`}
+                className={`flex-1 py-2 text-sm font-semibold transition-all ${
+                  tradeSide === "buy"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-secondary"
+                }`}
               >
                 Buy
               </button>
               <button
                 onClick={() => setTradeSide("sell")}
-                className={`flex-1 py-2 font-bold ${tradeSide === "sell" ? "bg-[#CCCCFF] text-black" : "bg-transparent text-[#CCCCFF]"}`}
+                className={`flex-1 py-2 text-sm font-semibold transition-all ${
+                  tradeSide === "sell"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-secondary"
+                }`}
               >
                 Sell
               </button>
             </div>
 
-            <div className="flex flex-col items-center mb-4">
+            <div className="mb-4 flex flex-col gap-2">
               <button
                 onClick={() => setSelectedSide("yes")}
                 className={
                   selectedSide === "yes"
-                    ? "font-bold py-2 px-4 mb-2 rounded w-full border-2 border-green-400 bg-green-600 text-white ring-2 ring-green-400/40 transition-all"
-                    : "font-bold py-2 px-4 mb-2 rounded w-full border-2 border-green-600 bg-transparent text-green-300 hover:bg-green-600/20 hover:text-white transition-all"
+                    ? "rounded-lg border-2 border-oracle-yes bg-oracle-yes/20 py-2.5 text-sm font-bold text-oracle-yes ring-2 ring-oracle-yes/30"
+                    : "rounded-lg border border-oracle-yes/30 py-2.5 text-sm font-semibold text-oracle-yes hover:bg-oracle-yes/10"
                 }
               >
-                Yes
+                Yes — {((currentPrice?.yes ?? 0) * 100).toFixed(0)}¢
               </button>
               <button
                 onClick={() => setSelectedSide("no")}
                 className={
                   selectedSide === "no"
-                    ? "font-bold py-2 px-4 rounded w-full border-2 border-red-400 bg-red-600 text-white ring-2 ring-red-400/40 transition-all"
-                    : "font-bold py-2 px-4 rounded w-full border-2 border-red-600 bg-transparent text-red-300 hover:bg-red-600/20 hover:text-white transition-all"
+                    ? "rounded-lg border-2 border-oracle-no bg-oracle-no/20 py-2.5 text-sm font-bold text-oracle-no ring-2 ring-oracle-no/30"
+                    : "rounded-lg border border-oracle-no/30 py-2.5 text-sm font-semibold text-oracle-no hover:bg-oracle-no/10"
                 }
               >
-                No
+                No — {((currentPrice?.no ?? 0) * 100).toFixed(0)}¢
               </button>
             </div>
 
-            <div className="flex flex-col items-center mb-4">
-              <div className="flex flex-row items-center w-max mb-4">
+            <div className="mb-4">
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                Shares
+              </label>
+              <div className="flex overflow-hidden rounded-lg border border-border">
                 <button
                   onClick={decrementAmount}
-                  className="text-white font-bold py-2 px-4 rounded-l bg-[#CCCCFF] hover:bg-gray-600"
-                  style={{ borderColor: "#333", borderWidth: "2px" }}
+                  className="bg-secondary px-4 py-2.5 text-foreground hover:bg-secondary/80"
                 >
-                  -
+                  −
                 </button>
                 <input
                   type="number"
                   value={amount.toFixed(2)}
                   onChange={handleInputChange}
-                  placeholder="$0.0"
-                  className="text-black py-2 px-4 w-32 text-center"
-                  style={{ borderColor: "#333", borderWidth: "2px", borderLeft: "none", borderRight: "none" }}
+                  className="flex-1 bg-background py-2.5 text-center text-foreground focus:outline-none"
                 />
                 <button
                   onClick={incrementAmount}
-                  className="text-white font-bold py-2 px-4 rounded-r bg-[#CCCCFF] hover:bg-gray-600"
-                  style={{ borderColor: "#333", borderWidth: "2px" }}
+                  className="bg-secondary px-4 py-2.5 text-foreground hover:bg-secondary/80"
                 >
                   +
                 </button>
               </div>
-
-              {(() => {
-                const tradeDisabledReason = !account
-                  ? "Connect wallet"
-                  : !predictionMarketCid
-                    ? "Loading market…"
-                    : submittingBet
-                      ? "Submitting…"
-                      : !selectedSide
-                        ? "Select Yes or No"
-                        : amount <= 0
-                          ? "Enter shares to trade"
-                          : null;
-                const isDisabled = tradeDisabledReason !== null;
-                return (
-                  <button
-                    onClick={handleTradeClick}
-                    className={
-                      isDisabled
-                        ? "font-bold py-2 px-4 rounded bg-[#2a2b30] text-gray-500 cursor-not-allowed"
-                        : "text-black font-bold py-2 px-4 rounded bg-[#ebebf0] hover:bg-[#CCCCFF] hover:text-white"
-                    }
-                    style={{
-                      borderColor: isDisabled ? "#3a3b40" : "#333",
-                      borderWidth: "2px",
-                      width: "100%",
-                    }}
-                    disabled={isDisabled}
-                  >
-                    {tradeDisabledReason ?? (tradeSide === "buy" ? "BUY" : "SELL")}
-                  </button>
-                );
-              })()}
-              <div className="flex flex-col m-1 text-gray-500 text-sm justify-between font-jbm">
-                <p className="font-jbm">⚠️ Due to slippage tolerance, price may vary.</p>
-              </div>
             </div>
+
+            {(() => {
+              const tradeDisabledReason = !account
+                ? "Connect wallet"
+                : !predictionMarketCid
+                  ? "Loading market…"
+                  : submittingBet
+                    ? "Submitting…"
+                    : !selectedSide
+                      ? "Select Yes or No"
+                      : amount <= 0
+                        ? "Enter shares to trade"
+                        : null;
+              const isDisabled = tradeDisabledReason !== null;
+              return (
+                <button
+                  onClick={handleTradeClick}
+                  disabled={isDisabled}
+                  className={`w-full rounded-lg py-3 text-sm font-bold transition-all ${
+                    isDisabled
+                      ? "cursor-not-allowed bg-secondary text-muted-foreground"
+                      : "bg-primary text-primary-foreground hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/20"
+                  }`}
+                >
+                  {tradeDisabledReason ?? (tradeSide === "buy" ? "Place Bet" : "Sell Shares")}
+                </button>
+              );
+            })()}
+            <p className="mt-2 text-center text-xs text-muted-foreground">
+              Price may vary due to slippage.
+            </p>
           </div>
 
-          <div
-            style={{ color: "white", backgroundColor: "#18191C" }}
-            className="font-jbm p-4 mt-4 rounded-lg border-2 border-[#CCCCFF] shadow-md w-full max-w-sm mx-auto"
-          >
-            <div className="text-center mb-3">
-              <h2 className="text-lg font-bold">Split / Merge</h2>
-              <p className="text-xs text-gray-400 mt-1">
-                Split: $1 → 1 Yes + 1 No share. Merge: reverse.
+          <div className="trade-panel">
+            <div className="mb-3 text-center">
+              <h2 className="text-sm font-bold text-foreground">Split / Merge</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Split: 1 CC → 1 Yes + 1 No. Merge: reverse.
               </p>
             </div>
             <input
@@ -1057,20 +1053,19 @@ const MarketView = () => {
                 setSplitMergeAmount(isNaN(v) || v < 0 ? 0 : v);
               }}
               placeholder="Pairs"
-              className="text-black py-2 px-4 w-full text-center mb-3"
-              style={{ borderColor: "#333", borderWidth: "2px" }}
+              className="input-field mb-3 text-center"
             />
             <div className="flex gap-2">
               <button
                 onClick={() => handleSplitMerge("split")}
-                className="flex-1 font-bold py-2 px-4 rounded bg-[#ebebf0] text-black hover:bg-[#CCCCFF] hover:text-white disabled:bg-[#2a2b30] disabled:text-gray-500"
+                className="flex-1 rounded-lg border border-border bg-secondary py-2 text-sm font-semibold text-foreground hover:bg-secondary/80 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={splittingMerging || !predictionMarketCid || splitMergeAmount <= 0}
               >
                 {splittingMerging ? "…" : "Split"}
               </button>
               <button
                 onClick={() => handleSplitMerge("merge")}
-                className="flex-1 font-bold py-2 px-4 rounded bg-[#ebebf0] text-black hover:bg-[#CCCCFF] hover:text-white disabled:bg-[#2a2b30] disabled:text-gray-500"
+                className="flex-1 rounded-lg border border-border bg-secondary py-2 text-sm font-semibold text-foreground hover:bg-secondary/80 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={splittingMerging || !predictionMarketCid || splitMergeAmount <= 0 || !userPosition}
               >
                 {splittingMerging ? "…" : "Merge"}
@@ -1079,50 +1074,34 @@ const MarketView = () => {
           </div>
 
           {isAdmin && (
-            <div
-              style={{ color: "white", backgroundColor: "#18191C" }}
-              className="font-jbm p-4 mt-4 rounded-lg border-2 border-[#CCCCFF] shadow-md w-full max-w-sm mx-auto"
-            >
-              <div className="text-center mb-4">
-                <h2 className="text-lg font-bold">Resolve Market</h2>
-                <p className="text-xs text-gray-400 mt-1">Admin only — archives this market and records the outcome.</p>
+            <div className="trade-panel border-oracle-no/20">
+              <div className="mb-4 text-center">
+                <h2 className="text-sm font-bold text-foreground">Resolve Market</h2>
+                <p className="mt-1 text-xs text-muted-foreground">Admin only — irreversible.</p>
               </div>
 
-              <div className="flex flex-col items-stretch mb-4 gap-2">
-                <button
-                  onClick={() => setResolveResult("Yes")}
-                  className={
-                    resolveResult === "Yes"
-                      ? "font-bold py-2 px-4 rounded w-full border-2 border-green-400 bg-green-600 text-white ring-2 ring-green-400/40 transition-all"
-                      : "font-bold py-2 px-4 rounded w-full border-2 border-green-600 bg-transparent text-green-300 hover:bg-green-600/20 hover:text-white transition-all"
-                  }
-                >
-                  Yes wins
-                </button>
-                <button
-                  onClick={() => setResolveResult("No")}
-                  className={
-                    resolveResult === "No"
-                      ? "font-bold py-2 px-4 rounded w-full border-2 border-red-400 bg-red-600 text-white ring-2 ring-red-400/40 transition-all"
-                      : "font-bold py-2 px-4 rounded w-full border-2 border-red-600 bg-transparent text-red-300 hover:bg-red-600/20 hover:text-white transition-all"
-                  }
-                >
-                  No wins
-                </button>
-                <button
-                  onClick={() => setResolveResult("Draw")}
-                  className={
-                    resolveResult === "Draw"
-                      ? "font-bold py-2 px-4 rounded w-full border-2 border-gray-300 bg-gray-500 text-white ring-2 ring-gray-300/40 transition-all"
-                      : "font-bold py-2 px-4 rounded w-full border-2 border-gray-500 bg-transparent text-gray-300 hover:bg-gray-500/30 hover:text-white transition-all"
-                  }
-                >
-                  Draw
-                </button>
+              <div className="mb-4 flex flex-col gap-2">
+                {(["Yes", "No", "Draw"] as const).map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setResolveResult(r)}
+                    className={`rounded-lg py-2 text-sm font-semibold transition-all ${
+                      resolveResult === r
+                        ? r === "Yes"
+                          ? "border-2 border-oracle-yes bg-oracle-yes/20 text-oracle-yes"
+                          : r === "No"
+                            ? "border-2 border-oracle-no bg-oracle-no/20 text-oracle-no"
+                            : "border-2 border-border bg-secondary text-foreground"
+                        : "border border-border text-muted-foreground hover:bg-secondary"
+                    }`}
+                  >
+                    {r === "Yes" ? "Yes wins" : r === "No" ? "No wins" : "Draw"}
+                  </button>
+                ))}
               </div>
 
-              <div className="flex flex-col items-center mb-3">
-                <label className="text-xs text-gray-400 mb-1 self-start">Payout per share</label>
+              <div className="mb-3">
+                <label className="mb-1 block text-xs text-muted-foreground">Payout per share</label>
                 <input
                   type="number"
                   min={0}
@@ -1132,15 +1111,13 @@ const MarketView = () => {
                     setPayoutPerShare(isNaN(v) || v < 0 ? 0 : v);
                   }}
                   placeholder="0"
-                  className="text-black py-2 px-4 w-full text-center"
-                  style={{ borderColor: "#333", borderWidth: "2px" }}
+                  className="input-field text-center"
                 />
               </div>
 
               <button
                 onClick={handleResolveClick}
-                className="text-black font-bold py-2 px-4 rounded bg-[#ebebf0] hover:bg-[#CCCCFF] hover:text-white"
-                style={{ borderColor: "#333", borderWidth: "2px", width: "100%" }}
+                className="w-full rounded-lg bg-oracle-no/20 py-2.5 text-sm font-bold text-oracle-no ring-1 ring-oracle-no/30 hover:bg-oracle-no/30 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={resolving || !predictionMarketCid || !account}
               >
                 {resolving
@@ -1149,38 +1126,28 @@ const MarketView = () => {
                     ? "Connect wallet"
                     : !predictionMarketCid
                       ? "Loading market…"
-                      : "RECORD RESULT"}
+                      : "Record Result"}
               </button>
-              <p className="text-xs text-gray-500 mt-2 font-jbm">
-                ⚠️ This is irreversible — the market will be archived and a ResolvedMarket created on-ledger.
-              </p>
             </div>
           )}
-        </Stack>
+        </div>
       ) : (
-        <Stack width={"30%"} ml={20}>
-          <div
-            style={{ color: "white", backgroundColor: "#18191C" }}
-            className="font-jbm p-4 rounded-lg border-2 border-[#CCCCFF] shadow-md w-full max-w-sm mx-auto"
-          >
-            <div className="text-center mb-4">
-              <h2 className="text-lg font-bold">Market Result</h2>
-              <Text color="#CCCCFF" fontSize="lg" mt={4}>
-                {getResultText()}
-              </Text>
-              <div className="mt-4 text-left text-sm text-gray-300 space-y-1">
-                <div className="flex justify-between">
-                  <span>Yes</span>
-                  <span>{view.yesShares} ({((currentPrice?.yes ?? 0) * 100).toFixed(1)}%)</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>No</span>
-                  <span>{view.noShares} ({((currentPrice?.no ?? 0) * 100).toFixed(1)}%)</span>
-                </div>
+        <div className="w-full lg:w-80 lg:shrink-0">
+          <div className="trade-panel text-center">
+            <h2 className="mb-2 text-base font-bold text-foreground">Market Result</h2>
+            <div className="text-2xl font-bold text-primary">{getResultText()}</div>
+            <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+              <div className="flex justify-between">
+                <span>Yes</span>
+                <span>{view.yesShares} ({((currentPrice?.yes ?? 0) * 100).toFixed(1)}%)</span>
+              </div>
+              <div className="flex justify-between">
+                <span>No</span>
+                <span>{view.noShares} ({((currentPrice?.no ?? 0) * 100).toFixed(1)}%)</span>
               </div>
             </div>
           </div>
-        </Stack>
+        </div>
       )}
       <AlertDialog
         isOpen={stepTwoDialog.isOpen}
@@ -1189,8 +1156,8 @@ const MarketView = () => {
         closeOnOverlayClick={false}
       >
         <AlertDialogOverlay>
-          <AlertDialogContent bg="#18191C" color="white" borderColor="#CCCCFF" borderWidth="2px">
-            <AlertDialogHeader fontSize="lg" fontWeight="bold" color="#CCCCFF">
+          <AlertDialogContent bg="#141419" color="white" borderColor="hsl(240 4% 16%)" borderWidth="1px" borderRadius="xl">
+            <AlertDialogHeader fontSize="lg" fontWeight="bold" color="hsl(235 89% 64%)">
               Step 2 of 2 — Confirm on-ledger
             </AlertDialogHeader>
             <AlertDialogBody>
@@ -1217,7 +1184,7 @@ const MarketView = () => {
           </AlertDialogContent>
         </AlertDialogOverlay>
       </AlertDialog>
-    </Flex>
+    </div>
   );
 };
 

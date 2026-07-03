@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { FaChevronDown, FaChevronUp } from "react-icons/fa";
+import { ChevronDown, HelpCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type FAQItemProps = {
   question: string;
@@ -39,8 +40,7 @@ const faqData: FAQItemProps[] = [
   },
   {
     question: "What cryptocurrencies are supported on TruthOracle?",
-    answer:
-      "TruthOracle uses Canton Coin for transactions on Canton Network (testnet and mainnet).",
+    answer: "TruthOracle uses Canton Coin for transactions on Canton Network (testnet and mainnet).",
   },
   {
     question: "How are outcomes of prediction markets resolved?",
@@ -83,25 +83,48 @@ const faqData: FAQItemProps[] = [
 
 const FAQ = () => {
   return (
-    <div style={{ maxHeight: "100vh", paddingTop: "60px" }} className="max-w-2xl mx-auto p-4 font-jbm text-white" color={"brand.secondary"}>
-      <h1 className="text-2xl font-jbm mb-4">Frequently Asked Questions</h1>
-      {faqData.map((item, index) => (
-        <FAQItem key={index} question={item.question} answer={item.answer} />
-      ))}
-    </div>
+    <section className="page-container py-10 sm:py-14">
+      <div className="mx-auto max-w-3xl">
+        <div className="mb-8">
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-semibold text-primary">
+            <HelpCircle className="h-3.5 w-3.5" />
+            Help center
+          </div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
+            Frequently Asked Questions
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-slate-600">
+            Everything you need to understand markets, wallets, outcomes, and settlement on TruthOracle.
+          </p>
+        </div>
+
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl shadow-slate-200/60">
+          {faqData.map((item, index) => (
+            <FAQItem key={index} question={item.question} answer={item.answer} isLast={index === faqData.length - 1} />
+          ))}
+        </div>
+      </div>
+    </section>
   );
 };
 
-const FAQItem: React.FC<FAQItemProps> = ({ question, answer }) => {
+const FAQItem: React.FC<FAQItemProps & { isLast: boolean }> = ({ question, answer, isLast }) => {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <div className="border-b border-gray-200 mb-4">
-      <div className="flex items-center justify-between py-2 cursor-pointer" onClick={() => setIsOpen(!isOpen)}>
-        <p className="font-bold">{question}</p>
-        {isOpen ? <FaChevronUp className="hover:text-[#5252FF]" /> : <FaChevronDown className="hover:text-[#5252FF]" />}
-      </div>
-      {isOpen && <p className="text-white-700 mt-2 mb-2">{answer}</p>}
+    <div className={cn("border-slate-200", !isLast && "border-b")}>
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-slate-50 sm:px-6"
+        onClick={() => setIsOpen(!isOpen)}
+        aria-expanded={isOpen}
+      >
+        <span className="text-sm font-bold text-slate-950 sm:text-base">{question}</span>
+        <ChevronDown
+          className={cn("h-4 w-4 shrink-0 text-slate-500 transition-transform", isOpen && "rotate-180 text-primary")}
+        />
+      </button>
+      {isOpen && <p className="px-5 pb-5 text-sm leading-6 text-slate-600 sm:px-6">{answer}</p>}
     </div>
   );
 };

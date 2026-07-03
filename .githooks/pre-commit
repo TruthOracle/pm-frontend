@@ -1,0 +1,4 @@
+#!/bin/sh
+
+echo "Running pre-commit build check..."
+npm run build

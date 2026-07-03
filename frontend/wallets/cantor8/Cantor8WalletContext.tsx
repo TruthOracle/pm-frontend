@@ -25,6 +25,7 @@ const Cantor8WalletContext = createContext<CantonWalletContextValue | null>(null
 const APP_NAME = "TruthOracle";
 
 type C8Network = "devnet" | "mainnet" | "local";
+type C8SdkNetwork = "devnet" | "mainnet";
 
 /** Resolve the C8 network from env, falling back to devnet for unsupported values. */
 function resolveNetwork(): C8Network {
@@ -59,7 +60,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     const wallet = new C8WalletProvider({
       dappName: APP_NAME,
       dappUrl: window.location.href,
-      network: network.networkId as C8Network,
+      network: network.networkId as unknown as C8SdkNetwork,
     });
 
     const applyPartyId = (partyId: string) => {
@@ -214,7 +215,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
         console.log(
           "[Cantor8] signAndExecute payload:\n" + JSON.stringify(signAndExecuteInput, null, 2),
         );
-        wallet
+        (wallet as unknown as { signAndExecute(input: typeof signAndExecuteInput): Promise<unknown> })
           .signAndExecute(signAndExecuteInput)
           .then((result) => {
             console.log("[Cantor8] signAndExecute resolved:", result);

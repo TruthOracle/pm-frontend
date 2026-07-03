@@ -117,7 +117,9 @@ export function WalletSelector() {
   return connected ? (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button>{account ? truncatePartyId(account.address) : "Unknown"}</Button>
+        <Button className="rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+          {account ? truncatePartyId(account.address) : "Unknown"}
+        </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80" style={{ zIndex: 1101 }}>
         <div className="px-4 py-2">
@@ -180,7 +182,9 @@ export function WalletSelector() {
   ) : (
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
       <DialogTrigger asChild>
-        <Button className="font-jbm text-xl">Connect a Wallet</Button>
+        <Button className="rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+          Connect Wallet
+        </Button>
       </DialogTrigger>
       <DialogContent className="max-h-screen overflow-auto">
         <DialogHeader>

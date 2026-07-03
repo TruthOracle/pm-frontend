@@ -1,15 +1,17 @@
-import { Avatar, Flex, Stack, Text } from "@chakra-ui/react";
 import { useNavigate } from "react-router-dom";
+import { getCurrentPrice, formatCents } from "@/lib/marketPricing";
+import { cn } from "@/lib/utils";
+import { TrendingUp, CheckCircle2 } from "lucide-react";
 
 export type MarketCardProps = {
-  /** Stable id for routing — typically the Daml `marketId`. */
   id: string | number;
   question: string;
   imageUrl: string;
-  /** 0 = active (PredictionMarket), 1 = expired/resolved (ResolvedMarket). */
   status: 0 | 1;
-  /** Daml `MarketResult` variant for resolved markets. */
   result?: "Yes" | "No" | "Draw" | string;
+  yesShares?: number;
+  noShares?: number;
+  liquidityParam?: number;
 };
 
 const MarketCard = (props: MarketCardProps) => {
@@ -17,84 +19,98 @@ const MarketCard = (props: MarketCardProps) => {
   const statusParam = props.status === 0 ? "active" : "resolved";
   const handleCardClick = () => navigate(`/market/${props.id}?status=${statusParam}`);
 
-  const resultText = (() => {
+  const price =
+    props.status === 0 && props.yesShares != null && props.noShares != null
+      ? getCurrentPrice(props.yesShares, props.noShares, props.liquidityParam ?? 1)
+      : null;
+
+  const yesPct = price ? Math.round(price.yes * 100) : 50;
+
+  const resultLabel = (() => {
     if (props.status === 0) return null;
-    if (props.result === "Yes") return "Winner: Yes";
-    if (props.result === "No") return "Winner: No";
+    if (props.result === "Yes") return "Yes Won";
+    if (props.result === "No") return "No Won";
     if (props.result === "Draw") return "Draw";
-    return "Market Resolved";
+    return "Resolved";
   })();
 
+  const handleOutcomeClick = (e: React.MouseEvent, side: "yes" | "no") => {
+    e.stopPropagation();
+    navigate(`/market/${props.id}?status=${statusParam}&side=${side}`);
+  };
+
   return (
-    <Stack
-      width={"350px"}
-      height={"200px"}
-      bg={"#18191C"}
-      className="rounded-lg shadow-md p-4 font-jbm cursor-pointer"
-      key={String(props.id)}
-      color={"white"}
+    <article
+      className="market-card cursor-pointer p-4"
       onClick={handleCardClick}
     >
-      <Flex height={"80%"}>
-        <Avatar mt={3} name="TruthOracle" src={props.imageUrl} />
-        <div
-          style={{
-            fontWeight: "bold",
-            marginTop: "10px",
-            marginLeft: "10px",
-            fontSize: "17px",
-          }}
-          className="font-jbm"
-        >
-          {props.question}
+      {/* Header row */}
+      <div className="mb-3 flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-secondary ring-1 ring-border">
+          {props.imageUrl ? (
+            <img
+              src={props.imageUrl}
+              alt=""
+              className="h-full w-full object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = "none";
+              }}
+            />
+          ) : (
+            <TrendingUp className="h-4 w-4 text-primary" />
+          )}
         </div>
-      </Flex>
+        <h3 className="line-clamp-2 flex-1 text-sm font-semibold leading-snug text-foreground">
+          {props.question}
+        </h3>
+      </div>
 
       {props.status === 0 ? (
-        <div className="px-4 pb-2 flex justify-between font-jbm">
-          <button
-            onClick={handleCardClick}
-            style={{
-              borderColor: "#008000",
-              width: "50%",
-              borderWidth: "2px",
-              padding: "10px",
-              minWidth: "80px",
-              maxWidth: "150px",
-              wordBreak: "break-word",
-              textAlign: "center",
-              fontSize: "12px",
-            }}
-            className="text-white font-bold hover:bg-green-600"
-          >
-            Bet Yes
-          </button>
-          <button
-            onClick={handleCardClick}
-            style={{
-              borderColor: "#FF0000",
-              width: "50%",
-              borderWidth: "2px",
-              padding: "5px 10px",
-              minWidth: "80px",
-              maxWidth: "150px",
-              wordBreak: "break-word",
-              textAlign: "center",
-              fontSize: "12px",
-            }}
-            className="text-white font-bold hover:bg-red-600"
-          >
-            Bet No
-          </button>
-        </div>
+        <>
+          {/* Probability display */}
+          <div className="mb-3">
+            <div className="mb-1.5 flex items-baseline justify-between">
+              <span className="text-2xl font-bold text-oracle-yes">{yesPct}%</span>
+              <span className="text-xs text-muted-foreground">chance of Yes</span>
+            </div>
+            <div className="prob-bar">
+              <div className="prob-bar-yes" style={{ width: `${yesPct}%` }} />
+            </div>
+          </div>
+
+          {/* Yes / No buttons */}
+          <div className="flex gap-2">
+            <button
+              className="btn-yes"
+              onClick={(e) => handleOutcomeClick(e, "yes")}
+            >
+              Yes {price ? formatCents(price.yes) : "—"}
+            </button>
+            <button
+              className="btn-no"
+              onClick={(e) => handleOutcomeClick(e, "no")}
+            >
+              No {price ? formatCents(price.no) : "—"}
+            </button>
+          </div>
+        </>
       ) : (
-        <div className="px-4 pb-2 font-jbm">
-          <Text color="#CCCCFF" fontSize="sm" textAlign="center">
-            {resultText}
-          </Text>
+        <div className="flex items-center gap-2 rounded-lg bg-secondary px-3 py-2.5">
+          <CheckCircle2
+            className={cn(
+              "h-4 w-4 shrink-0",
+              props.result === "Yes" && "text-oracle-yes",
+              props.result === "No" && "text-oracle-no",
+              props.result === "Draw" && "text-muted-foreground"
+            )}
+          />
+          <span className="text-sm font-medium text-foreground">{resultLabel}</span>
+          <span className="ml-auto text-xs text-muted-foreground">
+            Final: {yesPct}% Yes
+          </span>
         </div>
       )}
-    </Stack>
+    </article>
   );
 };
 

@@ -1,0 +1,356 @@
+module TruthoracleTest where
+
+import Daml.Script
+import Truthoracle
+
+externalUserText : Text
+externalUserText = "6ff9435fff4d4f43856f688e95a27368::12204e98dc339cc86c6d318f3746f99e880245b4a5827ef1e8bbe7ba6193ef8c0e58"
+
+createCounter : Party -> Script (ContractId MarketCounter)
+createCounter admin =
+  submit admin do
+    createCmd MarketCounter with admin; value = 0
+
+createMarket :
+  Party ->
+  ContractId MarketCounter ->
+  Script (ContractId MarketCounter, ContractId PredictionMarket)
+createMarket admin counterCid =
+  submit admin do
+    exerciseCmd counterCid CreateMarket with
+      question = "Will Canton volume exceed target?"
+      imageUrl = "https://example.com/market.png"
+      description = "Prediction market for test coverage"
+      resolutionDescription = "Resolved by admin"
+      createdAt = 100
+      initialYesShares = 10
+      initialNoShares = 20
+      liquidityParam = 50
+
+assertMarket :
+  Party ->
+  ContractId PredictionMarket ->
+  Int ->
+  Int ->
+  Int ->
+  Script ()
+assertMarket admin marketCid expectedMarketId expectedYes expectedNo = do
+  marketOpt <- queryContractId admin marketCid
+  case marketOpt of
+    None -> abort "Expected market to be visible to admin"
+    Some market -> do
+      assert (market.marketId == expectedMarketId)
+      assert (market.yesShares == expectedYes)
+      assert (market.noShares == expectedNo)
+
+assertPosition :
+  Party ->
+  ContractId UserMarketData ->
+  Int ->
+  Int ->
+  Decimal ->
+  Script ()
+assertPosition user positionCid expectedYes expectedNo expectedInvested = do
+  posOpt <- queryContractId user positionCid
+  case posOpt of
+    None -> abort "Expected user position to be visible to user"
+    Some pos -> do
+      assert (pos.yesShares == expectedYes)
+      assert (pos.noShares == expectedNo)
+      assert (pos.amountInvestedCC == expectedInvested)
+
+assertPayout :
+  Party ->
+  ContractId PendingPayout ->
+  Party ->
+  Int ->
+  Decimal ->
+  Text ->
+  Script ()
+assertPayout admin payoutCid expectedUser expectedMarketId expectedAmount expectedReason = do
+  payoutOpt <- queryContractId admin payoutCid
+  case payoutOpt of
+    None -> abort "Expected payout to be visible to admin"
+    Some payout -> do
+      assert (payout.user == expectedUser)
+      assert (payout.marketId == expectedMarketId)
+      assert (payout.amountCC == expectedAmount)
+      assert (payout.reason == expectedReason)
+
+buyCreatesAndUpdatesUserPosition : Script ()
+buyCreatesAndUpdatesUserPosition = script do
+  admin <- allocateParty "Admin"
+  alice <- allocateParty "Alice"
+
+  counterCid <- createCounter admin
+  (_, marketCid) <- createMarket admin counterCid
+
+  (marketCid1, alicePosCid1) <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid Buy with
+      buyer = alice
+      side = 1
+      numShares = 5
+      costCC = 2.5
+      existingPosition = None
+  assertMarket admin marketCid1 1 15 20
+  assertPosition alice alicePosCid1 5 0 2.5
+
+  (marketCid2, alicePosCid2) <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid1 Buy with
+      buyer = alice
+      side = 2
+      numShares = 3
+      costCC = 1.5
+      existingPosition = Some alicePosCid1
+  assertMarket admin marketCid2 1 15 23
+  assertPosition alice alicePosCid2 5 3 4.0
+
+  oldPosOpt <- queryContractId alice alicePosCid1
+  case oldPosOpt of
+    None -> return ()
+    Some _ -> abort "Expected old position to be archived after buy update"
+
+externalWalletUserCanTrade : Script ()
+externalWalletUserCanTrade = script do
+  admin <- allocateParty "Admin"
+  trader <- allocatePartyByHint (PartyIdHint externalUserText)
+  assert (partyToText trader == externalUserText)
+
+  counterCid <- createCounter admin
+  (_, marketCid) <- createMarket admin counterCid
+
+  (marketCid1, traderPosCid1) <- submitMulti [trader] [admin] do
+    exerciseCmd marketCid Buy with
+      buyer = trader
+      side = 1
+      numShares = 7
+      costCC = 3.5
+      existingPosition = None
+
+  debug ("Trade 1 complete: user " <> partyToText trader <> " bought 7 YES shares")
+  assertMarket admin marketCid1 1 17 20
+  assertPosition trader traderPosCid1 7 0 3.5
+
+  (marketCid2, traderPosCid2) <- submitMulti [trader] [admin] do
+    exerciseCmd marketCid1 Buy with
+      buyer = trader
+      side = 2
+      numShares = 4
+      costCC = 2.0
+      existingPosition = Some traderPosCid1
+
+  debug ("Trade 2 complete: user " <> partyToText trader <> " bought 4 NO shares")
+  assertMarket admin marketCid2 1 17 24
+  assertPosition trader traderPosCid2 7 4 5.5
+
+  (marketCid3, traderPosCid3, payoutCid) <- submitMulti [trader] [admin] do
+    exerciseCmd marketCid2 Sell with
+      seller = trader
+      side = 1
+      numShares = 2
+      proceedsCC = 1.25
+      positionCid = traderPosCid2
+      nowSeconds = 9876
+
+  debug ("Trade 3 complete: user " <> partyToText trader <> " sold 2 YES shares and received pending payout")
+  assertMarket admin marketCid3 1 15 24
+  assertPosition trader traderPosCid3 5 4 5.5
+  assertPayout admin payoutCid trader 1 1.25 "sell"
+
+buyRejectsInvalidInputsAndWrongPosition : Script ()
+buyRejectsInvalidInputsAndWrongPosition = script do
+  admin <- allocateParty "Admin"
+  alice <- allocateParty "Alice"
+  bob <- allocateParty "Bob"
+
+  counterCid <- createCounter admin
+  (counterCid1, marketCid) <- createMarket admin counterCid
+  (_, otherMarketCid) <- createMarket admin counterCid1
+
+  alicePosCid <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid Split with
+      user = alice
+      amount = 2
+      existingPosition = None
+
+  bobPosCid <- submitMulti [bob] [admin] do
+    exerciseCmd otherMarketCid Split with
+      user = bob
+      amount = 1
+      existingPosition = None
+
+  submitMultiMustFail [alice] [admin] do
+    exerciseCmd marketCid Buy with
+      buyer = alice
+      side = 3
+      numShares = 1
+      costCC = 1.0
+      existingPosition = None
+
+  submitMultiMustFail [alice] [admin] do
+    exerciseCmd marketCid Buy with
+      buyer = alice
+      side = 1
+      numShares = 0
+      costCC = 1.0
+      existingPosition = None
+
+  submitMultiMustFail [alice] [admin] do
+    exerciseCmd marketCid Buy with
+      buyer = alice
+      side = 1
+      numShares = 1
+      costCC = 0.0
+      existingPosition = None
+
+  submitMultiMustFail [alice] [admin] do
+    exerciseCmd marketCid Buy with
+      buyer = alice
+      side = 1
+      numShares = 1
+      costCC = 1.0
+      existingPosition = Some bobPosCid
+
+  submitMultiMustFail [bob] [admin] do
+    exerciseCmd otherMarketCid Buy with
+      buyer = bob
+      side = 1
+      numShares = 1
+      costCC = 1.0
+      existingPosition = Some alicePosCid
+
+sellBurnsSharesAndCreatesPayout : Script ()
+sellBurnsSharesAndCreatesPayout = script do
+  admin <- allocateParty "Admin"
+  alice <- allocateParty "Alice"
+
+  counterCid <- createCounter admin
+  (_, marketCid) <- createMarket admin counterCid
+
+  (marketCid1, alicePosCid1) <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid Buy with
+      buyer = alice
+      side = 1
+      numShares = 6
+      costCC = 3.0
+      existingPosition = None
+
+  (marketCid2, alicePosCid2, payoutCid) <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid1 Sell with
+      seller = alice
+      side = 1
+      numShares = 4
+      proceedsCC = 2.0
+      positionCid = alicePosCid1
+      nowSeconds = 1234
+
+  assertMarket admin marketCid2 1 12 20
+  assertPosition alice alicePosCid2 2 0 3.0
+  assertPayout admin payoutCid alice 1 2.0 "sell"
+
+sellRejectsOversellAndBadSeller : Script ()
+sellRejectsOversellAndBadSeller = script do
+  admin <- allocateParty "Admin"
+  alice <- allocateParty "Alice"
+  bob <- allocateParty "Bob"
+
+  counterCid <- createCounter admin
+  (_, marketCid) <- createMarket admin counterCid
+
+  (marketCid1, alicePosCid) <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid Buy with
+      buyer = alice
+      side = 2
+      numShares = 3
+      costCC = 1.0
+      existingPosition = None
+
+  submitMultiMustFail [alice] [admin] do
+    exerciseCmd marketCid1 Sell with
+      seller = alice
+      side = 2
+      numShares = 4
+      proceedsCC = 1.0
+      positionCid = alicePosCid
+      nowSeconds = 1
+
+  submitMultiMustFail [bob] [admin] do
+    exerciseCmd marketCid1 Sell with
+      seller = bob
+      side = 2
+      numShares = 1
+      proceedsCC = 1.0
+      positionCid = alicePosCid
+      nowSeconds = 1
+
+splitAndMergeUserTradingFlow : Script ()
+splitAndMergeUserTradingFlow = script do
+  admin <- allocateParty "Admin"
+  alice <- allocateParty "Alice"
+
+  counterCid <- createCounter admin
+  (_, marketCid) <- createMarket admin counterCid
+
+  alicePosCid1 <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid Split with
+      user = alice
+      amount = 5
+      existingPosition = None
+  assertPosition alice alicePosCid1 5 5 5.0
+
+  alicePosCid2 <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid Split with
+      user = alice
+      amount = 2
+      existingPosition = Some alicePosCid1
+  assertPosition alice alicePosCid2 7 7 7.0
+
+  (alicePosCid3, payoutCid) <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid Merge with
+      user = alice
+      amount = 4
+      positionCid = alicePosCid2
+      nowSeconds = 4567
+  assertPosition alice alicePosCid3 3 3 7.0
+  assertPayout admin payoutCid alice 1 4.0 "merge"
+
+splitAndMergeRejectInvalidInputs : Script ()
+splitAndMergeRejectInvalidInputs = script do
+  admin <- allocateParty "Admin"
+  alice <- allocateParty "Alice"
+  bob <- allocateParty "Bob"
+
+  counterCid <- createCounter admin
+  (_, marketCid) <- createMarket admin counterCid
+
+  alicePosCid <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid Split with
+      user = alice
+      amount = 2
+      existingPosition = None
+
+  submitMultiMustFail [alice] [admin] do
+    exerciseCmd marketCid Split with
+      user = alice
+      amount = 0
+      existingPosition = Some alicePosCid
+
+  submitMultiMustFail [bob] [admin] do
+    exerciseCmd marketCid Split with
+      user = bob
+      amount = 1
+      existingPosition = Some alicePosCid
+
+  submitMultiMustFail [alice] [admin] do
+    exerciseCmd marketCid Merge with
+      user = alice
+      amount = 3
+      positionCid = alicePosCid
+      nowSeconds = 1
+
+  submitMultiMustFail [bob] [admin] do
+    exerciseCmd marketCid Merge with
+      user = bob
+      amount = 1
+      positionCid = alicePosCid
+      nowSeconds = 1
