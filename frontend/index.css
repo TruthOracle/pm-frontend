@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -6,27 +6,27 @@
 
 @layer base {
   :root {
-    --background: 240 6% 4%;
-    --foreground: 0 0% 98%;
+    --background: 0 0% 100%;
+    --foreground: 224 44% 13%;
 
-    --card: 240 5% 8%;
-    --card-foreground: 0 0% 98%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 44% 13%;
 
-    --popover: 240 5% 8%;
-    --popover-foreground: 0 0% 98%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 44% 13%;
 
-    --primary: 235 89% 64%;
+    --primary: 159 72% 32%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 240 4% 14%;
-    --secondary-foreground: 0 0% 98%;
-    --secondary-text: 240 5% 55%;
+    --secondary: 220 35% 96%;
+    --secondary-foreground: 224 44% 13%;
+    --secondary-text: 221 18% 43%;
 
-    --muted: 240 4% 14%;
-    --muted-foreground: 240 5% 55%;
+    --muted: 220 35% 96%;
+    --muted-foreground: 221 18% 43%;
 
-    --accent: 240 4% 14%;
-    --accent-foreground: 0 0% 98%;
+    --accent: 216 100% 97%;
+    --accent-foreground: 224 44% 13%;
 
     --destructive: 0 72% 58%;
     --destructive-foreground: 0 0% 98%;
@@ -34,14 +34,14 @@
     --success: 158 64% 45%;
     --success-foreground: 0 0% 100%;
 
-    --border: 240 4% 16%;
-    --input: 240 4% 16%;
-    --ring: 235 89% 64%;
+    --border: 218 32% 88%;
+    --input: 218 32% 88%;
+    --ring: 159 72% 32%;
 
-    --radius: 0.75rem;
+    --radius: 0.5rem;
 
-    --surface-elevated: 240 5% 10%;
-    --surface-hover: 240 4% 12%;
+    --surface-elevated: 0 0% 100%;
+    --surface-hover: 220 35% 96%;
   }
 }
 
@@ -56,25 +56,85 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family:
+      "Inter",
+      system-ui,
+      -apple-system,
+      sans-serif;
+  }
+
+  body::selection {
+    background: rgba(48, 85, 226, 0.18);
   }
 }
 
 @layer components {
+  .app-shell {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .app-shell::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    /* background-image:
+      linear-gradient(rgba(15, 23, 42, 0.06) 0.5px, transparent 0.5px),
+      linear-gradient(90deg, rgba(15, 23, 42, 0.06) 0.5px, transparent 0.5px),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 248, 255, 0.72)); */
+
+      background-image:
+    linear-gradient(rgba(15, 23, 42, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.025) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 248, 255, 0.72));
+    background-size:
+      3px 3px,
+      3px 3px,
+      100% 100%;
+    background-position:
+      -1px -1px,
+      -1px -1px,
+      0 0;
+  }
+
+  .app-shell::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(120deg, rgba(7, 138, 91, 0.08), transparent 34%),
+      linear-gradient(300deg, rgba(15, 23, 42, 0.06), transparent 38%);
+  }
+
+  .app-shell > * {
+    position: relative;
+    z-index: 1;
+  }
+
   .glass-header {
-    @apply fixed top-0 left-0 right-0 z-50 border-b border-border/60;
-    background: hsla(240, 6%, 4%, 0.85);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    @apply fixed top-0 left-0 right-0 z-50 border-b border-slate-900/10;
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(18px) saturate(1.35);
+    -webkit-backdrop-filter: blur(18px) saturate(1.35);
+    box-shadow:
+      0 1px 0 rgba(15, 23, 42, 0.04),
+      0 18px 44px rgba(15, 23, 42, 0.06);
   }
 
   .market-card {
-    @apply relative overflow-hidden rounded-xl border border-border bg-card transition-all duration-200;
+    @apply relative overflow-hidden rounded-lg border border-border/80 bg-card transition-all duration-200;
+    box-shadow: 0 16px 44px rgba(31, 46, 86, 0.08);
   }
 
   .market-card:hover {
-    @apply border-border/80 shadow-lg;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px hsl(var(--border));
+    @apply border-primary/30;
+    box-shadow:
+      0 22px 60px rgba(31, 46, 86, 0.14),
+      0 0 0 1px rgba(48, 85, 226, 0.08);
     transform: translateY(-2px);
   }
 
@@ -104,7 +164,7 @@
 
   .prob-bar {
     @apply h-1.5 w-full overflow-hidden rounded-full;
-    background: hsl(var(--secondary));
+    background: #e9eef7;
   }
 
   .prob-bar-yes {
@@ -113,11 +173,11 @@
   }
 
   .nav-link {
-    @apply text-sm font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground;
+    @apply text-sm font-semibold text-slate-600 transition-colors duration-150 hover:text-slate-950;
   }
 
   .nav-link-active {
-    @apply text-foreground;
+    @apply text-slate-950;
   }
 
   .page-container {
@@ -129,8 +189,8 @@
   }
 
   .trade-panel {
-    @apply rounded-xl border border-border bg-card p-5;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+    @apply rounded-lg border border-border/80 bg-card p-5;
+    box-shadow: 0 16px 44px rgba(31, 46, 86, 0.08);
   }
 
   .input-field {
@@ -150,18 +210,9 @@
   }
 
   .gradient-text {
-    background: linear-gradient(135deg, #4f6ef7 0%, #7c5cfc 50%, #16c784 100%);
+    background: linear-gradient(135deg, #047857 0%, #0f172a 48%, #16c784 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
-  }
-
-  .hero-glow {
-    position: absolute;
-    width: 600px;
-    height: 600px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(79, 110, 247, 0.15) 0%, transparent 70%);
-    pointer-events: none;
   }
 }

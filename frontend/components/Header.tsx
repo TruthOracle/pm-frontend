@@ -4,7 +4,7 @@ import { WalletSelector } from "./WalletSelector";
 import { Link, useLocation } from "react-router-dom";
 import { useToast } from "@chakra-ui/react";
 import { cn } from "@/lib/utils";
-import { TrendingUp, Gift, HelpCircle, PlusCircle, Coins } from "lucide-react";
+import { Coins, Gift, HelpCircle, PlusCircle, TrendingUp } from "lucide-react";
 
 const NAV_ITEMS = [
   { to: "/marketplace", label: "Markets", icon: TrendingUp },
@@ -40,20 +40,17 @@ export function Header() {
     });
   };
 
-  const isActive = (path: string) =>
-    path === "/"
-      ? location.pathname === "/"
-      : location.pathname.startsWith(path);
+  const isActive = (path: string) => (path === "/" ? location.pathname === "/" : location.pathname.startsWith(path));
 
   return (
     <header className="glass-header">
       <div className="page-container flex h-16 items-center justify-between gap-4">
         {/* Logo */}
         <Link to="/" className="flex shrink-0 items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/20">
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-950 shadow-sm ring-1 ring-slate-950/10">
             <img src="/logonobg.svg" alt="TruthOracle" className="h-6 w-6" />
           </div>
-          <span className="hidden text-base font-bold tracking-tight text-foreground sm:block">
+          <span className="hidden text-base font-extrabold tracking-tight text-slate-950 sm:block">
             Truth<span className="text-primary">Oracle</span>
           </span>
         </Link>
@@ -65,8 +62,8 @@ export function Header() {
               key={to}
               to={to}
               className={cn(
-                "nav-link rounded-lg px-3 py-2",
-                isActive(to) && "nav-link-active bg-secondary"
+                "nav-link rounded-md px-3 py-2",
+                isActive(to) && "nav-link-active bg-emerald-50 text-primary ring-1 ring-emerald-100",
               )}
             >
               {label}
@@ -76,8 +73,8 @@ export function Header() {
             <Link
               to="/admin"
               className={cn(
-                "nav-link flex items-center gap-1.5 rounded-lg px-3 py-2",
-                isActive("/admin") && "nav-link-active bg-secondary"
+                "nav-link flex items-center gap-1.5 rounded-md px-3 py-2",
+                isActive("/admin") && "nav-link-active bg-emerald-50 text-primary ring-1 ring-emerald-100",
               )}
             >
               <PlusCircle className="h-3.5 w-3.5" />
@@ -90,7 +87,7 @@ export function Header() {
         <div className="flex items-center gap-2 sm:gap-3">
           <button
             onClick={handleGetCantonCoin}
-            className="hidden items-center gap-1.5 rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground sm:flex"
+            className="hidden items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-primary/40 hover:text-primary sm:flex"
           >
             <Coins className="h-3.5 w-3.5" />
             Get CC
