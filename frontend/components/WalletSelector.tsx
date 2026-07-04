@@ -115,7 +115,7 @@ export function WalletSelector() {
   }, [connect, closeDialog, toast]);
 
   return connected ? (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <Button className="rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
           {account ? truncatePartyId(account.address) : "Unknown"}
@@ -180,7 +180,7 @@ export function WalletSelector() {
       </DropdownMenuContent>
     </DropdownMenu>
   ) : (
-    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+    <Dialog modal={false} open={isDialogOpen} onOpenChange={setIsDialogOpen}>
       <DialogTrigger asChild>
         <Button className="rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
           Connect Wallet
@@ -204,7 +204,5 @@ export function WalletSelector() {
     </Dialog>
   );
 }
-
-
 
 

@@ -192,26 +192,26 @@ function Homepage() {
       </section>
 
       {/* Features */}
-      <section className="border-t border-border/70 bg-white/70 py-16 backdrop-blur">
+      <section className="border-t border-slate-900/10 bg-white/90 py-16 backdrop-blur">
         <div className="page-container">
           <div className="mx-auto mb-8 max-w-2xl text-center">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-border bg-white px-3 py-1 text-xs font-semibold text-muted-foreground shadow-sm">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-white px-3 py-1 text-xs font-semibold text-primary shadow-sm">
               <BadgeCheck className="h-3.5 w-3.5 text-primary" />
               Built for confident trading
             </div>
-            <h2 className="text-2xl font-bold text-foreground">Why TruthOracle?</h2>
+            <h2 className="text-2xl font-bold text-slate-950">Why TruthOracle?</h2>
           </div>
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
             {FEATURES.map(({ icon: Icon, title, desc }) => (
               <div
                 key={title}
-                className="rounded-lg border border-border/80 bg-card p-6 shadow-lg shadow-slate-200/50 transition-colors hover:border-primary/30"
+                className="rounded-lg border border-slate-200 bg-white p-6 shadow-lg shadow-slate-200/50 transition-colors hover:border-primary/40"
               >
                 <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/10">
                   <Icon className="h-5 w-5 text-primary" />
                 </div>
-                <h3 className="mb-1.5 font-semibold text-foreground">{title}</h3>
-                <p className="text-sm text-muted-foreground">{desc}</p>
+                <h3 className="mb-1.5 font-semibold text-slate-950">{title}</h3>
+                <p className="text-sm text-slate-600">{desc}</p>
               </div>
             ))}
           </div>
