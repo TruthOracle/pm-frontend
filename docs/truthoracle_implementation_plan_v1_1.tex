@@ -79,10 +79,10 @@ delivered across four months with defined milestones and acceptance criteria.
 \textbf{Author:} & Sachin Jangid \\[6pt]
 \textbf{Prepared for:} & Cantor8 \\
 \textbf{Status:}  & For Agreement (Contract Annex) \\
-\textbf{Plan Version:} & 1.2 \\
-\textbf{Implements:} & TruthOracle Proposal v0.7 \\
+\textbf{Plan Version:} & 1.1 \\
+\textbf{Implements:} & TruthOracle Proposal v0.6 \\
 \textbf{Target SDK:} & Daml 3.4.x / Canton \\[6pt]
-\textbf{Issued:} & 22 July 2026 \\
+\textbf{Issued:} & 27 June 2026 \\
 \textbf{Window:} & Weeks 1--16 (4 months from commencement) \\
 \end{tabular}
 \end{center}
@@ -226,7 +226,7 @@ Each gate is met when all of its deliverables satisfy their acceptance criteria,
 \textbf{ID} & \textbf{Deliverable} & \textbf{Acceptance criterion} \\
 \midrule
 D-A1 & Daml core package & Compiles on Daml SDK 3.4.x; produces a versioned DAR with a stable package \texttt{name}. \\
-D-A2 & Dynamic pm-AMM \& lifecycle test suite & Daml Script tests pass for the Gaussian price-simplex invariant ($P=\Phi((y-x)/L_{\mathrm{eff}})$), time-decay $L_{\mathrm{eff}}=L\sqrt{T-t}$, value-based liquidity, buy/sell, the direct outcome-token swap, complete-set mint/merge, the pre-trading liquidity period, and the create$\rightarrow$trade$\rightarrow$resolve$\rightarrow$redeem lifecycle. \\
+D-A2 & Dynamic pm-AMM \& lifecycle test suite & Daml Script tests pass for the Gaussian price-simplex invariant ($P=\Phi((y-x)/L_{\mathrm{eff}})$), time-decay $L_{\mathrm{eff}}=L\sqrt{T-t}$, value-based liquidity, buy/sell, and the create$\rightarrow$trade$\rightarrow$resolve$\rightarrow$redeem lifecycle. \\
 D-B1 & Tier-0 resolution path & Operator can resolve a market from a designated source and a holder can redeem; void path verified. \\
 D-D1 & CI \& DAR versioning & Automated build/test on every change; version bump publishes a successor DAR recognised as an in-place upgrade. \\
 \bottomrule
@@ -362,7 +362,7 @@ The following are explicitly outside this engagement and are noted so the agreem
 \noindent\textbf{Document control}
 
 \smallskip
-\textit{Plan v1.2 (22 July 2026).} Four-month technical implementation plan implementing TruthOracle proposal v0.7; for attachment to the delivery agreement. Tracks the v0.7 specification: the pm-AMM workstream (A) and acceptance criteria now cover the reference-implementation execution model --- complete-set mint/merge, the direct outcome-token swap, cached-price / virtual-reserve execution, and the pre-trading liquidity period for dynamic pools. (v1.1, 27 June 2026: revised for the dynamic pm-AMM, the read-model (PQS) indexer, and the operator-console / key-management control plane; v1.0, 10 June 2026: initial plan.)
+\textit{Plan v1.1 (27 June 2026).} Four-month technical implementation plan implementing TruthOracle proposal v0.6, revised for the dynamic pm-AMM, the read-model (PQS) indexer, and the operator-console / key-management control plane; for attachment to the delivery agreement. (v1.0, 10 June 2026: initial plan.)
 
 \bigskip
 \noindent\textbf{Copyright}
