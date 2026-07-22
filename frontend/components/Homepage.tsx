@@ -176,16 +176,7 @@ function Homepage() {
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {featured.map((m) => (
-              <MarketCard
-                key={m.contractId}
-                id={m.marketId}
-                question={m.question}
-                imageUrl={m.imageUrl}
-                status={0}
-                yesShares={m.yesShares}
-                noShares={m.noShares}
-                liquidityParam={m.liquidityParam}
-              />
+              <MarketCard key={m.contractId} market={m} />
             ))}
           </div>
         )}

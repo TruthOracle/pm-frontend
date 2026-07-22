@@ -105,11 +105,11 @@ No UMA / Pyth oracle dependency. Built on Canton.
 \begin{tabular}{r l}
 \textbf{Author:} & Sachin Jangid \\[6pt]
 \textbf{Status:}  & Draft \\
-\textbf{Version:} & 0.6 \\
+\textbf{Version:} & 0.7 \\
 \textbf{Requires:} & CIP-56 (token semantics) \\
 \textbf{License:} & Apache-2.0 \\[6pt]
 \textbf{Created:} & 18 February 2026 \\
-\textbf{Revised:} & 27 June 2026 \\
+\textbf{Revised:} & 22 July 2026 \\
 \end{tabular}
 \end{center}
 \vfill
@@ -203,6 +203,7 @@ Treasury & Signatory; on-ledger custodian of pooled collateral. \\
 Market Id & Globally unique handle within the operator's scope. \\
 Question & Human-readable market question (UTF-8, $\leq 256$ characters). \\
 Resolution Policy & The tiered policy of \S\ref{sec:resolution}: enabled tiers, the source allowlist, each source's pinned public key (for T1), the reporter allowlist and quorum (for T2), and the challenge window and bond size (for T3). Immutable after creation. \\
+Liquidity Period & Optional pre-trading liquidity-collection window (dynamic pools): swaps are disabled until it elapses, while complete-set minting and liquidity provision are open; it is also the anchor from which effective liquidity decays. \\
 Expiry & Timestamp after which trading stops and resolution becomes enabled. \\
 Grace Period & Duration after expiry within which resolution must complete; otherwise the market voids. \\
 Collateral Token & Canton-native fungible token used to fund and pay out positions. \\
@@ -218,8 +219,10 @@ Audit Observers & Read-only parties (compliance officers, licensed sponsors). \\
 The Market exposes these classes of choices, each enforcing its own preconditions:
 
 \begin{itemize}[leftmargin=2em, itemsep=2pt]
-\item \texttt{ProvideLiquidity} (any observer, before expiry) --- deposits collateral and mints a Liquidity Position.
-\item \texttt{Buy} / \texttt{Sell} (any observer, before expiry) --- the pm-AMM trading surface; creates or consumes Position contracts.
+\item \texttt{ProvideLiquidity} (any observer, before expiry) --- deposits collateral and mints a Liquidity Position; open during the liquidity period.
+\item \texttt{Buy} / \texttt{Sell} (any observer, after the liquidity period, before expiry) --- the collateral-denominated pm-AMM trading surface; creates or consumes Position contracts.
+\item \texttt{SwapShares} (any observer, after the liquidity period, before expiry) --- the direct outcome-token swap (deposit YES receive NO, or vice versa), the primitive trading operation of the reference pm-AMM implementation; \texttt{Buy}/\texttt{Sell} compose it with complete-set minting/merging for one-step collateral trades.
+\item \texttt{Split} / \texttt{Merge} (any observer, before expiry) --- mint or burn \emph{complete sets}: one unit of collateral mints one YES plus one NO share (and conversely), the no-arbitrage peg that keeps the system fully collateralized.
 \item \texttt{Resolve} (operator, after expiry) --- settles the Market via the enabled resolution tier(s) of \S\ref{sec:resolution}.
 \item \texttt{ProposeOutcome} / \texttt{Challenge} / \texttt{Finalize} (T3 only) --- the optional optimistic flow.
 \item \texttt{Void} (operator, after expiry + grace period) --- transitions to Voided when no tier produced a valid resolution.
@@ -246,7 +249,9 @@ y^*(P) = L\bigl(\Phi^{-1}(P)\,P + \phi(\Phi^{-1}(P))\bigr),
 \]
 so $y^*(P) - x^*(P) = L\,\Phi^{-1}(P)$ and $V(P) = L\,\phi(\Phi^{-1}(P))$. Liquidity provision and reserve sizing therefore need no root-finding; only a swap --- price given a trade size --- requires a one-dimensional solve of the invariant.
 
-A per-trade fee of $\phi_{\mathrm{fee}}$ basis points is retained in the pool; liquidity providers earn it proportionally to their Liquidity Position share at redemption. The \texttt{Buy} choice validates the trader's slippage bound, solves the invariant for the new reserves, debits collateral, and creates a Position; execution is all-or-nothing. The pm-AMM is pure Daml arithmetic over \texttt{Decimal}, realised by a small math library --- the normal-distribution functions $\Phi$, $\phi$, and $\Phi^{-1}$ via rational approximation, fixed-point helpers, and a one-dimensional solver for the swap-direction invariant (reserve and liquidity sizing are closed-form) --- and is wholly independent of the resolution mechanism.
+A per-trade fee of $\phi_{\mathrm{fee}}$ basis points is retained in the pool; liquidity providers earn it proportionally to their Liquidity Position share at redemption. The \texttt{Buy} choice validates the trader's slippage bound, solves the invariant for the new reserves, debits collateral, and creates a Position; execution is all-or-nothing.
+
+\emph{Execution model (following the reference pm-AMM implementation).} The Market caches the current price and executes every trade against \emph{virtual reserves} --- the closed-form optimal reserves $x^*(P), y^*(P)$ for the cached price at the current effective liquidity --- while the physical reserve fields custody inventory for solvency accounting. This keeps the quoted price continuous under time-decaying $L_{\mathrm{eff}}$ (the price moves only when trades move it, not as a side-effect of decay). Collateral enters and leaves the system only through \emph{complete sets}: one unit of collateral mints one YES plus one NO share (\texttt{Split}) and conversely (\texttt{Merge}), so a \texttt{Buy} is a mint-and-swap and a \texttt{Sell} its inverse, and each winning share redeems for exactly one unit at settlement. Dynamic pools may open with a short pre-trading \emph{liquidity period} during which only liquidity provision and complete-set minting are enabled, letting LPs seed depth before price discovery begins; effective liquidity decays from the end of that window. The pm-AMM is pure Daml arithmetic over \texttt{Decimal}, realised by a small math library --- the normal-distribution functions $\Phi$, $\phi$, and $\Phi^{-1}$ via rational approximation, fixed-point helpers, and a one-dimensional solver for the swap-direction invariant (reserve and liquidity sizing are closed-form) --- and is wholly independent of the resolution mechanism.
 
 \subsection{Outcome Share Tokens (Positions)}
 
@@ -583,6 +588,9 @@ The DAR is released under a stable package \texttt{name}; new versions are publi
 
 \bigskip
 \noindent\textbf{Changelog}
+
+\smallskip
+\textit{v0.7 (22 July 2026).} Aligns the specification with the reference pm-AMM execution model: adds the \emph{complete-set} primitives \texttt{Split}/\texttt{Merge} (one collateral unit $\leftrightarrow$ one YES + one NO) as the sole collateral on/off ramp, the direct outcome-token swap \texttt{SwapShares} with \texttt{Buy}/\texttt{Sell} specified as mint-and-swap composites, the cached-price / virtual-reserve execution model (trades run against closed-form optimal reserves at the cached price; physical reserves custody inventory), and the optional pre-trading \emph{liquidity period} for dynamic pools (swaps disabled, liquidity and minting open; the decay anchor for $L_{\mathrm{eff}}$).
 
 \smallskip
 \textit{v0.6 (27 June 2026).} Adopts Paradigm's \textbf{dynamic pm-AMM} (Gaussian score dynamics) in place of the constant-product curve: marginal price $P=\Phi((y-x)/L_{\mathrm{eff}})$ with time-decaying $L_{\mathrm{eff}}=L\sqrt{T-t}$, value-based liquidity provision, and uniform loss-versus-rebalancing for LPs, backed by a Daml normal-distribution and invariant-solver math library. Adds the off-ledger \textbf{read model} (Participant Query Store) powering dashboards and audit position-book reporting, and the \textbf{operator console and key management} control plane (market creation, \texttt{ResolutionPolicy} authoring, audit-observer administration, and source/reporter signing-key custody and rotation). Retains the four-tier objective resolution model, the Canton privacy model, and the optional Prediction Model marketplace.

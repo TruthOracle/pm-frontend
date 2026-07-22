@@ -11,29 +11,40 @@ import {
   useDisclosure,
   useToast,
 } from "@chakra-ui/react";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useCantonWallet } from "@/wallets";
 import { useIsAdmin } from "@/lib/useIsAdmin";
 import {
   buildBuyParams,
   buildSellParams,
+  buildSwapSharesParams,
   buildSplitParams,
   buildMergeParams,
-  buildRecordResultParams,
+  buildProvideLiquidityParams,
+  buildWithdrawLiquidityParams,
+  buildResolveT0Params,
+  buildResolveParams,
+  buildProposeOutcomeParams,
+  buildChallengeOutcomeParams,
+  buildFinalizeOutcomeParams,
+  buildVoidMarketParams,
+  buildRedeemPositionParams,
   templateId,
   type DisclosedContractArg,
+  type OutcomeArg,
 } from "@/utils/cantonCommands";
 import {
   fetchAllPredictionMarkets,
-  fetchAllResolvedMarkets,
-  fetchUserMarketDataContractId,
-  fetchUserMarketDataPosition,
+  fetchUserPosition,
+  fetchUserLpPosition,
   fetchPendingPayouts,
+  fetchAttestations,
   type PredictionMarketRecord,
-  type ResolvedMarketRecord,
   type UserMarketPosition,
+  type LiquidityPositionRecord,
   type PendingPayoutRecord,
+  type OutcomeAttestationRecord,
 } from "@/utils/activeContracts";
 import { getCantonCoinHoldings, type AmuletHoldings } from "@/view-functions/getAccountBalance";
 import { runAdminAutoPayout } from "@/lib/adminAutoPayout";
@@ -41,75 +52,79 @@ import {
   enterpriseWalletPartyId,
   submitAdminTransaction,
 } from "@/lib/enterpriseWalletSubmit";
-import { getCurrentPrice } from "@/lib/marketPricing";
+import {
+  quoteBuy,
+  quoteSell,
+  quoteSwapShares,
+  quoteProvideLiquidity,
+  marketEffectiveL,
+  poolValue,
+  type AmmMarketState,
+} from "@/lib/marketPricing";
 
-type MarketViewModel = {
-  marketId: number;
-  question: string;
-  description: string;
-  resolutionDescription: string;
-  imageUrl: string;
-  yesShares: number;
-  noShares: number;
-  liquidityParam: number;
-  status: 0 | 1;
-  result?: "Yes" | "No" | "Draw" | string;
-};
+type MarketPhase = "liquidity_period" | "trading" | "expired" | "proposed" | "resolved" | "voided";
+type MainTab = "trade" | "liquidity" | "resolve" | "settle";
+type TradeSubTab = "swap" | "mint";
+type LiquiditySubTab = "add" | "remove";
 
-function toView(active?: PredictionMarketRecord, resolved?: ResolvedMarketRecord): MarketViewModel | null {
-  if (active) {
-    return {
-      marketId: active.marketId,
-      question: active.question,
-      description: active.description,
-      resolutionDescription: active.resolutionDescription,
-      imageUrl: active.imageUrl,
-      yesShares: active.yesShares,
-      noShares: active.noShares,
-      liquidityParam: active.liquidityParam,
-      status: 0,
-    };
-  }
-  if (resolved) {
-    return {
-      marketId: resolved.marketId,
-      question: resolved.question,
-      description: "",
-      resolutionDescription: "",
-      imageUrl: "",
-      yesShares: 0,
-      noShares: 0,
-      liquidityParam: 1,
-      status: 1,
-      result: resolved.result,
-    };
-  }
-  return null;
+function getMarketPhase(m: PredictionMarketRecord, nowSecs = Math.floor(Date.now() / 1000)): MarketPhase {
+  if (m.status === "Resolved") return "resolved";
+  if (m.status === "Voided") return "voided";
+  if (m.status === "Proposed") return "proposed";
+  if (nowSecs >= m.expiresAt) return "expired";
+  if (nowSecs < m.createdAt + m.liquidityPeriodSecs) return "liquidity_period";
+  return "trading";
+}
+
+function ammState(m: PredictionMarketRecord): AmmMarketState & { lpTokenSupply: number } {
+  return {
+    currentPrice: m.currentPrice,
+    liquidityL: m.liquidityL,
+    isDynamic: m.isDynamic,
+    createdAt: m.createdAt,
+    expiresAt: m.expiresAt,
+    feeBps: m.feeBps,
+    liquidityPeriodSecs: m.liquidityPeriodSecs,
+    lpTokenSupply: m.lpTokenSupply,
+  };
+}
+
+const SLIPPAGE_OPTIONS = [0.005, 0.01, 0.02];
+
+function fmtCC(v: number, dp = 4) {
+  return v.toFixed(dp).replace(/\.?0+$/, "") || "0";
+}
+
+function fmtCountdown(target: number, nowSecs: number): string {
+  const s = Math.max(0, target - nowSecs);
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const mnt = Math.floor((s % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${mnt}m`;
+  return `${mnt}m ${s % 60}s`;
 }
 
 async function waitForPositionUpdate(
   partyId: string,
   marketId: number,
-  expectedYes: number,
-  expectedNo: number,
+  check: (pos: UserMarketPosition | null) => boolean,
   timeoutMs = 30_000,
   intervalMs = 1500,
 ): Promise<UserMarketPosition | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const pos = await fetchUserMarketDataPosition(partyId, marketId);
-    if (pos && pos.yesShares >= expectedYes && pos.noShares >= expectedNo) {
-      return pos;
-    }
+    const pos = await fetchUserPosition(partyId, marketId);
+    if (check(pos)) return pos;
     await new Promise((r) => setTimeout(r, intervalMs));
   }
   return null;
 }
 
 /**
- * After Sell / Merge creates a PendingPayout, poll until we see it for this user
- * + market. Returns the new payout cid if found, null on timeout (caller should
- * leave it queued for manual admin processing).
+ * After Sell / Merge / Redeem / Withdraw creates a PendingPayout, poll until we
+ * see it for this user + market. Returns the new payout if found, null on
+ * timeout (caller should leave it queued for manual admin processing).
  */
 async function waitForNewPendingPayout(
   partyId: string,
@@ -130,48 +145,68 @@ async function waitForNewPendingPayout(
   return null;
 }
 
+/** Market-header stat box. */
+function StatBox({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-card px-4 py-3">
+      <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={`mt-1 text-xl font-bold ${accent ?? "text-foreground"}`}>{value}</div>
+      {sub && <div className="text-[11px] text-muted-foreground">{sub}</div>}
+    </div>
+  );
+}
+
 const MarketView = () => {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
-  const preferResolved = searchParams.get("status") === "resolved";
   const marketIdNum = id != null && id !== "" ? Number(id) : NaN;
 
-  const [view, setView] = useState<MarketViewModel | null>(null);
+  const [market, setMarket] = useState<PredictionMarketRecord | null>(null);
   const [loading, setLoading] = useState(true);
-  const [amount, setAmount] = useState<number>(0);
+  const [nowSecs, setNowSecs] = useState(Math.floor(Date.now() / 1000));
+  const [mainTab, setMainTab] = useState<MainTab>("trade");
+  const [tradeSubTab, setTradeSubTab] = useState<TradeSubTab>("swap");
+  const [liquiditySubTab, setLiquiditySubTab] = useState<LiquiditySubTab>("add");
+  const [collateralIn, setCollateralIn] = useState<number>(0); // Buy: CC in
+  const [sharesIn, setSharesIn] = useState<number>(0); // Sell: shares in
   const [selectedSide, setSelectedSide] = useState<"yes" | "no" | null>(null);
-  const [tradeSide, setTradeSide] = useState<"buy" | "sell">("buy");
-  const [predictionMarketCid, setPredictionMarketCid] = useState<string | null>(null);
-  const [predictionMarketDisclosure, setPredictionMarketDisclosure] = useState<{
-    createdEventBlob: string;
-    synchronizerId?: string;
-  } | null>(null);
-  const [userMarketDataCid, setUserMarketDataCid] = useState<string | null>(null);
+  const [tradeSide, setTradeSide] = useState<"buy" | "sell" | "convert">("buy");
+  const [slippage, setSlippage] = useState<number>(0.01);
   const [userPosition, setUserPosition] = useState<UserMarketPosition | null>(null);
+  const [lpPosition, setLpPosition] = useState<LiquidityPositionRecord | null>(null);
   const [holdings, setHoldings] = useState<AmuletHoldings | null>(null);
   const [splitMergeAmount, setSplitMergeAmount] = useState<number>(0);
-  const [resolveResult, setResolveResult] = useState<"Yes" | "No" | "Draw">("Yes");
-  const [payoutPerShare, setPayoutPerShare] = useState<number>(0);
-  const [resolving, setResolving] = useState(false);
-  const [submittingBet, setSubmittingBet] = useState(false);
-  const [splittingMerging, setSplittingMerging] = useState(false);
+  const [mintMode, setMintMode] = useState<"mint" | "merge">("mint");
+  const [liquidityValue, setLiquidityValue] = useState<number>(0);
+  const [withdrawPct, setWithdrawPct] = useState<number>(100);
+  const [resolveOutcome, setResolveOutcome] = useState<OutcomeArg>("Yes");
+  const [resolveSource, setResolveSource] = useState<string>("");
+  const [attestations, setAttestations] = useState<OutcomeAttestationRecord[]>([]);
+  const [busy, setBusy] = useState<string | null>(null); // which action is running
   const { account, signAndSubmitTransaction, transferCC } = useCantonWallet();
   const adminPartyForCC = enterpriseWalletPartyId();
+  const isAdmin = useIsAdmin();
+  const toast = useToast();
+
+  // Live clock for the dynamic-L countdown / phase transitions.
+  useEffect(() => {
+    const t = setInterval(() => setNowSecs(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   // Step-2 confirm dialog: after the CC transfer (popup #1) succeeds, we can't
   // chain a second popup automatically — browsers block sequential window.open
   // calls without a fresh user gesture. So we open this dialog instead, and the
-  // user explicitly clicks "Confirm Shares" which provides the gesture for popup #2.
+  // user explicitly clicks Confirm which provides the gesture for popup #2.
   const stepTwoDialog = useDisclosure();
   const stepTwoCancelRef = React.useRef<HTMLButtonElement>(null);
   const [pendingStepTwo, setPendingStepTwo] = useState<{
-    kind: "buy" | "split";
     description: string;
     run: () => Promise<void>;
   } | null>(null);
 
-  const openStepTwo = (kind: "buy" | "split", description: string, run: () => Promise<void>) => {
-    setPendingStepTwo({ kind, description, run });
+  const openStepTwo = (description: string, run: () => Promise<void>) => {
+    setPendingStepTwo({ description, run });
     stepTwoDialog.onOpen();
   };
   const confirmStepTwo = async () => {
@@ -185,41 +220,28 @@ const MarketView = () => {
     stepTwoDialog.onClose();
     setPendingStepTwo(null);
     toast({
-      title: "Step 2 canceled — shares not recorded",
-      description: "Your CC transfer is final; the share-record step was skipped. Contact admin for a refund.",
+      title: "Step 2 canceled — action not recorded",
+      description: "Your CC transfer is final; the on-ledger step was skipped. Contact admin for a refund.",
       status: "warning",
       duration: 10000,
       isClosable: true,
     });
   };
-  const isAdmin = useIsAdmin();
-  const toast = useToast();
 
   const refreshMarket = useCallback(
     async (opts?: { silent?: boolean }): Promise<PredictionMarketRecord | null> => {
       if (isNaN(marketIdNum)) return null;
       if (!opts?.silent) setLoading(true);
       try {
-        const [actives, resolved] = await Promise.all([
-          fetchAllPredictionMarkets(),
-          fetchAllResolvedMarkets(),
-        ]);
-        const active = actives.find((m) => m.marketId === marketIdNum);
-        const done = resolved.find((m) => m.marketId === marketIdNum);
-        const useResolved = preferResolved && done;
-        setView(useResolved ? toView(undefined, done) : toView(active, done));
-        setPredictionMarketCid(useResolved ? null : active?.contractId ?? null);
-        setPredictionMarketDisclosure(
-          useResolved || !active?.createdEventBlob
-            ? null
-            : { createdEventBlob: active.createdEventBlob, synchronizerId: active.synchronizerId },
-        );
-        return useResolved ? null : active ?? null;
+        const all = await fetchAllPredictionMarkets();
+        const m = all.find((x) => x.marketId === marketIdNum) ?? null;
+        setMarket(m);
+        return m;
       } finally {
         if (!opts?.silent) setLoading(false);
       }
     },
-    [marketIdNum, preferResolved]
+    [marketIdNum]
   );
 
   useEffect(() => {
@@ -228,25 +250,23 @@ const MarketView = () => {
 
   useEffect(() => {
     const side = searchParams.get("side");
-    if (side === "yes" || side === "no") {
-      setSelectedSide(side);
-    }
+    if (side === "yes" || side === "no") setSelectedSide(side);
   }, [searchParams]);
 
   const refreshUserData = useCallback(async () => {
     if (!account?.address || isNaN(marketIdNum)) {
-      setUserMarketDataCid(null);
       setUserPosition(null);
+      setLpPosition(null);
       setHoldings(null);
       return;
     }
-    const [posCid, pos, h] = await Promise.all([
-      fetchUserMarketDataContractId(account.address, marketIdNum),
-      fetchUserMarketDataPosition(account.address, marketIdNum),
+    const [pos, lp, h] = await Promise.all([
+      fetchUserPosition(account.address, marketIdNum),
+      fetchUserLpPosition(account.address, marketIdNum),
       getCantonCoinHoldings(),
     ]);
-    setUserMarketDataCid(posCid);
     setUserPosition(pos);
+    setLpPosition(lp);
     setHoldings(h);
   }, [account?.address, marketIdNum]);
 
@@ -254,333 +274,356 @@ const MarketView = () => {
     refreshUserData();
   }, [refreshUserData]);
 
-  const currentPrice = view ? getCurrentPrice(view.yesShares, view.noShares, view.liquidityParam) : null;
+  // Admin: load attestations for the T1/T2 resolution console.
+  useEffect(() => {
+    if (!isAdmin || !adminPartyForCC || isNaN(marketIdNum)) return;
+    fetchAttestations(adminPartyForCC, marketIdNum).then(setAttestations).catch(() => {});
+  }, [isAdmin, adminPartyForCC, marketIdNum, market?.status]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseFloat(e.target.value);
-    if (!isNaN(value) && value >= 0) {
-      setAmount(Math.round(value * 100) / 100);
-    }
-  };
+  const phase = market ? getMarketPhase(market, nowSecs) : "trading";
 
-  const incrementAmount = () => setAmount((prev) => Math.round((prev + 1) * 100) / 100);
-  const decrementAmount = () => setAmount((prev) => Math.max(Math.round((prev - 1) * 100) / 100, 0));
+  // Auto-route to the Settle tab once the market is settled.
+  useEffect(() => {
+    if (phase === "resolved" || phase === "voided") setMainTab((t) => (t === "trade" || t === "liquidity" ? "settle" : t));
+  }, [phase]);
+
+  const probYes = market?.currentPrice ?? 0.5;
+  const probNo = 1 - probYes;
+
+  const buyQuote = useMemo(() => {
+    if (!market || !selectedSide || collateralIn <= 0 || phase !== "trading") return null;
+    return quoteBuy(ammState(market), selectedSide === "yes" ? "Yes" : "No", collateralIn, nowSecs);
+  }, [market, selectedSide, collateralIn, phase, nowSecs]);
+
+  const sellQuote = useMemo(() => {
+    if (!market || !selectedSide || sharesIn <= 0 || phase !== "trading") return null;
+    return quoteSell(ammState(market), selectedSide === "yes" ? "Yes" : "No", sharesIn, nowSecs);
+  }, [market, selectedSide, sharesIn, phase, nowSecs]);
+
+  // Convert: selectedSide is the *from* side of the YES<->NO swap.
+  const swapQuote = useMemo(() => {
+    if (!market || !selectedSide || sharesIn <= 0 || phase !== "trading") return null;
+    return quoteSwapShares(ammState(market), selectedSide === "yes" ? "Yes" : "No", sharesIn, nowSecs);
+  }, [market, selectedSide, sharesIn, phase, nowSecs]);
+
+  const canProvideLiquidity = phase === "trading" || phase === "liquidity_period";
+
+  const liquidityQuote = useMemo(() => {
+    if (!market || liquidityValue <= 0 || !canProvideLiquidity) return null;
+    return quoteProvideLiquidity(ammState(market), liquidityValue, nowSecs);
+  }, [market, liquidityValue, canProvideLiquidity, nowSecs]);
+
+  const effectiveL = market ? marketEffectiveL(ammState(market), nowSecs) : 0;
+  const currentPoolValue = market ? poolValue(market.currentPrice, effectiveL) : 0;
 
   const disclosedForMarket = (): DisclosedContractArg[] =>
-    predictionMarketCid && predictionMarketDisclosure?.createdEventBlob
+    market?.contractId && market.createdEventBlob
       ? [
           {
             templateId: templateId("Truthoracle", "PredictionMarket"),
-            contractId: predictionMarketCid,
-            createdEventBlob: predictionMarketDisclosure.createdEventBlob,
-            synchronizerId: predictionMarketDisclosure.synchronizerId,
+            contractId: market.contractId,
+            createdEventBlob: market.createdEventBlob,
+            synchronizerId: market.synchronizerId,
           },
         ]
       : [];
 
-  /**
-   * Exercise the Buy/Sell choice and poll for the resulting position. Used by:
-   *   - Buy step-2 (after CC transfer + Confirm Shares dialog) — popup #2 here
-   *     IS the share-record popup, allowed because it's inside the dialog's
-   *     onClick (fresh user gesture).
-   *   - Sell — single popup, called directly from handleTradeClick.
-   */
-  const runChoiceExerciseAndPoll = async (opts: {
-    kind: "buy" | "sell";
-    sideInt: number;
-    selectedSideLabel: "yes" | "no";
-    numShares: number;
-    costCC: number;
-    expectedYes: number;
-    expectedNo: number;
-    beforePayoutCids: Set<string>;
-  }) => {
-    if (!account || !predictionMarketCid) return;
-    setSubmittingBet(true);
-    const submittingToastId = toast({
-      title: opts.kind === "buy" ? "Recording position on-ledger…" : "Submitting sell…",
-      description: opts.kind === "buy"
-        ? "Approve the share-record transaction in the wallet popup."
-        : "Approve the transaction in the wallet popup. Admin will payout shortly.",
-      status: "info",
-      duration: null,
-      isClosable: false,
-    });
+  const refreshAllViews = async () => {
+    const w = window as unknown as { refreshPortfolio?: () => void; refreshMarketplace?: () => void };
+    w.refreshPortfolio?.();
+    w.refreshMarketplace?.();
+    await refreshMarket({ silent: true });
+    await refreshUserData();
+  };
+
+  /** Exercise a choice via the user's wallet, standard error toasts. */
+  const runUserChoice = async (label: string, params: ReturnType<typeof buildBuyParams>): Promise<boolean> => {
     try {
-      const disclosed = disclosedForMarket();
-      const params = opts.kind === "buy"
-        ? buildBuyParams(
-            account.address,
-            predictionMarketCid,
-            opts.sideInt,
-            opts.numShares,
-            opts.costCC,
-            userMarketDataCid,
-            disclosed.length > 0 ? disclosed : undefined,
-          )
-        : buildSellParams(
-            account.address,
-            predictionMarketCid,
-            opts.sideInt,
-            opts.numShares,
-            opts.costCC,
-            userMarketDataCid!,
-            disclosed.length > 0 ? disclosed : undefined,
-          );
-
-      let txId = "";
-      try {
-        const committed = await signAndSubmitTransaction(params);
-        txId = committed.hash;
-      } catch (e) {
-        if (submittingToastId !== undefined) toast.close(submittingToastId);
-        console.error(e);
-        toast({
-          title: opts.kind === "buy" ? "Share-record failed — CC was already sent" : "Sell failed",
-          description: e instanceof Error ? e.message : "Wallet could not submit the transaction.",
-          status: "error",
-          duration: 7000,
-          isClosable: true,
-        });
-        return;
-      }
-
-      if (submittingToastId !== undefined) {
-        toast.update(submittingToastId, {
-          title: "Confirming on-ledger…",
-          description: "Waiting for the participant to reflect the trade.",
-          status: "info",
-        });
-      }
-
-      const verified = await waitForPositionUpdate(
-        account.address,
-        marketIdNum,
-        Math.max(opts.expectedYes, 0),
-        Math.max(opts.expectedNo, 0),
-      );
-
-      if (submittingToastId !== undefined) toast.close(submittingToastId);
-
-      const w = window as unknown as { refreshPortfolio?: () => void; refreshMarketplace?: () => void };
-      w.refreshPortfolio?.();
-      w.refreshMarketplace?.();
-      await refreshMarket();
-      await refreshUserData();
-
-      if (opts.kind === "sell") {
-        try {
-          const fresh = await waitForNewPendingPayout(account.address, marketIdNum, opts.beforePayoutCids);
-          if (fresh) {
-            toast({
-              title: "Settling payout…",
-              description: `Admin sending ${fresh.amountCC.toFixed(4)} CC to your wallet.`,
-              status: "info",
-              duration: 4000,
-              isClosable: true,
-            });
-            await runAdminAutoPayout({
-              toUser: account.address,
-              amountCC: fresh.amountCC,
-              pendingPayoutCid: fresh.contractId,
-              reason: "sell",
-              signAndSubmitTransaction,
-            });
-          }
-        } catch (e) {
-          console.warn("[sell auto-payout failed]", e);
-          toast({
-            title: "Sell recorded — payout pending",
-            description: "Admin couldn't auto-settle the payout. It's queued; refresh shortly or admin can settle from the Payout Queue.",
-            status: "warning",
-            duration: 8000,
-            isClosable: true,
-          });
-        }
-      }
-
-      if (verified) {
-        toast({
-          title: opts.kind === "buy" ? "Bet Placed" : "Shares Sold",
-          description: `Position now ${verified.yesShares} Yes / ${verified.noShares} No (Δ ${opts.kind === "buy" ? "+" : "-"}${opts.numShares} on ${opts.selectedSideLabel === "yes" ? "Yes" : "No"}).`,
-          status: "success",
-          duration: 7000,
-          isClosable: true,
-        });
-      } else {
-        toast({
-          title: "Trade submitted — confirmation pending",
-          description: `Wallet accepted the transaction${txId ? ` (id ${txId})` : ""}, but the participant hasn't shown the new position yet. If this persists, the share-record step may have been rejected on-ledger — refresh in a moment or check the Portfolio.`,
-          status: "warning",
-          duration: 12000,
-          isClosable: true,
-        });
-      }
-    } finally {
-      setSubmittingBet(false);
+      await signAndSubmitTransaction(params);
+      return true;
+    } catch (e) {
+      console.error(e);
+      toast({
+        title: `${label} failed`,
+        description: e instanceof Error ? e.message : "Wallet could not submit the transaction.",
+        status: "error",
+        duration: 7000,
+        isClosable: true,
+      });
+      return false;
     }
   };
 
+  /** Settle a fresh PendingPayout via the admin Enterprise Wallet. */
+  const settleFreshPayout = async (beforeCids: Set<string>, reason: string) => {
+    if (!account) return;
+    try {
+      const fresh = await waitForNewPendingPayout(account.address, marketIdNum, beforeCids);
+      if (fresh) {
+        toast({
+          title: "Settling payout…",
+          description: `Admin sending ${fmtCC(fresh.amountCC)} CC to your wallet.`,
+          status: "info",
+          duration: 4000,
+          isClosable: true,
+        });
+        await runAdminAutoPayout({
+          toUser: account.address,
+          amountCC: fresh.amountCC,
+          pendingPayoutCid: fresh.contractId,
+          reason,
+          signAndSubmitTransaction,
+        });
+      }
+    } catch (e) {
+      console.warn(`[${reason} auto-payout failed]`, e);
+      toast({
+        title: "Recorded — payout pending",
+        description: "Admin couldn't auto-settle the payout. It's queued; refresh shortly or admin can settle from the Payout Queue.",
+        status: "warning",
+        duration: 8000,
+        isClosable: true,
+      });
+    }
+  };
+
+  const snapshotPayoutCids = async (): Promise<Set<string>> => {
+    if (!account) return new Set();
+    const list = await fetchPendingPayouts(account.address);
+    return new Set(list.filter((p) => p.user === account.address).map((p) => p.contractId));
+  };
+
+  // -------------------------------------------------------------------------
+  // Trade (Buy: two-popup CC-first; Sell: single popup + auto payout)
+  // -------------------------------------------------------------------------
+
   const handleTradeClick = async () => {
-    if (!view || view.status !== 0) return;
+    if (!market || phase !== "trading") return;
     if (!account) {
       toast({ title: "Connect a wallet to trade", status: "info", duration: 4000, isClosable: true });
       return;
     }
-    if (!predictionMarketCid) {
-      toast({
-        title: "Market contract not found",
-        description: "Could not locate the PredictionMarket contract.",
-        status: "warning",
-        duration: 5000,
-        isClosable: true,
-      });
-      return;
-    }
     if (!selectedSide) return;
-    const sideInt = selectedSide === "yes" ? 1 : 2;
-    const numShares = Math.max(0, Math.floor(amount));
-    if (numShares <= 0) {
-      toast({ title: "Enter shares to trade", status: "info", duration: 3000, isClosable: true });
-      return;
-    }
-    // 1 pair = 1 CC, per-share price comes from current LMSR probability.
-    // costCC = numShares * spotPrice (e.g. 10 shares * 0.3 = 3 CC).
-    const spot = selectedSide === "yes" ? (currentPrice?.yes ?? 0.5) : (currentPrice?.no ?? 0.5);
-    const costCC = Number((numShares * spot).toFixed(4));
+    const sideArg: OutcomeArg = selectedSide === "yes" ? "Yes" : "No";
 
-    if (tradeSide === "buy" && holdings && holdings.balance < costCC) {
-      toast({
-        title: "Insufficient CC balance",
-        description: `Need ${costCC.toFixed(2)} CC but wallet has ${holdings.balance.toFixed(2)} CC.`,
-        status: "warning",
-        duration: 5000,
-        isClosable: true,
-      });
-      return;
-    }
-    if (tradeSide === "sell") {
-      if (!userMarketDataCid || !userPosition) {
-        toast({ title: "No position to sell", status: "warning", duration: 4000, isClosable: true });
+    if (tradeSide === "buy") {
+      if (!buyQuote || collateralIn <= 0) {
+        toast({ title: "Enter CC amount to spend", status: "info", duration: 3000, isClosable: true });
         return;
       }
-      const owned = selectedSide === "yes" ? userPosition.yesShares : userPosition.noShares;
-      if (owned < numShares) {
+      if (holdings && holdings.balance < collateralIn) {
         toast({
-          title: "Not enough shares to sell",
-          description: `You own ${owned} ${selectedSide === "yes" ? "Yes" : "No"} shares.`,
+          title: "Insufficient CC balance",
+          description: `Need ${fmtCC(collateralIn)} CC but wallet has ${holdings.balance.toFixed(2)} CC.`,
+          status: "warning",
+          duration: 5000,
+          isClosable: true,
+        });
+        return;
+      }
+      const minSharesOut = buyQuote.sharesOut * (1 - slippage);
+      setBusy("trade");
+      const t = toast({
+        title: "Sending CC to market…",
+        description: `Confirm the ${fmtCC(collateralIn)} CC transfer in the wallet popup.`,
+        status: "info",
+        duration: null,
+        isClosable: false,
+      });
+      try {
+        if (!adminPartyForCC) throw new Error("VITE_ENTERPRISE_WALLET_PARTY_ID is not set — can't address the market admin.");
+        await transferCC({
+          to: adminPartyForCC,
+          amount: collateralIn,
+          memo: `truthoracle: buy ${sideArg} with ${fmtCC(collateralIn)} CC on market #${marketIdNum}`,
+          metadata: {
+            kind: "truthoracle_buy",
+            market_id: String(marketIdNum),
+            side: selectedSide,
+            collateral_cc: String(collateralIn),
+          },
+        });
+      } catch (e) {
+        if (t !== undefined) toast.close(t);
+        setBusy(null);
+        toast({
+          title: "CC transfer failed — buy aborted",
+          description: e instanceof Error ? e.message : String(e),
+          status: "error",
+          duration: 6000,
+          isClosable: true,
+        });
+        return;
+      }
+      if (t !== undefined) toast.close(t);
+      setBusy(null);
+      const prevSideShares = selectedSide === "yes" ? (userPosition?.yesShares ?? 0) : (userPosition?.noShares ?? 0);
+      openStepTwo(
+        `${fmtCC(collateralIn)} CC sent to the market. Click Confirm to execute the pm-AMM buy — est. ${fmtCC(buyQuote.sharesOut, 2)} ${sideArg.toUpperCase()} shares (min ${fmtCC(minSharesOut, 2)}).`,
+        async () => {
+          setBusy("trade");
+          try {
+            const ok = await runUserChoice(
+              "Buy",
+              buildBuyParams(
+                account.address,
+                market.contractId,
+                sideArg,
+                collateralIn,
+                minSharesOut,
+                userPosition?.contractId ?? null,
+                disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+              ),
+            );
+            if (!ok) {
+              toast({
+                title: "Share-record failed — CC was already sent",
+                description: "The pm-AMM rejected the buy (slippage or expiry). Contact admin for reconciliation.",
+                status: "error",
+                duration: 9000,
+                isClosable: true,
+              });
+              return;
+            }
+            const verified = await waitForPositionUpdate(
+              account.address,
+              marketIdNum,
+              (pos) => {
+                const cur = selectedSide === "yes" ? (pos?.yesShares ?? 0) : (pos?.noShares ?? 0);
+                return cur >= prevSideShares + minSharesOut * 0.99;
+              },
+            );
+            await refreshAllViews();
+            toast({
+              title: verified ? "Position updated" : "Trade submitted — confirmation pending",
+              description: verified
+                ? `Now holding ${fmtCC(verified.yesShares, 2)} YES / ${fmtCC(verified.noShares, 2)} NO.`
+                : "Wallet accepted the transaction but the participant hasn't shown the new position yet.",
+              status: verified ? "success" : "warning",
+              duration: 8000,
+              isClosable: true,
+            });
+          } finally {
+            setBusy(null);
+          }
+        },
+      );
+      return;
+    }
+
+    // Convert (direct YES<->NO share swap — single popup, no CC involved)
+    if (tradeSide === "convert") {
+      if (!swapQuote || sharesIn <= 0) {
+        toast({ title: "Enter shares to convert", status: "info", duration: 3000, isClosable: true });
+        return;
+      }
+      if (!userPosition) {
+        toast({ title: "No position to convert", status: "warning", duration: 4000, isClosable: true });
+        return;
+      }
+      const ownedFrom = selectedSide === "yes" ? userPosition.yesShares : userPosition.noShares;
+      if (ownedFrom < sharesIn) {
+        toast({
+          title: "Not enough shares to convert",
+          description: `You own ${fmtCC(ownedFrom, 2)} ${sideArg} shares.`,
           status: "warning",
           duration: 4000,
           isClosable: true,
         });
         return;
       }
+      const minOut = swapQuote.sharesOut * (1 - slippage);
+      setBusy("trade");
+      try {
+        const ok = await runUserChoice(
+          "Convert",
+          buildSwapSharesParams(
+            account.address,
+            market.contractId,
+            sideArg,
+            sharesIn,
+            minOut,
+            userPosition.contractId,
+            disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+          ),
+        );
+        if (!ok) return;
+        await refreshAllViews();
+        toast({
+          title: "Shares converted",
+          description: `Swapped ${fmtCC(sharesIn, 2)} ${sideArg} → ~${fmtCC(swapQuote.sharesOut, 2)} ${sideArg === "Yes" ? "NO" : "YES"}.`,
+          status: "success",
+          duration: 7000,
+          isClosable: true,
+        });
+      } finally {
+        setBusy(null);
+      }
+      return;
     }
 
-    const expectedYes = (userPosition?.yesShares ?? 0) +
-      (tradeSide === "buy" && selectedSide === "yes" ? numShares : 0) -
-      (tradeSide === "sell" && selectedSide === "yes" ? numShares : 0);
-    const expectedNo = (userPosition?.noShares ?? 0) +
-      (tradeSide === "buy" && selectedSide === "no" ? numShares : 0) -
-      (tradeSide === "sell" && selectedSide === "no" ? numShares : 0);
-
-    // Snapshot existing PendingPayout cids so we can detect the new one a Sell creates.
-    const beforePayoutCids = new Set(
-      tradeSide === "sell"
-        ? (await fetchPendingPayouts(account.address)).filter((p) => p.user === account.address).map((p) => p.contractId)
-        : [],
-    );
-
-    setSubmittingBet(true);
-    const submittingToastId = toast({
-      title: tradeSide === "buy" ? "Sending CC to market…" : "Submitting sell…",
-      description: tradeSide === "buy"
-        ? `Confirm the ${costCC.toFixed(4)} CC transfer in the wallet popup.`
-        : "Confirm the transaction in the wallet popup. Admin will payout shortly.",
-      status: "info",
-      duration: null,
-      isClosable: false,
-    });
-
+    // Sell
+    if (!sellQuote || sharesIn <= 0) {
+      toast({ title: "Enter shares to sell", status: "info", duration: 3000, isClosable: true });
+      return;
+    }
+    if (!userPosition) {
+      toast({ title: "No position to sell", status: "warning", duration: 4000, isClosable: true });
+      return;
+    }
+    const owned = selectedSide === "yes" ? userPosition.yesShares : userPosition.noShares;
+    if (owned < sharesIn) {
+      toast({
+        title: "Not enough shares to sell",
+        description: `You own ${fmtCC(owned, 2)} ${sideArg} shares.`,
+        status: "warning",
+        duration: 4000,
+        isClosable: true,
+      });
+      return;
+    }
+    const minProceeds = sellQuote.netProceeds * (1 - slippage);
+    const beforeCids = await snapshotPayoutCids();
+    setBusy("trade");
     try {
-      // Step 1 (Buy only): transfer CC to the market admin. If this fails, abort
-      // before exercising Buy so the contract state doesn't drift from CC flows.
-      if (tradeSide === "buy") {
-        if (!adminPartyForCC) {
-          throw new Error("VITE_ENTERPRISE_WALLET_PARTY_ID is not set — can't address the market admin to transfer CC to.");
-        }
-        try {
-          const transferResult = await transferCC({
-            to: adminPartyForCC,
-            amount: costCC,
-            memo: `truthoracle: buy ${numShares} ${selectedSide.toUpperCase()} on market #${marketIdNum}`,
-            metadata: {
-              kind: "truthoracle_buy",
-              market_id: String(marketIdNum),
-              side: selectedSide,
-              shares: String(numShares),
-            },
-          });
-          console.log("[CC transfer for Buy]", transferResult);
-        } catch (e) {
-          if (submittingToastId !== undefined) toast.close(submittingToastId);
-          toast({
-            title: "CC transfer failed — buy aborted",
-            description: e instanceof Error ? e.message : String(e),
-            status: "error",
-            duration: 6000,
-            isClosable: true,
-          });
-          return;
-        }
-        if (submittingToastId !== undefined) toast.close(submittingToastId);
-        setSubmittingBet(false);
-        // Open step-2 dialog. Browsers block the second window.open unless it
-        // happens inside a fresh user gesture — the dialog's "Confirm Shares"
-        // click provides exactly that.
-        openStepTwo(
-          "buy",
-          `${costCC.toFixed(4)} CC sent to the market. Click Confirm to mint ${numShares} ${selectedSide.toUpperCase()} shares on-ledger.`,
-          async () => {
-            await runChoiceExerciseAndPoll({
-              kind: "buy",
-              sideInt,
-              selectedSideLabel: selectedSide,
-              numShares,
-              costCC,
-              expectedYes,
-              expectedNo,
-              beforePayoutCids: new Set(),
-            });
-          },
-        );
-        return;
-      }
-
-      if (submittingToastId !== undefined) toast.close(submittingToastId);
-      setSubmittingBet(false);
-      await runChoiceExerciseAndPoll({
-        kind: "sell",
-        sideInt,
-        selectedSideLabel: selectedSide,
-        numShares,
-        costCC,
-        expectedYes,
-        expectedNo,
-        beforePayoutCids,
+      const ok = await runUserChoice(
+        "Sell",
+        buildSellParams(
+          account.address,
+          market.contractId,
+          sideArg,
+          sharesIn,
+          minProceeds,
+          userPosition.contractId,
+          disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+        ),
+      );
+      if (!ok) return;
+      await settleFreshPayout(beforeCids, "sell");
+      await refreshAllViews();
+      toast({
+        title: "Shares sold",
+        description: `Sold ${fmtCC(sharesIn, 2)} ${sideArg} for ~${fmtCC(sellQuote.netProceeds)} CC (after ${(market.feeBps / 100).toFixed(2)}% fee).`,
+        status: "success",
+        duration: 7000,
+        isClosable: true,
       });
     } finally {
-      setSubmittingBet(false);
+      setBusy(null);
     }
   };
 
+  // -------------------------------------------------------------------------
+  // Mint / Merge complete sets
+  // -------------------------------------------------------------------------
+
   const handleSplitMerge = async (action: "split" | "merge") => {
-    if (!view || view.status !== 0) return;
-    if (!account || !predictionMarketCid) {
+    if (!market || (phase !== "trading" && phase !== "liquidity_period")) return;
+    if (!account) {
       toast({ title: "Connect wallet first", status: "info", duration: 4000, isClosable: true });
       return;
     }
-    const amt = Math.max(0, Math.floor(splitMergeAmount));
+    const amt = splitMergeAmount;
     if (amt <= 0) {
       toast({ title: "Enter an amount", status: "info", duration: 3000, isClosable: true });
       return;
@@ -588,7 +631,7 @@ const MarketView = () => {
     if (action === "split" && holdings && holdings.balance < amt) {
       toast({
         title: "Insufficient CC balance",
-        description: `Need ${amt} CC to split into ${amt} Yes + ${amt} No pairs.`,
+        description: `Need ${fmtCC(amt)} CC to mint ${fmtCC(amt, 2)} complete sets.`,
         status: "warning",
         duration: 5000,
         isClosable: true,
@@ -596,14 +639,10 @@ const MarketView = () => {
       return;
     }
     if (action === "merge") {
-      if (!userMarketDataCid || !userPosition) {
-        toast({ title: "No position to merge", status: "warning", duration: 4000, isClosable: true });
-        return;
-      }
-      if (userPosition.yesShares < amt || userPosition.noShares < amt) {
+      if (!userPosition || userPosition.yesShares < amt || userPosition.noShares < amt) {
         toast({
           title: "Not enough Yes + No pairs",
-          description: `You own ${userPosition.yesShares} Yes / ${userPosition.noShares} No.`,
+          description: `You own ${fmtCC(userPosition?.yesShares ?? 0, 2)} Yes / ${fmtCC(userPosition?.noShares ?? 0, 2)} No.`,
           status: "warning",
           duration: 5000,
           isClosable: true,
@@ -612,168 +651,190 @@ const MarketView = () => {
       }
     }
 
-    // Snapshot pending payouts so we can detect what Merge creates.
-    const beforePayoutCids = new Set(
-      action === "merge"
-        ? (await fetchPendingPayouts(account.address)).filter((p) => p.user === account.address).map((p) => p.contractId)
-        : [],
-    );
+    const beforeCids = action === "merge" ? await snapshotPayoutCids() : new Set<string>();
 
-    /** Step that exercises Split / Merge on-ledger and (for Merge) triggers admin auto-payout. */
-    const runSplitMergeChoice = async () => {
-      setSplittingMerging(true);
+    const runChoice = async () => {
+      setBusy("splitmerge");
       try {
         const disclosed = disclosedForMarket();
         const params = action === "split"
-          ? buildSplitParams(
-              account.address,
-              predictionMarketCid,
-              amt,
-              userMarketDataCid,
-              disclosed.length > 0 ? disclosed : undefined,
-            )
-          : buildMergeParams(
-              account.address,
-              predictionMarketCid,
-              amt,
-              userMarketDataCid!,
-              disclosed.length > 0 ? disclosed : undefined,
-            );
-        const committedTxn = await signAndSubmitTransaction(params);
-        void committedTxn.hash;
-
-        if (action === "merge") {
-          try {
-            const fresh = await waitForNewPendingPayout(account.address, marketIdNum, beforePayoutCids);
-            if (fresh) {
-              await runAdminAutoPayout({
-                toUser: account.address,
-                amountCC: fresh.amountCC,
-                pendingPayoutCid: fresh.contractId,
-                reason: "merge",
-                signAndSubmitTransaction,
-              });
-            }
-          } catch (e) {
-            console.warn("[merge auto-payout failed]", e);
-            toast({
-              title: "Merge recorded — payout pending",
-              description: "Admin couldn't auto-settle the payout. It's queued; refresh shortly.",
-              status: "warning",
-              duration: 8000,
-              isClosable: true,
-            });
-          }
-        }
-
-        await refreshUserData();
-        const w = window as unknown as { refreshPortfolio?: () => void };
-        w.refreshPortfolio?.();
+          ? buildSplitParams(account.address, market.contractId, amt, userPosition?.contractId ?? null, disclosed.length > 0 ? disclosed : undefined)
+          : buildMergeParams(account.address, market.contractId, amt, userPosition!.contractId, disclosed.length > 0 ? disclosed : undefined);
+        const ok = await runUserChoice(action === "split" ? "Mint set" : "Merge", params);
+        if (!ok) return;
+        if (action === "merge") await settleFreshPayout(beforeCids, "merge");
+        await refreshAllViews();
         toast({
-          title: action === "split" ? "Split complete" : "Merge requested",
+          title: action === "split" ? "Complete sets minted" : "Merge requested",
           description: action === "split"
-            ? `Minted ${amt} Yes + ${amt} No shares for ${amt} CC.`
-            : `Burned ${amt} pairs — pending payout for ${amt} CC from admin.`,
+            ? `Minted ${fmtCC(amt, 2)} Yes + ${fmtCC(amt, 2)} No for ${fmtCC(amt)} CC.`
+            : `Burned ${fmtCC(amt, 2)} pairs — payout of ${fmtCC(amt)} CC from admin.`,
           status: "success",
           duration: 6000,
           isClosable: true,
         });
-      } catch (e) {
-        console.error(e);
-        toast({
-          title: `${action} failed`,
-          description: e instanceof Error ? e.message : `Could not submit ${action}.`,
-          status: "error",
-          duration: 5000,
-          isClosable: true,
-        });
       } finally {
-        setSplittingMerging(false);
+        setBusy(null);
       }
     };
 
     if (action === "merge") {
-      // Single popup — no CC transfer needed; admin auto-pays after.
-      await runSplitMergeChoice();
+      await runChoice();
       return;
     }
 
-    // Split: popup #1 = CC transfer, popup #2 (gated by dialog) = Split choice.
-    setSplittingMerging(true);
+    // Mint: popup #1 = CC transfer, popup #2 (gated by dialog) = Split choice.
+    setBusy("splitmerge");
     try {
-      if (!adminPartyForCC) {
-        throw new Error("VITE_ENTERPRISE_WALLET_PARTY_ID is not set.");
-      }
+      if (!adminPartyForCC) throw new Error("VITE_ENTERPRISE_WALLET_PARTY_ID is not set.");
       await transferCC({
         to: adminPartyForCC,
         amount: amt,
-        memo: `truthoracle: split ${amt} pairs on market #${marketIdNum}`,
-        metadata: {
-          kind: "truthoracle_split",
-          market_id: String(marketIdNum),
-          pairs: String(amt),
-        },
+        memo: `truthoracle: mint ${fmtCC(amt, 2)} complete sets on market #${marketIdNum}`,
+        metadata: { kind: "truthoracle_split", market_id: String(marketIdNum), pairs: String(amt) },
       });
     } catch (e) {
       console.error(e);
+      setBusy(null);
       toast({
-        title: "Split CC transfer failed",
+        title: "Mint CC transfer failed",
         description: e instanceof Error ? e.message : String(e),
         status: "error",
         duration: 6000,
         isClosable: true,
       });
-      setSplittingMerging(false);
       return;
     }
-    setSplittingMerging(false);
+    setBusy(null);
     openStepTwo(
-      "split",
-      `${amt} CC sent to the market. Click Confirm to mint ${amt} Yes + ${amt} No shares on-ledger.`,
-      runSplitMergeChoice,
+      `${fmtCC(amt)} CC sent to the market. Click Confirm to mint ${fmtCC(amt, 2)} Yes + ${fmtCC(amt, 2)} No on-ledger.`,
+      runChoice,
     );
   };
 
-  const getResultText = () => {
-    if (!view || view.status === 0) return null;
-    if (view.result === "Yes") return "Winner: Yes";
-    if (view.result === "No") return "Winner: No";
-    if (view.result === "Draw") return "Draw";
-    return "Market Resolved";
-  };
+  // -------------------------------------------------------------------------
+  // Liquidity (value-based provide; withdraw locked for dynamic pools)
+  // -------------------------------------------------------------------------
 
-  const handleResolveClick = async () => {
-    if (!view || view.status !== 0) return;
-    if (!account || !isAdmin) {
-      toast({ title: "Admin wallet required", status: "warning", duration: 3000, isClosable: true });
+  const handleProvideLiquidity = async () => {
+    if (!market || !canProvideLiquidity || !account) return;
+    if (!liquidityQuote || liquidityValue <= 0) {
+      toast({ title: "Enter a pool-value increase", status: "info", duration: 3000, isClosable: true });
       return;
     }
-    if (!predictionMarketCid) {
+    const cost = liquidityQuote.costCC;
+    const maxCost = cost * (1 + slippage);
+    if (holdings && holdings.balance < cost) {
       toast({
-        title: "Market contract not found",
-        description: "Could not locate the PredictionMarket contract for this market.",
+        title: "Insufficient CC balance",
+        description: `Providing ${fmtCC(liquidityValue)} CC of pool value costs ${fmtCC(cost)} CC.`,
         status: "warning",
         duration: 5000,
         isClosable: true,
       });
       return;
     }
-    const payout = Math.max(0, Math.floor(payoutPerShare));
-    setResolving(true);
+    setBusy("liquidity");
+    try {
+      if (!adminPartyForCC) throw new Error("VITE_ENTERPRISE_WALLET_PARTY_ID is not set.");
+      await transferCC({
+        to: adminPartyForCC,
+        amount: cost,
+        memo: `truthoracle: provide ${fmtCC(liquidityValue)} CC liquidity on market #${marketIdNum}`,
+        metadata: { kind: "truthoracle_liquidity", market_id: String(marketIdNum), value_cc: String(liquidityValue) },
+      });
+    } catch (e) {
+      setBusy(null);
+      toast({
+        title: "CC transfer failed — liquidity aborted",
+        description: e instanceof Error ? e.message : String(e),
+        status: "error",
+        duration: 6000,
+        isClosable: true,
+      });
+      return;
+    }
+    setBusy(null);
+    openStepTwo(
+      `${fmtCC(cost)} CC sent. Click Confirm to add ${fmtCC(liquidityValue)} CC of pool value (≈${fmtCC(liquidityQuote.lpMinted, 4)} LP tokens).`,
+      async () => {
+        setBusy("liquidity");
+        try {
+          const ok = await runUserChoice(
+            "Provide liquidity",
+            buildProvideLiquidityParams(
+              account.address,
+              market.contractId,
+              liquidityValue,
+              maxCost,
+              lpPosition?.contractId ?? null,
+              disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+            ),
+          );
+          if (ok) {
+            await refreshAllViews();
+            toast({ title: "Liquidity added", status: "success", duration: 5000, isClosable: true });
+          }
+        } finally {
+          setBusy(null);
+        }
+      },
+    );
+  };
+
+  const handleWithdrawLiquidity = async () => {
+    if (!market || !account || !lpPosition) return;
+    const burn = lpPosition.lpTokens * (withdrawPct / 100);
+    if (burn <= 0) return;
+    if (market.isDynamic && phase !== "resolved" && phase !== "voided") {
+      toast({
+        title: "Dynamic-pool LP is locked",
+        description: "Uniform-LVR design: liquidity exits after resolution or void.",
+        status: "info",
+        duration: 6000,
+        isClosable: true,
+      });
+      return;
+    }
+    const beforeCids = await snapshotPayoutCids();
+    setBusy("withdraw");
+    try {
+      const ok = await runUserChoice(
+        "Withdraw liquidity",
+        buildWithdrawLiquidityParams(
+          account.address,
+          market.contractId,
+          burn,
+          lpPosition.contractId,
+          userPosition?.contractId ?? null,
+          disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+        ),
+      );
+      if (!ok) return;
+      await settleFreshPayout(beforeCids, "liquidity");
+      await refreshAllViews();
+      toast({ title: "Liquidity withdrawn", status: "success", duration: 5000, isClosable: true });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // -------------------------------------------------------------------------
+  // Resolution (T0 admin; T3 propose/finalize; void) and redemption
+  // -------------------------------------------------------------------------
+
+  const handleResolveT0 = async () => {
+    if (!market || !account || !isAdmin) return;
+    const source = resolveSource || market.policy.sources[0] || market.resolutionDescription || "operator";
+    setBusy("resolve");
     try {
       const adminParty = enterpriseWalletPartyId() || account.address;
-      const params = buildRecordResultParams(adminParty, predictionMarketCid, resolveResult, payout);
-      const committedTxn = await submitAdminTransaction(params, signAndSubmitTransaction);
-      void committedTxn.hash;
-
-      const w = window as unknown as { refreshPortfolio?: () => void; refreshMarketplace?: () => void };
-      w.refreshMarketplace?.();
-      w.refreshPortfolio?.();
-      await refreshMarket();
-
+      const params = buildResolveT0Params(adminParty, market.contractId, resolveOutcome, source);
+      await submitAdminTransaction(params, signAndSubmitTransaction);
+      await refreshAllViews();
       toast({
-        title: "Market Resolved",
-        description: `Recorded ${resolveResult} with payout ${payout}/share.`,
+        title: "Market resolved",
+        description: `Recorded ${resolveOutcome} (T0 operator resolution from ${source}).`,
         status: "success",
         duration: 7000,
         isClosable: true,
@@ -782,17 +843,197 @@ const MarketView = () => {
       console.error(e);
       toast({
         title: "Resolve failed",
-        description: e instanceof Error ? e.message : "Could not submit RecordResult.",
+        description: e instanceof Error ? e.message : "Could not submit ResolveT0.",
         status: "error",
-        duration: 5000,
+        duration: 6000,
         isClosable: true,
       });
     } finally {
-      setResolving(false);
+      setBusy(null);
     }
   };
 
-  if (loading && !view) {
+  const handleResolveWithAttestations = async () => {
+    if (!market || !account || !isAdmin || attestations.length === 0) return;
+    setBusy("resolve");
+    try {
+      const adminParty = enterpriseWalletPartyId() || account.address;
+      const params = buildResolveParams(adminParty, market.contractId, attestations.map((a) => a.contractId));
+      await submitAdminTransaction(params, signAndSubmitTransaction);
+      await refreshAllViews();
+      toast({ title: "Market resolved from attestations", status: "success", duration: 7000, isClosable: true });
+    } catch (e) {
+      console.error(e);
+      toast({
+        title: "Resolve failed",
+        description: e instanceof Error ? e.message : "Quorum/signature requirements not met.",
+        status: "error",
+        duration: 7000,
+        isClosable: true,
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleVoidMarket = async () => {
+    if (!market || !account || !isAdmin) return;
+    setBusy("void");
+    try {
+      const adminParty = enterpriseWalletPartyId() || account.address;
+      await submitAdminTransaction(buildVoidMarketParams(adminParty, market.contractId), signAndSubmitTransaction);
+      await refreshAllViews();
+      toast({ title: "Market voided", description: "Traders can redeem their cost basis.", status: "success", duration: 6000, isClosable: true });
+    } catch (e) {
+      toast({
+        title: "Void failed",
+        description: e instanceof Error ? e.message : "Grace period may not have elapsed.",
+        status: "error",
+        duration: 6000,
+        isClosable: true,
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handlePropose = async (outcome: OutcomeArg) => {
+    if (!market || !account) return;
+    const bond = market.policy.bondCC;
+    const doPropose = async () => {
+      setBusy("propose");
+      try {
+        const ok = await runUserChoice(
+          "Propose outcome",
+          buildProposeOutcomeParams(account.address, market.contractId, outcome, disclosedForMarket().length > 0 ? disclosedForMarket() : undefined),
+        );
+        if (ok) {
+          await refreshAllViews();
+          toast({
+            title: `Proposed ${outcome}`,
+            description: `Challenge window: ${fmtCountdown(nowSecs + market.policy.challengeSecs, nowSecs)}.`,
+            status: "success",
+            duration: 6000,
+            isClosable: true,
+          });
+        }
+      } finally {
+        setBusy(null);
+      }
+    };
+    if (bond > 0) {
+      setBusy("propose");
+      try {
+        if (!adminPartyForCC) throw new Error("VITE_ENTERPRISE_WALLET_PARTY_ID is not set.");
+        await transferCC({
+          to: adminPartyForCC,
+          amount: bond,
+          memo: `truthoracle: T3 proposal bond on market #${marketIdNum}`,
+          metadata: { kind: "truthoracle_bond", market_id: String(marketIdNum), role: "proposer" },
+        });
+      } catch (e) {
+        setBusy(null);
+        toast({ title: "Bond transfer failed", description: e instanceof Error ? e.message : String(e), status: "error", duration: 6000, isClosable: true });
+        return;
+      }
+      setBusy(null);
+      openStepTwo(`${fmtCC(bond)} CC bond posted. Click Confirm to propose ${outcome} on-ledger.`, doPropose);
+    } else {
+      await doPropose();
+    }
+  };
+
+  const handleChallenge = async (outcome: OutcomeArg) => {
+    if (!market || !account) return;
+    const bond = market.policy.bondCC;
+    const doChallenge = async () => {
+      setBusy("challenge");
+      try {
+        const ok = await runUserChoice(
+          "Challenge",
+          buildChallengeOutcomeParams(account.address, market.contractId, outcome, disclosedForMarket().length > 0 ? disclosedForMarket() : undefined),
+        );
+        if (ok) {
+          await refreshAllViews();
+          toast({
+            title: `Challenged with ${outcome}`,
+            description: "Escalates objectively to the reporter quorum / signed source — never a vote.",
+            status: "success",
+            duration: 7000,
+            isClosable: true,
+          });
+        }
+      } finally {
+        setBusy(null);
+      }
+    };
+    if (bond > 0) {
+      setBusy("challenge");
+      try {
+        if (!adminPartyForCC) throw new Error("VITE_ENTERPRISE_WALLET_PARTY_ID is not set.");
+        await transferCC({
+          to: adminPartyForCC,
+          amount: bond,
+          memo: `truthoracle: T3 challenge bond on market #${marketIdNum}`,
+          metadata: { kind: "truthoracle_bond", market_id: String(marketIdNum), role: "challenger" },
+        });
+      } catch (e) {
+        setBusy(null);
+        toast({ title: "Bond transfer failed", description: e instanceof Error ? e.message : String(e), status: "error", duration: 6000, isClosable: true });
+        return;
+      }
+      setBusy(null);
+      openStepTwo(`${fmtCC(bond)} CC bond posted. Click Confirm to challenge with ${outcome}.`, doChallenge);
+    } else {
+      await doChallenge();
+    }
+  };
+
+  const handleFinalize = async () => {
+    if (!market || !account) return;
+    setBusy("finalize");
+    try {
+      const ok = await runUserChoice(
+        "Finalize",
+        buildFinalizeOutcomeParams(account.address, market.contractId, disclosedForMarket().length > 0 ? disclosedForMarket() : undefined),
+      );
+      if (ok) {
+        await refreshAllViews();
+        toast({ title: "Proposal finalized", status: "success", duration: 6000, isClosable: true });
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleRedeem = async () => {
+    if (!market || !account || !userPosition) return;
+    const beforeCids = await snapshotPayoutCids();
+    setBusy("redeem");
+    try {
+      const ok = await runUserChoice(
+        "Redeem",
+        buildRedeemPositionParams(
+          account.address,
+          market.contractId,
+          userPosition.contractId,
+          disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+        ),
+      );
+      if (!ok) return;
+      await settleFreshPayout(beforeCids, market.status === "Voided" ? "void-refund" : "resolve");
+      await refreshAllViews();
+      toast({ title: "Position redeemed", status: "success", duration: 6000, isClosable: true });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // -------------------------------------------------------------------------
+  // Render
+  // -------------------------------------------------------------------------
+
+  if (loading && !market) {
     return (
       <div className="space-y-4 py-8">
         <Skeleton height="32px" borderRadius="lg" />
@@ -802,7 +1043,7 @@ const MarketView = () => {
     );
   }
 
-  if (!view) {
+  if (!market) {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center gap-2">
         <Text fontSize="lg" color="gray.400">Market #{id} not found.</Text>
@@ -810,345 +1051,843 @@ const MarketView = () => {
     );
   }
 
-  return (
-    <div className="flex min-h-[80vh] flex-col gap-8 lg:flex-row lg:gap-10">
-      {/* Left: market info */}
-      <div className="flex-1 space-y-6">
-        <div>
-          <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs font-medium text-muted-foreground">
-            Market #{view.marketId}
-            {view.status === 0 ? (
-              <span className="flex items-center gap-1 text-oracle-yes">
-                <span className="h-1.5 w-1.5 rounded-full bg-oracle-yes animate-pulse" />
-                Live
-              </span>
-            ) : (
-              <span className="text-muted-foreground">Resolved</span>
-            )}
-          </div>
-          <h1 className="text-2xl font-bold leading-tight text-foreground sm:text-3xl">
-            {view.question}
-          </h1>
-        </div>
+  const redeemable = (phase === "resolved" || phase === "voided") && userPosition
+    ? phase === "voided"
+      ? Math.min(userPosition.costBasisCC, Math.max(userPosition.yesShares, userPosition.noShares))
+      : market.outcome === "Yes"
+        ? userPosition.yesShares
+        : market.outcome === "No"
+          ? userPosition.noShares
+          : 0
+    : 0;
 
-        {view.description && (
-          <p className="text-base text-muted-foreground">{view.description}</p>
-        )}
-        {view.resolutionDescription && (
-          <p className="rounded-lg border border-border bg-secondary/50 px-4 py-3 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Resolution criteria: </span>
-            {view.resolutionDescription}
-          </p>
-        )}
+  const reserveInventory = market.reserveYes + market.reserveNo;
 
-        {/* Probability section */}
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Current Odds
-          </h2>
+  const tiers: string[] = [];
+  if (market.policy.operatorResolution) tiers.push("T0 operator");
+  if (market.policy.sourceKeys.length > 0) tiers.push("T1 signed source");
+  if (market.policy.reporters.length > 0) tiers.push(`T2 ${market.policy.quorum}-of-${market.policy.reporters.length} reporters`);
+  if (market.policy.challengeSecs > 0) tiers.push(`T3 optimistic (${Math.round(market.policy.challengeSecs / 3600)}h window, ${fmtCC(market.policy.bondCC)} CC bond)`);
 
-          <div className="mb-4">
-            <div className="mb-1.5 flex items-baseline justify-between">
-              <span className="text-3xl font-bold text-oracle-yes">
-                {((currentPrice?.yes ?? 0) * 100).toFixed(0)}%
-              </span>
-              <span className="text-sm text-muted-foreground">chance of Yes</span>
-            </div>
-            <div className="prob-bar mb-1">
-              <div
-                className="prob-bar-yes"
-                style={{ width: `${(currentPrice?.yes ?? 0) * 100}%` }}
-              />
-            </div>
-          </div>
+  const showResolveTab = (isAdmin || market.policy.challengeSecs > 0) && (phase === "expired" || phase === "proposed");
+  const showSettleTab = phase === "resolved" || phase === "voided";
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="rounded-lg bg-oracle-yes/10 px-4 py-3 ring-1 ring-oracle-yes/20">
-              <div className="text-xs font-medium text-oracle-yes">Yes</div>
-              <div className="text-2xl font-bold text-oracle-yes">
-                {((currentPrice?.yes ?? 0) * 100).toFixed(0)}¢
-              </div>
-              <div className="text-xs text-muted-foreground">{view.yesShares} shares</div>
-            </div>
-            <div className="rounded-lg bg-oracle-no/10 px-4 py-3 ring-1 ring-oracle-no/20">
-              <div className="text-xs font-medium text-oracle-no">No</div>
-              <div className="text-2xl font-bold text-oracle-no">
-                {((currentPrice?.no ?? 0) * 100).toFixed(0)}¢
-              </div>
-              <div className="text-xs text-muted-foreground">{view.noShares} shares</div>
-            </div>
-          </div>
-        </div>
+  const tabs: { key: MainTab; label: string; visible: boolean }[] = [
+    { key: "trade", label: "Trade", visible: true },
+    { key: "liquidity", label: "Liquidity", visible: true },
+    { key: "resolve", label: "Resolve", visible: showResolveTab },
+    { key: "settle", label: "Settle", visible: showSettleTab },
+  ];
 
-        {userPosition && view.status === 0 && (
-          <div className="rounded-xl border border-primary/20 bg-primary/5 p-5">
-            <h3 className="mb-3 text-sm font-semibold text-foreground">Your Position</h3>
-            <div className="grid grid-cols-3 gap-3 text-sm">
-              <div>
-                <div className="text-xs text-muted-foreground">Yes shares</div>
-                <div className="font-semibold text-oracle-yes">{userPosition.yesShares}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">No shares</div>
-                <div className="font-semibold text-oracle-no">{userPosition.noShares}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Invested</div>
-                <div className="font-semibold text-foreground">
-                  {userPosition.amountInvestedCC.toFixed(2)} CC
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+  // ---- Phase banner (MarketPhaseIndicator) ----
+  const phaseBanner = (() => {
+    switch (phase) {
+      case "liquidity_period":
+        return {
+          cls: "border-oracle-blue/30 bg-oracle-blue/10 text-oracle-blue",
+          text: `Liquidity collection — trading opens in ${fmtCountdown(market.createdAt + market.liquidityPeriodSecs, nowSecs)} (mint sets & add liquidity now; swaps open at trading start)`,
+        };
+      case "trading":
+        return {
+          cls: "border-oracle-yes/30 bg-oracle-yes/10 text-oracle-yes",
+          text: `Trading live — expires in ${fmtCountdown(market.expiresAt, nowSecs)}${market.isDynamic ? ` · liquidity decaying √(T−t), L_eff ${fmtCC(effectiveL, 2)}` : ""}`,
+        };
+      case "expired":
+        return {
+          cls: "border-yellow-500/30 bg-yellow-500/10 text-yellow-600",
+          text: `Trading ended — awaiting resolution (grace ends in ${fmtCountdown(market.expiresAt + market.gracePeriodSecs, nowSecs)})`,
+        };
+      case "proposed":
+        return {
+          cls: "border-oracle-purple/30 bg-oracle-purple/10 text-oracle-purple",
+          text: market.proposal
+            ? `Outcome ${market.proposal.proposedOutcome} proposed — ${market.proposal.challenger ? "challenged, awaiting objective escalation" : `challenge window closes in ${fmtCountdown(market.proposal.proposedAt + market.policy.challengeSecs, nowSecs)}`}`
+            : "Outcome proposed",
+        };
+      case "resolved":
+        return {
+          cls: "border-primary/30 bg-primary/10 text-primary",
+          text: `Resolved: ${market.outcome === "Yes" ? "Yes wins" : market.outcome === "No" ? "No wins" : "Void"} — winning shares redeem 1:1 in the Settle tab`,
+        };
+      case "voided":
+        return {
+          cls: "border-border bg-secondary text-muted-foreground",
+          text: "Voided — cost-basis refunds available in the Settle tab",
+        };
+    }
+  })();
 
-        <div className="rounded-xl border border-border bg-card/50 p-5">
-          <h2 className="mb-2 text-sm font-semibold text-foreground">
-            About LMSR Pricing
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            The Logarithmic Market Scoring Rule (LMSR) is a mathematical tool used to evaluate
-            the accuracy of predictions. It encourages honesty and precision when making
-            predictions about uncertain events.
-          </p>
-        </div>
-      </div>
-
-      {/* Right: trade panel */}
-      {view.status === 0 ? (
-        <div className="w-full space-y-4 lg:w-80 lg:shrink-0">
-          <div className="trade-panel">
-            <div className="mb-4 text-center">
-              <h2 className="text-base font-bold text-foreground">
-                {tradeSide === "buy" ? "Place a Bet" : "Sell Position"}
-              </h2>
-              {holdings && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Balance:{" "}
-                  <span className="font-medium text-primary">{holdings.balance.toFixed(2)} CC</span>
-                  <span className="text-muted-foreground/60">
-                    {" "}(≈ ${holdings.balanceUsd.toFixed(2)})
-                  </span>
-                </p>
-              )}
-            </div>
-
-            <div className="mb-4 flex overflow-hidden rounded-lg border border-border">
-              <button
-                onClick={() => setTradeSide("buy")}
-                className={`flex-1 py-2 text-sm font-semibold transition-all ${
-                  tradeSide === "buy"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-secondary"
-                }`}
-              >
-                Buy
-              </button>
-              <button
-                onClick={() => setTradeSide("sell")}
-                className={`flex-1 py-2 text-sm font-semibold transition-all ${
-                  tradeSide === "sell"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-secondary"
-                }`}
-              >
-                Sell
-              </button>
-            </div>
-
-            <div className="mb-4 flex flex-col gap-2">
-              <button
-                onClick={() => setSelectedSide("yes")}
-                className={
-                  selectedSide === "yes"
-                    ? "rounded-lg border-2 border-oracle-yes bg-oracle-yes/20 py-2.5 text-sm font-bold text-oracle-yes ring-2 ring-oracle-yes/30"
-                    : "rounded-lg border border-oracle-yes/30 py-2.5 text-sm font-semibold text-oracle-yes hover:bg-oracle-yes/10"
-                }
-              >
-                Yes — {((currentPrice?.yes ?? 0) * 100).toFixed(0)}¢
-              </button>
-              <button
-                onClick={() => setSelectedSide("no")}
-                className={
-                  selectedSide === "no"
-                    ? "rounded-lg border-2 border-oracle-no bg-oracle-no/20 py-2.5 text-sm font-bold text-oracle-no ring-2 ring-oracle-no/30"
-                    : "rounded-lg border border-oracle-no/30 py-2.5 text-sm font-semibold text-oracle-no hover:bg-oracle-no/10"
-                }
-              >
-                No — {((currentPrice?.no ?? 0) * 100).toFixed(0)}¢
-              </button>
-            </div>
-
-            <div className="mb-4">
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                Shares
-              </label>
-              <div className="flex overflow-hidden rounded-lg border border-border">
-                <button
-                  onClick={decrementAmount}
-                  className="bg-secondary px-4 py-2.5 text-foreground hover:bg-secondary/80"
-                >
-                  −
-                </button>
-                <input
-                  type="number"
-                  value={amount.toFixed(2)}
-                  onChange={handleInputChange}
-                  className="flex-1 bg-background py-2.5 text-center text-foreground focus:outline-none"
-                />
-                <button
-                  onClick={incrementAmount}
-                  className="bg-secondary px-4 py-2.5 text-foreground hover:bg-secondary/80"
-                >
-                  +
-                </button>
-              </div>
-            </div>
-
-            {(() => {
-              const tradeDisabledReason = !account
-                ? "Connect wallet"
-                : !predictionMarketCid
-                  ? "Loading market…"
-                  : submittingBet
-                    ? "Submitting…"
-                    : !selectedSide
-                      ? "Select Yes or No"
-                      : amount <= 0
-                        ? "Enter shares to trade"
-                        : null;
-              const isDisabled = tradeDisabledReason !== null;
-              return (
-                <button
-                  onClick={handleTradeClick}
-                  disabled={isDisabled}
-                  className={`w-full rounded-lg py-3 text-sm font-bold transition-all ${
-                    isDisabled
-                      ? "cursor-not-allowed bg-secondary text-muted-foreground"
-                      : "bg-primary text-primary-foreground hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/20"
-                  }`}
-                >
-                  {tradeDisabledReason ?? (tradeSide === "buy" ? "Place Bet" : "Sell Shares")}
-                </button>
-              );
-            })()}
-            <p className="mt-2 text-center text-xs text-muted-foreground">
-              Price may vary due to slippage.
-            </p>
-          </div>
-
-          <div className="trade-panel">
-            <div className="mb-3 text-center">
-              <h2 className="text-sm font-bold text-foreground">Split / Merge</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Split: 1 CC → 1 Yes + 1 No. Merge: reverse.
-              </p>
-            </div>
-            <input
-              type="number"
-              min={1}
-              value={splitMergeAmount}
-              onChange={(e) => {
-                const v = parseInt(e.target.value, 10);
-                setSplitMergeAmount(isNaN(v) || v < 0 ? 0 : v);
-              }}
-              placeholder="Pairs"
-              className="input-field mb-3 text-center"
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleSplitMerge("split")}
-                className="flex-1 rounded-lg border border-border bg-secondary py-2 text-sm font-semibold text-foreground hover:bg-secondary/80 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={splittingMerging || !predictionMarketCid || splitMergeAmount <= 0}
-              >
-                {splittingMerging ? "…" : "Split"}
-              </button>
-              <button
-                onClick={() => handleSplitMerge("merge")}
-                className="flex-1 rounded-lg border border-border bg-secondary py-2 text-sm font-semibold text-foreground hover:bg-secondary/80 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={splittingMerging || !predictionMarketCid || splitMergeAmount <= 0 || !userPosition}
-              >
-                {splittingMerging ? "…" : "Merge"}
-              </button>
-            </div>
-          </div>
-
-          {isAdmin && (
-            <div className="trade-panel border-oracle-no/20">
-              <div className="mb-4 text-center">
-                <h2 className="text-sm font-bold text-foreground">Resolve Market</h2>
-                <p className="mt-1 text-xs text-muted-foreground">Admin only — irreversible.</p>
-              </div>
-
-              <div className="mb-4 flex flex-col gap-2">
-                {(["Yes", "No", "Draw"] as const).map((r) => (
-                  <button
-                    key={r}
-                    onClick={() => setResolveResult(r)}
-                    className={`rounded-lg py-2 text-sm font-semibold transition-all ${
-                      resolveResult === r
-                        ? r === "Yes"
-                          ? "border-2 border-oracle-yes bg-oracle-yes/20 text-oracle-yes"
-                          : r === "No"
-                            ? "border-2 border-oracle-no bg-oracle-no/20 text-oracle-no"
-                            : "border-2 border-border bg-secondary text-foreground"
-                        : "border border-border text-muted-foreground hover:bg-secondary"
-                    }`}
-                  >
-                    {r === "Yes" ? "Yes wins" : r === "No" ? "No wins" : "Draw"}
-                  </button>
-                ))}
-              </div>
-
-              <div className="mb-3">
-                <label className="mb-1 block text-xs text-muted-foreground">Payout per share</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={payoutPerShare}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value, 10);
-                    setPayoutPerShare(isNaN(v) || v < 0 ? 0 : v);
-                  }}
-                  placeholder="0"
-                  className="input-field text-center"
-                />
-              </div>
-
-              <button
-                onClick={handleResolveClick}
-                className="w-full rounded-lg bg-oracle-no/20 py-2.5 text-sm font-bold text-oracle-no ring-1 ring-oracle-no/30 hover:bg-oracle-no/30 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={resolving || !predictionMarketCid || !account}
-              >
-                {resolving
-                  ? "Resolving…"
-                  : !account
-                    ? "Connect wallet"
-                    : !predictionMarketCid
-                      ? "Loading market…"
-                      : "Record Result"}
-              </button>
-            </div>
-          )}
-        </div>
+  // ---- Sidebar: Your Position (Trade tab) ----
+  const yourPositionBox = (
+    <div className="rounded-xl border border-primary/20 bg-primary/5 p-5">
+      <h3 className="mb-3 text-sm font-semibold text-foreground">Your Position</h3>
+      {!account ? (
+        <p className="text-xs text-muted-foreground">Connect a wallet to see your position.</p>
+      ) : !userPosition ? (
+        <p className="text-xs text-muted-foreground">No position in this market yet.</p>
       ) : (
-        <div className="w-full lg:w-80 lg:shrink-0">
-          <div className="trade-panel text-center">
-            <h2 className="mb-2 text-base font-bold text-foreground">Market Result</h2>
-            <div className="text-2xl font-bold text-primary">{getResultText()}</div>
-            <div className="mt-4 space-y-2 text-sm text-muted-foreground">
-              <div className="flex justify-between">
-                <span>Yes</span>
-                <span>{view.yesShares} ({((currentPrice?.yes ?? 0) * 100).toFixed(1)}%)</span>
-              </div>
-              <div className="flex justify-between">
-                <span>No</span>
-                <span>{view.noShares} ({((currentPrice?.no ?? 0) * 100).toFixed(1)}%)</span>
-              </div>
+        <>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">YES shares</span>
+              <span className="font-semibold text-oracle-yes">{fmtCC(userPosition.yesShares, 2)}</span>
             </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">NO shares</span>
+              <span className="font-semibold text-oracle-no">{fmtCC(userPosition.noShares, 2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Cost basis</span>
+              <span className="font-semibold text-foreground">{fmtCC(userPosition.costBasisCC, 2)} CC</span>
+            </div>
+            <div className="flex justify-between border-t border-border pt-2">
+              <span className="text-muted-foreground">Value at current price</span>
+              <span className="font-semibold text-foreground">
+                {fmtCC(userPosition.yesShares * probYes + userPosition.noShares * probNo, 2)} CC
+              </span>
+            </div>
+          </div>
+        </>
+      )}
+      {holdings && (
+        <p className="mt-3 border-t border-border pt-2 text-xs text-muted-foreground">
+          Wallet balance: <span className="font-medium text-primary">{holdings.balance.toFixed(2)} CC</span>
+        </p>
+      )}
+    </div>
+  );
+
+  // ---- Sidebar: Your LP Position (Liquidity tab) ----
+  const yourLpBox = (
+    <div className="rounded-xl border border-oracle-blue/20 bg-oracle-blue/5 p-5">
+      <h3 className="mb-3 text-sm font-semibold text-foreground">Your LP Position</h3>
+      {!account ? (
+        <p className="text-xs text-muted-foreground">Connect a wallet to see your LP position.</p>
+      ) : !lpPosition || lpPosition.lpTokens <= 0 ? (
+        <p className="text-xs text-muted-foreground">No liquidity provided yet.</p>
+      ) : (
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">LP tokens</span>
+            <span className="font-semibold text-foreground">{fmtCC(lpPosition.lpTokens, 4)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Share of pool</span>
+            <span className="font-semibold text-foreground">
+              {market.lpTokenSupply > 0 ? ((lpPosition.lpTokens / market.lpTokenSupply) * 100).toFixed(2) : "0"}%
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Deposited</span>
+            <span className="font-semibold text-foreground">{fmtCC(lpPosition.depositedCC, 2)} CC</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">YES reserve share</span>
+            <span className="text-foreground">
+              {fmtCC(market.lpTokenSupply > 0 ? (lpPosition.lpTokens / market.lpTokenSupply) * market.reserveYes : 0, 2)}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">NO reserve share</span>
+            <span className="text-foreground">
+              {fmtCC(market.lpTokenSupply > 0 ? (lpPosition.lpTokens / market.lpTokenSupply) * market.reserveNo : 0, 2)}
+            </span>
+          </div>
+          <div className="flex justify-between border-t border-border pt-2">
+            <span className="text-muted-foreground">Fee pot (pool)</span>
+            <span className="text-foreground">{fmtCC(market.accumulatedFeesCC, 4)} CC</span>
           </div>
         </div>
       )}
+      {market.isDynamic && (
+        <p className="mt-3 rounded bg-oracle-purple/10 px-2 py-1.5 text-center text-[11px] text-oracle-purple">
+          Dynamic pool: LP locked until resolution; expected total LVR ≈ V₀/2.
+        </p>
+      )}
+    </div>
+  );
+
+  const subTabBtn = (active: boolean) =>
+    `flex-1 py-2 text-sm font-semibold transition-all ${active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"}`;
+
+  return (
+    <div className="space-y-6">
+      {/* ---------------- Market header ---------------- */}
+      <div>
+        <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs font-medium text-muted-foreground">
+          Market #{market.marketId}
+          {market.category && <span className="text-oracle-blue">{market.category}</span>}
+          {market.isDynamic && <span className="text-oracle-purple">dynamic pm-AMM</span>}
+        </div>
+        <h1 className="text-2xl font-bold leading-tight text-foreground sm:text-3xl">{market.question}</h1>
+        {market.description && <p className="mt-2 text-base text-muted-foreground">{market.description}</p>}
+      </div>
+
+      {/* ---------------- Market stat boxes ---------------- */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatBox
+          label="Current Probability"
+          value={`${(probYes * 100).toFixed(1)}%`}
+          sub="chance of Yes"
+          accent="text-oracle-yes"
+        />
+        <StatBox
+          label="Cumulative Token Volume"
+          value={`${fmtCC(market.totalVolumeCC, 2)} CC`}
+          sub="lifetime traded collateral"
+        />
+        <StatBox
+          label="Reserve Inventory"
+          value={fmtCC(reserveInventory, 2)}
+          sub={`${fmtCC(market.reserveYes, 2)} YES · ${fmtCC(market.reserveNo, 2)} NO`}
+        />
+        <StatBox
+          label="Trading Fee"
+          value={`${(market.feeBps / 100).toFixed(2)}%`}
+          sub={`pool value ${fmtCC(currentPoolValue, 2)} CC`}
+        />
+      </div>
+
+      {/* ---------------- Phase indicator ---------------- */}
+      <div className={`rounded-xl border px-4 py-3 text-sm font-medium ${phaseBanner.cls}`}>
+        {phase === "trading" && <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-oracle-yes" />}
+        {phaseBanner.text}
+      </div>
+
+      {/* Probability bar */}
+      <div className="rounded-xl border border-border bg-card p-4">
+        <div className="mb-1.5 flex items-baseline justify-between text-sm">
+          <span className="font-bold text-oracle-yes">Yes {(probYes * 100).toFixed(1)}¢</span>
+          <span className="font-bold text-oracle-no">No {(probNo * 100).toFixed(1)}¢</span>
+        </div>
+        <div className="prob-bar">
+          <div className="prob-bar-yes" style={{ width: `${probYes * 100}%` }} />
+        </div>
+      </div>
+
+      {market.resolutionDescription && (
+        <p className="rounded-lg border border-border bg-secondary/50 px-4 py-3 text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">Resolution criteria: </span>
+          {market.resolutionDescription}
+          {tiers.length > 0 && (
+            <span className="block pt-1 text-xs">
+              <span className="font-medium text-foreground">Policy: </span>
+              {tiers.join(" · ")}
+              {market.policy.sources.length > 0 && ` · Sources: ${market.policy.sources.join(", ")}`}
+            </span>
+          )}
+        </p>
+      )}
+
+      {/* ---------------- Main tabs ---------------- */}
+      <div className="flex gap-1 rounded-full bg-secondary p-1">
+        {tabs.filter((t) => t.visible).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setMainTab(t.key)}
+            className={`tab-pill ${mainTab === t.key ? "tab-pill-active" : "tab-pill-inactive"}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ================= TRADE TAB ================= */}
+      {mainTab === "trade" && (
+        <div className="flex flex-col gap-6 lg:flex-row">
+          <div className="flex-1 space-y-4">
+            {/* Sub-toggle: Swap Tokens / Mint Set */}
+            <div className="flex overflow-hidden rounded-lg border border-border">
+              <button onClick={() => setTradeSubTab("swap")} className={subTabBtn(tradeSubTab === "swap")}>
+                Swap Tokens
+              </button>
+              <button onClick={() => setTradeSubTab("mint")} className={subTabBtn(tradeSubTab === "mint")}>
+                Mint Set
+              </button>
+            </div>
+
+            {phase !== "trading" && phase !== "liquidity_period" ? (
+              <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                Trading is closed — the market has {phase === "expired" || phase === "proposed" ? "expired and awaits resolution" : "settled"}.
+              </div>
+            ) : tradeSubTab === "swap" && phase === "liquidity_period" ? (
+              <div className="rounded-xl border border-dashed border-oracle-blue/40 p-8 text-center text-sm text-muted-foreground">
+                Swaps open when trading starts in{" "}
+                <span className="font-semibold text-oracle-blue">
+                  {fmtCountdown(market.createdAt + market.liquidityPeriodSecs, nowSecs)}
+                </span>
+                . Meanwhile you can mint complete sets and add liquidity.
+              </div>
+            ) : tradeSubTab === "swap" ? (
+              <div className="trade-panel">
+                <div className="mb-4 flex overflow-hidden rounded-lg border border-border">
+                  <button onClick={() => setTradeSide("buy")} className={subTabBtn(tradeSide === "buy")}>
+                    Buy
+                  </button>
+                  <button onClick={() => setTradeSide("sell")} className={subTabBtn(tradeSide === "sell")}>
+                    Sell
+                  </button>
+                  <button onClick={() => setTradeSide("convert")} className={subTabBtn(tradeSide === "convert")}>
+                    Convert
+                  </button>
+                </div>
+
+                <div className="mb-4 flex flex-col gap-2">
+                  <button
+                    onClick={() => setSelectedSide("yes")}
+                    className={
+                      selectedSide === "yes"
+                        ? "rounded-lg border-2 border-oracle-yes bg-oracle-yes/20 py-2.5 text-sm font-bold text-oracle-yes ring-2 ring-oracle-yes/30"
+                        : "rounded-lg border border-oracle-yes/30 py-2.5 text-sm font-semibold text-oracle-yes hover:bg-oracle-yes/10"
+                    }
+                  >
+                    Yes — {(probYes * 100).toFixed(1)}¢
+                  </button>
+                  <button
+                    onClick={() => setSelectedSide("no")}
+                    className={
+                      selectedSide === "no"
+                        ? "rounded-lg border-2 border-oracle-no bg-oracle-no/20 py-2.5 text-sm font-bold text-oracle-no ring-2 ring-oracle-no/30"
+                        : "rounded-lg border border-oracle-no/30 py-2.5 text-sm font-semibold text-oracle-no hover:bg-oracle-no/10"
+                    }
+                  >
+                    No — {(probNo * 100).toFixed(1)}¢
+                  </button>
+                </div>
+
+                <div className="mb-3">
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    {tradeSide === "buy"
+                      ? "Spend (CC)"
+                      : tradeSide === "sell"
+                        ? "Shares to sell"
+                        : `Shares to convert (from ${selectedSide === "no" ? "NO" : "YES"})`}
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={tradeSide === "buy" ? (collateralIn || "") : (sharesIn || "")}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      const val = isNaN(v) || v < 0 ? 0 : v;
+                      if (tradeSide === "buy") setCollateralIn(val);
+                      else setSharesIn(val);
+                    }}
+                    placeholder="0.0"
+                    className="input-field text-center"
+                  />
+                </div>
+
+                <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Slippage</span>
+                  <div className="flex gap-1">
+                    {SLIPPAGE_OPTIONS.map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setSlippage(s)}
+                        className={`rounded px-2 py-0.5 ${slippage === s ? "bg-primary text-primary-foreground" : "bg-secondary"}`}
+                      >
+                        {(s * 100).toFixed(1)}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {tradeSide === "buy" && buyQuote && (
+                  <div className="mb-3 space-y-1 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
+                    <div className="flex justify-between"><span>Est. shares</span><span className="text-foreground">{fmtCC(buyQuote.sharesOut, 3)}</span></div>
+                    <div className="flex justify-between"><span>Min received</span><span>{fmtCC(buyQuote.sharesOut * (1 - slippage), 3)}</span></div>
+                    <div className="flex justify-between"><span>Avg price</span><span>{(buyQuote.avgPrice * 100).toFixed(1)}¢</span></div>
+                    <div className="flex justify-between"><span>Fee</span><span>{fmtCC(buyQuote.fee)} CC</span></div>
+                    <div className={`flex justify-between ${buyQuote.priceImpact > 0.05 ? "text-oracle-no" : ""}`}>
+                      <span>Price impact</span><span>{(buyQuote.priceImpact * 100).toFixed(2)}%</span>
+                    </div>
+                  </div>
+                )}
+                {tradeSide === "sell" && sellQuote && (
+                  <div className="mb-3 space-y-1 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
+                    <div className="flex justify-between"><span>Est. proceeds</span><span className="text-foreground">{fmtCC(sellQuote.netProceeds)} CC</span></div>
+                    <div className="flex justify-between"><span>Min received</span><span>{fmtCC(sellQuote.netProceeds * (1 - slippage))} CC</span></div>
+                    <div className="flex justify-between"><span>Avg price</span><span>{(sellQuote.avgPrice * 100).toFixed(1)}¢</span></div>
+                    <div className="flex justify-between"><span>Fee</span><span>{fmtCC(sellQuote.fee)} CC</span></div>
+                  </div>
+                )}
+                {tradeSide === "convert" && swapQuote && selectedSide && (
+                  <div className="mb-3 space-y-1 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
+                    <div className="flex justify-between">
+                      <span>Est. {selectedSide === "yes" ? "NO" : "YES"} received</span>
+                      <span className="text-foreground">{fmtCC(swapQuote.sharesOut, 3)}</span>
+                    </div>
+                    <div className="flex justify-between"><span>Min received</span><span>{fmtCC(swapQuote.sharesOut * (1 - slippage), 3)}</span></div>
+                    <div className="flex justify-between"><span>Fee (input shares)</span><span>{fmtCC(swapQuote.fee, 3)}</span></div>
+                    <div className={`flex justify-between ${swapQuote.priceImpact > 0.05 ? "text-oracle-no" : ""}`}>
+                      <span>Price impact</span><span>{(swapQuote.priceImpact * 100).toFixed(2)}%</span>
+                    </div>
+                  </div>
+                )}
+
+                {(() => {
+                  const reason = !account
+                    ? "Connect wallet"
+                    : busy !== null
+                      ? "Submitting…"
+                      : !selectedSide
+                        ? tradeSide === "convert" ? "Select the side to convert from" : "Select Yes or No"
+                        : tradeSide === "buy"
+                          ? collateralIn <= 0 ? "Enter CC to spend" : null
+                          : sharesIn <= 0
+                            ? tradeSide === "convert" ? "Enter shares to convert" : "Enter shares to sell"
+                            : null;
+                  const disabled = reason !== null;
+                  return (
+                    <button
+                      onClick={handleTradeClick}
+                      disabled={disabled}
+                      className={`w-full rounded-lg py-3 text-sm font-bold transition-all ${
+                        disabled
+                          ? "cursor-not-allowed bg-secondary text-muted-foreground"
+                          : "bg-primary text-primary-foreground hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/20"
+                      }`}
+                    >
+                      {reason ??
+                        (tradeSide === "buy"
+                          ? "Buy Shares"
+                          : tradeSide === "sell"
+                            ? "Sell Shares"
+                            : `Convert ${selectedSide === "no" ? "NO → YES" : "YES → NO"}`)}
+                    </button>
+                  );
+                })()}
+                <p className="mt-2 text-center text-xs text-muted-foreground">
+                  Executed on-ledger by the pm-AMM; your slippage bound protects the quote.
+                </p>
+              </div>
+            ) : (
+              <div className="trade-panel">
+                <div className="mb-4 flex overflow-hidden rounded-lg border border-border">
+                  <button onClick={() => setMintMode("mint")} className={subTabBtn(mintMode === "mint")}>
+                    Mint
+                  </button>
+                  <button onClick={() => setMintMode("merge")} className={subTabBtn(mintMode === "merge")}>
+                    Merge
+                  </button>
+                </div>
+                <p className="mb-3 text-center text-xs text-muted-foreground">
+                  {mintMode === "mint"
+                    ? "Deposit CC to mint complete sets: 1 CC → 1 YES + 1 NO (no price impact)."
+                    : "Burn equal YES + NO pairs back into CC: 1 pair → 1 CC."}
+                </p>
+                <input
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={splitMergeAmount || ""}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value);
+                    setSplitMergeAmount(isNaN(v) || v < 0 ? 0 : v);
+                  }}
+                  placeholder={mintMode === "mint" ? "CC to deposit" : "Pairs to merge"}
+                  className="input-field mb-3 text-center"
+                />
+                {splitMergeAmount > 0 && (
+                  <div className="mb-3 space-y-1 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
+                    {mintMode === "mint" ? (
+                      <>
+                        <div className="flex justify-between"><span>You deposit</span><span className="text-foreground">{fmtCC(splitMergeAmount)} CC</span></div>
+                        <div className="flex justify-between"><span>You receive</span><span className="text-foreground">{fmtCC(splitMergeAmount, 2)} YES + {fmtCC(splitMergeAmount, 2)} NO</span></div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex justify-between"><span>You burn</span><span className="text-foreground">{fmtCC(splitMergeAmount, 2)} YES + {fmtCC(splitMergeAmount, 2)} NO</span></div>
+                        <div className="flex justify-between"><span>You receive</span><span className="text-foreground">{fmtCC(splitMergeAmount)} CC</span></div>
+                      </>
+                    )}
+                  </div>
+                )}
+                <button
+                  onClick={() => handleSplitMerge(mintMode === "mint" ? "split" : "merge")}
+                  disabled={busy !== null || splitMergeAmount <= 0 || !account || (mintMode === "merge" && !userPosition)}
+                  className="w-full rounded-lg bg-primary py-3 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-secondary disabled:text-muted-foreground"
+                >
+                  {busy === "splitmerge" ? "Submitting…" : mintMode === "mint" ? "Mint Complete Set" : "Merge Complete Set"}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Sidebar: Your Position */}
+          <div className="w-full space-y-4 lg:w-80 lg:shrink-0">{yourPositionBox}</div>
+        </div>
+      )}
+
+      {/* ================= LIQUIDITY TAB ================= */}
+      {mainTab === "liquidity" && (
+        <div className="flex flex-col gap-6 lg:flex-row">
+          <div className="flex-1 space-y-4">
+            {/* Sub-toggle: Add / Remove */}
+            <div className="flex overflow-hidden rounded-lg border border-border">
+              <button onClick={() => setLiquiditySubTab("add")} className={subTabBtn(liquiditySubTab === "add")}>
+                Add Liquidity
+              </button>
+              <button onClick={() => setLiquiditySubTab("remove")} className={subTabBtn(liquiditySubTab === "remove")}>
+                Remove Liquidity
+              </button>
+            </div>
+
+            {liquiditySubTab === "add" ? (
+              !canProvideLiquidity ? (
+                <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                  Liquidity can only be added before the market expires.
+                </div>
+              ) : (
+                <div className="trade-panel">
+                  <p className="mb-3 text-center text-xs text-muted-foreground">
+                    Value-based deposit: name a pool-value increase ΔV; the pool scales reserves and L
+                    by (V+ΔV)/V so the price is untouched. ΔL = ΔV / φ(Φ⁻¹(P)).
+                  </p>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    Desired pool-value increase (CC)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={liquidityValue || ""}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      setLiquidityValue(isNaN(v) || v < 0 ? 0 : v);
+                    }}
+                    placeholder="0.0"
+                    className="input-field mb-3 text-center"
+                  />
+                  {liquidityQuote && (
+                    <div className="mb-3 space-y-1 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
+                      <div className="flex justify-between"><span>Collateral cost</span><span className="text-foreground">{fmtCC(liquidityQuote.costCC)} CC</span></div>
+                      <div className="flex justify-between"><span>LP tokens minted</span><span>{fmtCC(liquidityQuote.lpMinted, 4)}</span></div>
+                      <div className="flex justify-between"><span>Share of pool</span><span>{(liquidityQuote.shareOfPool * 100).toFixed(2)}%</span></div>
+                      <div className="flex justify-between"><span>New L₀</span><span>{fmtCC(liquidityQuote.newL, 2)}</span></div>
+                    </div>
+                  )}
+                  <button
+                    onClick={handleProvideLiquidity}
+                    disabled={busy !== null || liquidityValue <= 0 || !account}
+                    className="w-full rounded-lg bg-primary py-3 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-secondary disabled:text-muted-foreground"
+                  >
+                    {busy === "liquidity" ? "Submitting…" : "Add Liquidity"}
+                  </button>
+                </div>
+              )
+            ) : (
+              <div className="trade-panel">
+                {!lpPosition || lpPosition.lpTokens <= 0 ? (
+                  <div className="p-4 text-center text-sm text-muted-foreground">No LP position to remove.</div>
+                ) : (
+                  <>
+                    <p className="mb-3 text-center text-xs text-muted-foreground">
+                      {market.isDynamic && phase !== "resolved" && phase !== "voided"
+                        ? "Dynamic pool — removal unlocks after resolution/void (uniform-LVR design)."
+                        : phase === "resolved"
+                          ? "Pool is settled: you receive your share of the winning reserve + accrued fees as CC."
+                          : phase === "voided"
+                            ? "Market voided: you receive your deposit share + accrued fees as CC."
+                            : "Static pool: early removal returns proportional YES/NO shares + fee share."}
+                    </p>
+                    <div className="mb-2 flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={withdrawPct}
+                        onChange={(e) => setWithdrawPct(Number(e.target.value))}
+                        className="flex-1"
+                      />
+                      <span className="w-12 text-right text-sm text-foreground">{withdrawPct}%</span>
+                    </div>
+                    <div className="mb-3 flex gap-1">
+                      {[25, 50, 75, 100].map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => setWithdrawPct(p)}
+                          className={`flex-1 rounded px-2 py-1 text-xs ${withdrawPct === p ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"}`}
+                        >
+                          {p}%
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mb-3 space-y-1 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
+                      <div className="flex justify-between">
+                        <span>LP to burn</span>
+                        <span className="text-foreground">{fmtCC(lpPosition.lpTokens * (withdrawPct / 100), 4)}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleWithdrawLiquidity}
+                      disabled={busy !== null || withdrawPct <= 0 || (market.isDynamic && phase !== "resolved" && phase !== "voided")}
+                      className="w-full rounded-lg border border-oracle-blue/30 bg-oracle-blue/10 py-3 text-sm font-bold text-oracle-blue hover:bg-oracle-blue/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {busy === "withdraw"
+                        ? "Withdrawing…"
+                        : market.isDynamic && phase !== "resolved" && phase !== "voided"
+                          ? "Locked until resolution"
+                          : "Remove Liquidity"}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Sidebar: Your LP Position */}
+          <div className="w-full space-y-4 lg:w-80 lg:shrink-0">{yourLpBox}</div>
+        </div>
+      )}
+
+      {/* ================= RESOLVE TAB ================= */}
+      {mainTab === "resolve" && showResolveTab && (
+        <div className="flex flex-col gap-6 lg:flex-row">
+          <div className="flex-1 space-y-4">
+            {/* T3 optimistic flow */}
+            {market.policy.challengeSecs > 0 && (
+              <div className="trade-panel border-oracle-purple/30">
+                <div className="mb-3 text-center">
+                  <h2 className="text-sm font-bold text-foreground">Optimistic Resolution (T3)</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Bond {fmtCC(market.policy.bondCC)} CC · challenges escalate to the objective tier, never a vote.
+                  </p>
+                </div>
+                {phase === "expired" && (
+                  <div className="flex gap-2">
+                    {(["Yes", "No"] as OutcomeArg[]).map((o) => (
+                      <button
+                        key={o}
+                        onClick={() => handlePropose(o)}
+                        disabled={busy !== null || !account}
+                        className={`flex-1 rounded-lg border py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
+                          o === "Yes"
+                            ? "border-oracle-yes/30 text-oracle-yes hover:bg-oracle-yes/10"
+                            : "border-oracle-no/30 text-oracle-no hover:bg-oracle-no/10"
+                        }`}
+                      >
+                        Propose {o}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {phase === "proposed" && market.proposal && (
+                  <div className="space-y-3">
+                    <div className="rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
+                      <div className="flex justify-between"><span>Proposed</span><span className="text-foreground">{market.proposal.proposedOutcome}</span></div>
+                      <div className="flex justify-between"><span>Window closes</span><span>{fmtCountdown(market.proposal.proposedAt + market.policy.challengeSecs, nowSecs)}</span></div>
+                      {market.proposal.challenger && (
+                        <div className="flex justify-between text-oracle-no"><span>Challenged with</span><span>{market.proposal.challengerOutcome}</span></div>
+                      )}
+                    </div>
+                    {!market.proposal.challenger && nowSecs <= market.proposal.proposedAt + market.policy.challengeSecs && (
+                      <button
+                        onClick={() => handleChallenge(market.proposal!.proposedOutcome === "Yes" ? "No" : "Yes")}
+                        disabled={busy !== null || !account}
+                        className="w-full rounded-lg border border-oracle-no/30 py-2 text-sm font-semibold text-oracle-no hover:bg-oracle-no/10 disabled:opacity-50"
+                      >
+                        Challenge with {market.proposal.proposedOutcome === "Yes" ? "No" : "Yes"} (+bond)
+                      </button>
+                    )}
+                    {!market.proposal.challenger && nowSecs > market.proposal.proposedAt + market.policy.challengeSecs && (
+                      <button
+                        onClick={handleFinalize}
+                        disabled={busy !== null || !account}
+                        className="w-full rounded-lg bg-primary py-2 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                      >
+                        {busy === "finalize" ? "Finalizing…" : "Finalize proposal"}
+                      </button>
+                    )}
+                    {market.proposal.challenger && (
+                      <p className="text-center text-xs text-muted-foreground">
+                        Awaiting objective escalation (reporter quorum / signed source).
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Admin resolution console */}
+            {isAdmin && (
+              <div className="trade-panel border-oracle-no/20">
+                <div className="mb-4 text-center">
+                  <h2 className="text-sm font-bold text-foreground">Operator Resolution</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">Admin only — irreversible.</p>
+                </div>
+
+                {market.policy.operatorResolution && phase === "expired" && (
+                  <>
+                    <div className="mb-3 flex flex-col gap-2">
+                      {(["Yes", "No", "VoidOutcome"] as OutcomeArg[]).map((r) => (
+                        <button
+                          key={r}
+                          onClick={() => setResolveOutcome(r)}
+                          className={`rounded-lg py-2 text-sm font-semibold transition-all ${
+                            resolveOutcome === r
+                              ? r === "Yes"
+                                ? "border-2 border-oracle-yes bg-oracle-yes/20 text-oracle-yes"
+                                : r === "No"
+                                  ? "border-2 border-oracle-no bg-oracle-no/20 text-oracle-no"
+                                  : "border-2 border-border bg-secondary text-foreground"
+                              : "border border-border text-muted-foreground hover:bg-secondary"
+                          }`}
+                        >
+                          {r === "Yes" ? "Yes wins" : r === "No" ? "No wins" : "Void market"}
+                        </button>
+                      ))}
+                    </div>
+                    {market.policy.sources.length > 0 && (
+                      <select
+                        value={resolveSource || market.policy.sources[0]}
+                        onChange={(e) => setResolveSource(e.target.value)}
+                        className="input-field mb-3 text-sm"
+                      >
+                        {market.policy.sources.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    )}
+                    <button
+                      onClick={handleResolveT0}
+                      className="mb-3 w-full rounded-lg bg-oracle-no/20 py-2.5 text-sm font-bold text-oracle-no ring-1 ring-oracle-no/30 hover:bg-oracle-no/30 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={busy !== null || !account}
+                    >
+                      {busy === "resolve" ? "Resolving…" : "Resolve (T0 operator)"}
+                    </button>
+                  </>
+                )}
+
+                {(market.policy.reporters.length > 0 || market.policy.sourceKeys.length > 0) && (
+                  <div className="mb-3 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
+                    <div className="mb-1 font-medium text-foreground">
+                      Attestations ({attestations.length})
+                      {market.policy.quorum > 0 && ` — need ${market.policy.quorum} agreeing`}
+                    </div>
+                    {attestations.slice(0, 5).map((a) => (
+                      <div key={a.contractId} className="flex justify-between">
+                        <span className="truncate pr-2">{a.attester.slice(0, 18)}…</span>
+                        <span className={a.outcome === "Yes" ? "text-oracle-yes" : a.outcome === "No" ? "text-oracle-no" : ""}>
+                          {a.outcome}{a.hasSourceSignature ? " ✓T1" : ""}
+                        </span>
+                      </div>
+                    ))}
+                    <button
+                      onClick={handleResolveWithAttestations}
+                      disabled={busy !== null || attestations.length === 0}
+                      className="mt-2 w-full rounded border border-border py-1.5 font-semibold text-foreground hover:bg-secondary disabled:opacity-50"
+                    >
+                      Resolve from attestations (T1/T2)
+                    </button>
+                  </div>
+                )}
+
+                {nowSecs > market.expiresAt + market.gracePeriodSecs && (
+                  <button
+                    onClick={handleVoidMarket}
+                    disabled={busy !== null}
+                    className="w-full rounded-lg border border-border py-2 text-sm font-semibold text-muted-foreground hover:bg-secondary disabled:opacity-50"
+                  >
+                    {busy === "void" ? "Voiding…" : "Void market (grace elapsed)"}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="w-full space-y-4 lg:w-80 lg:shrink-0">{yourPositionBox}</div>
+        </div>
+      )}
+
+      {/* ================= SETTLE TAB ================= */}
+      {mainTab === "settle" && showSettleTab && (
+        <div className="flex flex-col gap-6 lg:flex-row">
+          <div className="flex-1 space-y-4">
+            <div className="trade-panel text-center">
+              <h2 className="mb-2 text-base font-bold text-foreground">Market Result</h2>
+              <div className="text-2xl font-bold text-primary">
+                {phase === "voided" ? "Voided" : market.outcome === "Yes" ? "Winner: Yes" : market.outcome === "No" ? "Winner: No" : "Void"}
+              </div>
+              <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+                <div className="flex justify-between"><span>Final probability</span><span>{(probYes * 100).toFixed(1)}% Yes</span></div>
+                <div className="flex justify-between"><span>Total volume</span><span>{fmtCC(market.totalVolumeCC, 2)} CC</span></div>
+                {market.resolvedAt && (
+                  <div className="flex justify-between"><span>Settled</span><span>{new Date(market.resolvedAt * 1000).toLocaleString()}</span></div>
+                )}
+              </div>
+            </div>
+
+            <div className="trade-panel">
+              <h3 className="mb-3 text-center text-sm font-bold text-foreground">Redeem Position</h3>
+              {!userPosition ? (
+                <p className="text-center text-sm text-muted-foreground">No position to redeem.</p>
+              ) : (
+                <>
+                  <div className="mb-3 space-y-1 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
+                    <div className="flex justify-between"><span>YES held</span><span className="text-oracle-yes">{fmtCC(userPosition.yesShares, 2)}</span></div>
+                    <div className="flex justify-between"><span>NO held</span><span className="text-oracle-no">{fmtCC(userPosition.noShares, 2)}</span></div>
+                    <div className="flex justify-between border-t border-border pt-1">
+                      <span>{phase === "voided" ? "Refund (cost basis)" : "Payout (1 CC / winning share)"}</span>
+                      <span className="font-bold text-primary">{fmtCC(redeemable)} CC</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleRedeem}
+                    disabled={busy !== null || redeemable <= 0 || !account}
+                    className="w-full rounded-lg bg-primary py-3 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-secondary disabled:text-muted-foreground"
+                  >
+                    {busy === "redeem"
+                      ? "Redeeming…"
+                      : redeemable > 0
+                        ? phase === "voided"
+                          ? `Redeem refund — ${fmtCC(redeemable)} CC`
+                          : `Redeem winnings — ${fmtCC(redeemable)} CC`
+                        : "Nothing to redeem"}
+                  </button>
+                </>
+              )}
+            </div>
+
+            {lpPosition && lpPosition.lpTokens > 0 && (
+              <div className="trade-panel">
+                <h3 className="mb-3 text-center text-sm font-bold text-foreground">Withdraw Liquidity</h3>
+                <p className="mb-3 text-center text-xs text-muted-foreground">
+                  {phase === "voided"
+                    ? "Deposit share + accrued fees returned as CC."
+                    : "Your share of the winning reserve + accrued fees, paid as CC."}
+                </p>
+                <button
+                  onClick={() => {
+                    setWithdrawPct(100);
+                    handleWithdrawLiquidity();
+                  }}
+                  disabled={busy !== null || !account}
+                  className="w-full rounded-lg border border-oracle-blue/30 bg-oracle-blue/10 py-3 text-sm font-bold text-oracle-blue hover:bg-oracle-blue/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {busy === "withdraw" ? "Withdrawing…" : "Withdraw all liquidity"}
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="w-full space-y-4 lg:w-80 lg:shrink-0">
+            {yourPositionBox}
+            {lpPosition && lpPosition.lpTokens > 0 && yourLpBox}
+          </div>
+        </div>
+      )}
+
+      {/* About pm-AMM */}
+      <div className="rounded-xl border border-border bg-card/50 p-5">
+        <h2 className="mb-2 text-sm font-semibold text-foreground">About pm-AMM pricing</h2>
+        <p className="text-sm text-muted-foreground">
+          This market runs Paradigm's prediction-market AMM: the YES price is the normal CDF
+          Φ((y−x)/L) of the pool's reserve imbalance, so quotes are calibrated probabilities that
+          always stay between 0 and 1. {market.isDynamic && "Liquidity decays as L·√(T−t) toward expiry, holding LP loss-versus-rebalancing uniform over the market's life."}
+        </p>
+      </div>
+
       <AlertDialog
         isOpen={stepTwoDialog.isOpen}
         leastDestructiveRef={stepTwoCancelRef}
@@ -1178,7 +1917,7 @@ const MarketView = () => {
                 Cancel (CC stays with admin)
               </Button>
               <Button colorScheme="green" onClick={confirmStepTwo} ml={3}>
-                Confirm Shares
+                Confirm
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>

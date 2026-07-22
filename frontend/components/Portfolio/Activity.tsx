@@ -1,56 +1,64 @@
 import { useCantonWallet } from "@/wallets";
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   fetchAllPredictionMarkets,
-  fetchAllResolvedMarkets,
-  fetchAllUserMarketDataPositions,
+  fetchAllUserPositions,
   type PredictionMarketRecord,
-  type ResolvedMarketRecord,
   type UserMarketPosition,
 } from "@/utils/activeContracts";
 import { Activity as ActivityIcon } from "lucide-react";
 
 /**
- * One row per market the user has a position in. Combines on-ledger UserMarketData
- * with the active/resolved PredictionMarket so we can render the question + option labels.
+ * One row per market the user has a Position in. Joins the on-ledger Position
+ * with the PredictionMarket (single template; status field carries lifecycle).
  */
 type ActivityRow = {
   position: UserMarketPosition;
-  market: PredictionMarketRecord | ResolvedMarketRecord | null;
-  /** "active" if PredictionMarket, "resolved" if ResolvedMarket, "unknown" if neither found. */
-  state: "active" | "resolved" | "unknown";
-  /** Resolved market result, only set when state === "resolved". */
-  result?: string;
-  /** Payout for this position if resolved (winning shares × payoutPerShareCC). */
-  payout?: number;
+  market: PredictionMarketRecord | null;
+  /** Redeemable CC (winning shares 1:1 when Resolved; bounded cost basis when Voided). */
+  redeemable: number;
 };
 
 function buildRows(
   positions: UserMarketPosition[],
-  actives: PredictionMarketRecord[],
-  resolved: ResolvedMarketRecord[],
+  markets: PredictionMarketRecord[],
 ): ActivityRow[] {
-  const activeById = new Map(actives.map((m) => [m.marketId, m]));
-  const resolvedById = new Map(resolved.map((m) => [m.marketId, m]));
-
+  const byId = new Map(markets.map((m) => [m.marketId, m]));
   return positions.map((position) => {
-    const active = activeById.get(position.marketId);
-    if (active) {
-      return { position, market: active, state: "active" as const };
+    const market = byId.get(position.marketId) ?? null;
+    let redeemable = 0;
+    if (market?.status === "Resolved") {
+      redeemable =
+        market.outcome === "Yes"
+          ? position.yesShares
+          : market.outcome === "No"
+            ? position.noShares
+            : 0;
+    } else if (market?.status === "Voided") {
+      redeemable = Math.min(
+        position.costBasisCC,
+        Math.max(position.yesShares, position.noShares),
+      );
     }
-    const done = resolvedById.get(position.marketId);
-    if (done) {
-      const winningShares = done.result === "Yes" ? position.yesShares : done.result === "No" ? position.noShares : 0;
-      return {
-        position,
-        market: done,
-        state: "resolved" as const,
-        result: done.result,
-        payout: winningShares * done.payoutPerShareCC,
-      };
-    }
-    return { position, market: null, state: "unknown" as const };
+    return { position, market, redeemable };
   });
+}
+
+function statusLabel(market: PredictionMarketRecord | null): string {
+  if (!market) return "Unknown";
+  switch (market.status) {
+    case "Trading":
+      return Math.floor(Date.now() / 1000) >= market.expiresAt ? "Awaiting resolution" : "Active";
+    case "Proposed":
+      return "Outcome proposed";
+    case "Resolved":
+      return `Resolved (${market.outcome ?? "?"})`;
+    case "Voided":
+      return "Voided";
+    default:
+      return market.status;
+  }
 }
 
 function Activity() {
@@ -65,12 +73,11 @@ function Activity() {
     }
     setLoading(true);
     try {
-      const [positions, actives, resolved] = await Promise.all([
-        fetchAllUserMarketDataPositions(account.address),
+      const [positions, markets] = await Promise.all([
+        fetchAllUserPositions(account.address),
         fetchAllPredictionMarkets(),
-        fetchAllResolvedMarkets(),
       ]);
-      setRows(buildRows(positions, actives, resolved));
+      setRows(buildRows(positions, markets));
     } finally {
       setLoading(false);
     }
@@ -80,7 +87,7 @@ function Activity() {
     fetchBets();
   }, [fetchBets]);
 
-  // Expose so MarketView.handleBuyClick can refresh us after a trade commits.
+  // Expose so MarketView can refresh us after a trade commits.
   useEffect(() => {
     (window as unknown as { refreshPortfolio?: () => void }).refreshPortfolio = fetchBets;
     return () => {
@@ -96,7 +103,8 @@ function Activity() {
           <h2 className="text-base font-extrabold text-slate-950">Trading Activity</h2>
         </div>
         <p className="mt-1 text-xs leading-5 text-slate-500">
-          Your active positions, resolved markets, invested CC, shares, and payouts.
+          Your positions across markets: cost basis, shares, and what's redeemable. Redeem from the
+          market page after resolution.
         </p>
       </div>
 
@@ -104,7 +112,7 @@ function Activity() {
         <div className="px-6 py-8 text-center text-sm text-slate-500">Loading positions...</div>
       ) : rows.length === 0 ? (
         <div className="px-6 py-8 text-center text-sm text-slate-500">
-          {account ? "No positions yet. Place a bet on a market to see it here." : "Connect a wallet to see your bets."}
+          {account ? "No positions yet. Trade on a market to see it here." : "Connect a wallet to see your positions."}
         </div>
       ) : (
         <div className="overflow-x-auto">
@@ -113,37 +121,43 @@ function Activity() {
               <tr>
                 <th className="px-5 py-3 font-bold sm:px-6">Question</th>
                 <th className="px-5 py-3 font-bold sm:px-6">Status</th>
-                <th className="px-5 py-3 text-right font-bold sm:px-6">Invested</th>
+                <th className="px-5 py-3 text-right font-bold sm:px-6">Cost basis</th>
                 <th className="px-5 py-3 text-right font-bold sm:px-6">Yes Shares</th>
                 <th className="px-5 py-3 text-right font-bold sm:px-6">No Shares</th>
-                <th className="px-5 py-3 text-right font-bold sm:px-6">Payout</th>
+                <th className="px-5 py-3 text-right font-bold sm:px-6">Redeemable</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {rows.map((row) => {
-                const m = row.market;
-                const question = m && "question" in m ? m.question : `Market #${row.position.marketId}`;
-                const statusLabel =
-                  row.state === "active"
-                    ? "Active"
-                    : row.state === "resolved"
-                      ? `Resolved (${row.result ?? "?"})`
-                      : "Unknown";
+                const question = row.market?.question ?? `Market #${row.position.marketId}`;
                 return (
                   <tr key={row.position.contractId} className="transition-colors hover:bg-slate-50">
-                    <td className="max-w-[380px] px-5 py-4 font-semibold text-slate-950 sm:px-6">{question}</td>
+                    <td className="max-w-[380px] px-5 py-4 font-semibold text-slate-950 sm:px-6">
+                      <Link to={`/market/${row.position.marketId}`} className="hover:text-primary">
+                        {question}
+                      </Link>
+                    </td>
                     <td className="px-5 py-4 sm:px-6">
                       <span className="rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-bold text-primary">
-                        {statusLabel}
+                        {statusLabel(row.market)}
                       </span>
                     </td>
                     <td className="px-5 py-4 text-right font-semibold sm:px-6">
-                      {row.position.amountInvestedCC.toFixed(2)} CC
+                      {row.position.costBasisCC.toFixed(2)} CC
                     </td>
-                    <td className="px-5 py-4 text-right sm:px-6">{row.position.yesShares}</td>
-                    <td className="px-5 py-4 text-right sm:px-6">{row.position.noShares}</td>
+                    <td className="px-5 py-4 text-right sm:px-6">{row.position.yesShares.toFixed(2)}</td>
+                    <td className="px-5 py-4 text-right sm:px-6">{row.position.noShares.toFixed(2)}</td>
                     <td className="px-5 py-4 text-right font-bold text-primary sm:px-6">
-                      {row.state === "resolved" ? `${(row.payout ?? 0).toFixed(2)} CC` : "-"}
+                      {row.redeemable > 0 ? (
+                        <Link
+                          to={`/market/${row.position.marketId}`}
+                          className="underline decoration-dotted hover:text-emerald-700"
+                        >
+                          {row.redeemable.toFixed(2)} CC — redeem
+                        </Link>
+                      ) : (
+                        "-"
+                      )}
                     </td>
                   </tr>
                 );

@@ -1,356 +1,694 @@
+-- Daml Script test suite for the TruthOracle dynamic pm-AMM and the
+-- tiered resolution model (T0-T3), per implementation plan D-A2/D-B*.
 module TruthoracleTest where
 
+import DA.Assert ((===))
+import DA.Foldable (forA_)
 import Daml.Script
+import PmAmmMath
 import Truthoracle
 
-externalUserText : Text
-externalUserText = "6ff9435fff4d4f43856f688e95a27368::12204e98dc339cc86c6d318f3746f99e880245b4a5827ef1e8bbe7ba6193ef8c0e58"
+-- Times (epoch seconds) used across scenarios.
+t0, tTrade, tExpiry, tAfterExpiry, tAfterGrace : Int
+t0 = 1000000
+tTrade = 1010000
+tExpiry = 1086400            -- t0 + 1 day
+tAfterExpiry = 1090000
+tAfterGrace = 1200000        -- past expiry + 1 day grace
+
+grace : Int
+grace = 86_400
+
+approxEq : Decimal -> Decimal -> Decimal -> Bool
+approxEq tol a b = abs (a - b) <= tol
+
+defaultPolicy : ResolutionPolicy
+defaultPolicy = ResolutionPolicy with
+  operatorResolution = True
+  sources = ["https://example.com/result"]
+  sourceKeys = []
+  reporters = []
+  quorum = 0
+  challengeSecs = 0
+  bondCC = 0.0
+
+setup : Script (Party, Party, Party)
+setup = do
+  admin <- allocateParty "Admin"
+  alice <- allocateParty "Alice"
+  bob <- allocateParty "Bob"
+  return (admin, alice, bob)
 
 createCounter : Party -> Script (ContractId MarketCounter)
 createCounter admin =
   submit admin do
     createCmd MarketCounter with admin; value = 0
 
-createMarket :
-  Party ->
-  ContractId MarketCounter ->
-  Script (ContractId MarketCounter, ContractId PredictionMarket)
-createMarket admin counterCid =
+mkMarket
+  : Party -> ContractId MarketCounter -> ResolutionPolicy -> Bool -> Decimal -> Decimal
+ -> Script (ContractId MarketCounter, ContractId PredictionMarket, ContractId LiquidityPosition)
+mkMarket admin counterCid policy isDynamic p0 v0 =
   submit admin do
     exerciseCmd counterCid CreateMarket with
-      question = "Will Canton volume exceed target?"
+      question = "Will Liverpool beat Brighton on 13 May 2026?"
       imageUrl = "https://example.com/market.png"
-      description = "Prediction market for test coverage"
-      resolutionDescription = "Resolved by admin"
-      createdAt = 100
-      initialYesShares = 10
-      initialNoShares = 20
-      liquidityParam = 50
+      description = "pm-AMM lifecycle test market"
+      resolutionDescription = "Opta full-time scoreline"
+      category = "Sports"
+      createdAt = t0
+      expiresAt = tExpiry
+      gracePeriodSecs = grace
+      isDynamic
+      liquidityPeriodSecs = 0
+      initialProbability = p0
+      initialValueCC = v0
+      feeBps = 30
+      prizeFeeShareBps = 2000
+      policy
+      auditObservers = []
 
-assertMarket :
-  Party ->
-  ContractId PredictionMarket ->
-  Int ->
-  Int ->
-  Int ->
-  Script ()
-assertMarket admin marketCid expectedMarketId expectedYes expectedNo = do
-  marketOpt <- queryContractId admin marketCid
-  case marketOpt of
-    None -> abort "Expected market to be visible to admin"
-    Some market -> do
-      assert (market.marketId == expectedMarketId)
-      assert (market.yesShares == expectedYes)
-      assert (market.noShares == expectedNo)
+fetchMarket : Party -> ContractId PredictionMarket -> Script PredictionMarket
+fetchMarket p cid = do
+  mOpt <- queryContractId p cid
+  case mOpt of
+    None -> abort "expected market visible"
+    Some m -> return m
 
-assertPosition :
-  Party ->
-  ContractId UserMarketData ->
-  Int ->
-  Int ->
-  Decimal ->
-  Script ()
-assertPosition user positionCid expectedYes expectedNo expectedInvested = do
-  posOpt <- queryContractId user positionCid
-  case posOpt of
-    None -> abort "Expected user position to be visible to user"
-    Some pos -> do
-      assert (pos.yesShares == expectedYes)
-      assert (pos.noShares == expectedNo)
-      assert (pos.amountInvestedCC == expectedInvested)
+-- ---------------------------------------------------------------------------
+-- pm-AMM math invariants (D-A2)
+-- ---------------------------------------------------------------------------
 
-assertPayout :
-  Party ->
-  ContractId PendingPayout ->
-  Party ->
-  Int ->
-  Decimal ->
-  Text ->
-  Script ()
-assertPayout admin payoutCid expectedUser expectedMarketId expectedAmount expectedReason = do
-  payoutOpt <- queryContractId admin payoutCid
-  case payoutOpt of
-    None -> abort "Expected payout to be visible to admin"
-    Some payout -> do
-      assert (payout.user == expectedUser)
-      assert (payout.marketId == expectedMarketId)
-      assert (payout.amountCC == expectedAmount)
-      assert (payout.reason == expectedReason)
+pmAmmMathInvariants : Script ()
+pmAmmMathInvariants = do
+  -- Normal distribution sanity.
+  assert (approxEq 0.0001 0.5 (normCdf 0.0))
+  assert (approxEq 0.0005 0.8413447461 (normCdf 1.0))
+  assert (approxEq 0.001 1.6448536270 (normInvCdf 0.95))
+  assert (approxEq 0.0001 0.3989422804 (normPdf 0.0))
+  -- Round trip: cdf(icdf(p)) == p across the simplex.
+  let ps = [0.05, 0.2, 0.5, 0.7, 0.95]
+  forA_ ps (\p -> assert (approxEq 0.001 p (normCdf (normInvCdf p))))
+  -- Closed-form reserves satisfy the invariant and reproduce the price.
+  forA_ ps (\p -> do
+    let l = 100.0
+        (x, y) = optimalReserves p l
+    assert (approxEq 0.01 0.0 (invariantValue x y l))
+    assert (approxEq 0.005 p (priceFromReserves x y l))
+    -- Pool value closed form: V = L * pdf(icdf P).
+    assert (approxEq 0.01 (poolValue p l) (l * normPdf (normInvCdf p))))
+  -- Time decay: L_eff = L0 * sqrt((T-t)/(T-t0)); halfway -> sqrt(0.5).
+  let lEffHalf = effectiveLiquidity True 100.0 0 100 50
+  assert (approxEq 0.01 70.7106781 lEffHalf)
+  effectiveLiquidity False 100.0 0 100 50 === 100.0
+  -- Buy/sell round trip loses only rounding + spread, never mints value.
+  let l = 100.0
+      (x, y) = optimalReserves 0.5 l
+      n = solveBuyShares x y l 10.0
+  -- 10 CC at ~0.5 must buy more than 10 but fewer than 20 YES.
+  assert (n > 10.0 && n < 20.0)
+  let c = solveSellProceeds (x + 10.0 - n) (y + 10.0) l n
+  assert (c <= 10.0 + 0.01 && c > 8.0)
 
-buyCreatesAndUpdatesUserPosition : Script ()
-buyCreatesAndUpdatesUserPosition = script do
-  admin <- allocateParty "Admin"
-  alice <- allocateParty "Alice"
+-- ---------------------------------------------------------------------------
+-- Lifecycle: create -> buy -> sell -> resolve (T0) -> redeem (D-A2, D-B1)
+-- ---------------------------------------------------------------------------
 
+lifecycleBuySellResolveRedeem : Script ()
+lifecycleBuySellResolveRedeem = do
+  (admin, alice, bob) <- setup
   counterCid <- createCounter admin
-  (_, marketCid) <- createMarket admin counterCid
+  (_, marketCid, _) <- mkMarket admin counterCid defaultPolicy True 0.5 100.0
 
-  (marketCid1, alicePosCid1) <- submitMulti [alice] [admin] do
+  m0 <- fetchMarket admin marketCid
+  m0.currentPrice === 0.5
+  m0.status === Trading
+  assert (m0.liquidityL > 0.0)
+
+  -- Alice buys YES with 10 CC (CC transfer trusted to have happened).
+  (marketCid, alicePosCid) <- submitMulti [alice] [admin] do
     exerciseCmd marketCid Buy with
       buyer = alice
-      side = 1
-      numShares = 5
-      costCC = 2.5
+      side = Yes
+      collateralCC = 10.0
+      minSharesOut = 1.0
+      nowSeconds = tTrade
       existingPosition = None
-  assertMarket admin marketCid1 1 15 20
-  assertPosition alice alicePosCid1 5 0 2.5
 
-  (marketCid2, alicePosCid2) <- submitMulti [alice] [admin] do
-    exerciseCmd marketCid1 Buy with
-      buyer = alice
-      side = 2
-      numShares = 3
-      costCC = 1.5
-      existingPosition = Some alicePosCid1
-  assertMarket admin marketCid2 1 15 23
-  assertPosition alice alicePosCid2 5 3 4.0
+  m1 <- fetchMarket admin marketCid
+  assert (m1.currentPrice > 0.5)  -- YES demand moves the price up
+  assert (m1.currentPrice < 1.0)
+  assert (m1.accumulatedFeesCC > 0.0)
+  assert (m1.prizePoolCC > 0.0)
+  m1.totalVolumeCC === 10.0
 
-  oldPosOpt <- queryContractId alice alicePosCid1
-  case oldPosOpt of
-    None -> return ()
-    Some _ -> abort "Expected old position to be archived after buy update"
+  Some alicePos <- queryContractId alice alicePosCid
+  assert (alicePos.yesShares > 10.0)  -- bought below 1.0/share
+  alicePos.costBasisCC === 10.0
 
-externalWalletUserCanTrade : Script ()
-externalWalletUserCanTrade = script do
-  admin <- allocateParty "Admin"
-  trader <- allocatePartyByHint (PartyIdHint externalUserText)
-  assert (partyToText trader == externalUserText)
-
-  counterCid <- createCounter admin
-  (_, marketCid) <- createMarket admin counterCid
-
-  (marketCid1, traderPosCid1) <- submitMulti [trader] [admin] do
+  -- Bob buys NO, price comes back down.
+  (marketCid, _) <- submitMulti [bob] [admin] do
     exerciseCmd marketCid Buy with
-      buyer = trader
-      side = 1
-      numShares = 7
-      costCC = 3.5
-      existingPosition = None
-
-  debug ("Trade 1 complete: user " <> partyToText trader <> " bought 7 YES shares")
-  assertMarket admin marketCid1 1 17 20
-  assertPosition trader traderPosCid1 7 0 3.5
-
-  (marketCid2, traderPosCid2) <- submitMulti [trader] [admin] do
-    exerciseCmd marketCid1 Buy with
-      buyer = trader
-      side = 2
-      numShares = 4
-      costCC = 2.0
-      existingPosition = Some traderPosCid1
-
-  debug ("Trade 2 complete: user " <> partyToText trader <> " bought 4 NO shares")
-  assertMarket admin marketCid2 1 17 24
-  assertPosition trader traderPosCid2 7 4 5.5
-
-  (marketCid3, traderPosCid3, payoutCid) <- submitMulti [trader] [admin] do
-    exerciseCmd marketCid2 Sell with
-      seller = trader
-      side = 1
-      numShares = 2
-      proceedsCC = 1.25
-      positionCid = traderPosCid2
-      nowSeconds = 9876
-
-  debug ("Trade 3 complete: user " <> partyToText trader <> " sold 2 YES shares and received pending payout")
-  assertMarket admin marketCid3 1 15 24
-  assertPosition trader traderPosCid3 5 4 5.5
-  assertPayout admin payoutCid trader 1 1.25 "sell"
-
-buyRejectsInvalidInputsAndWrongPosition : Script ()
-buyRejectsInvalidInputsAndWrongPosition = script do
-  admin <- allocateParty "Admin"
-  alice <- allocateParty "Alice"
-  bob <- allocateParty "Bob"
-
-  counterCid <- createCounter admin
-  (counterCid1, marketCid) <- createMarket admin counterCid
-  (_, otherMarketCid) <- createMarket admin counterCid1
-
-  alicePosCid <- submitMulti [alice] [admin] do
-    exerciseCmd marketCid Split with
-      user = alice
-      amount = 2
-      existingPosition = None
-
-  bobPosCid <- submitMulti [bob] [admin] do
-    exerciseCmd otherMarketCid Split with
-      user = bob
-      amount = 1
-      existingPosition = None
-
-  submitMultiMustFail [alice] [admin] do
-    exerciseCmd marketCid Buy with
-      buyer = alice
-      side = 3
-      numShares = 1
-      costCC = 1.0
-      existingPosition = None
-
-  submitMultiMustFail [alice] [admin] do
-    exerciseCmd marketCid Buy with
-      buyer = alice
-      side = 1
-      numShares = 0
-      costCC = 1.0
-      existingPosition = None
-
-  submitMultiMustFail [alice] [admin] do
-    exerciseCmd marketCid Buy with
-      buyer = alice
-      side = 1
-      numShares = 1
-      costCC = 0.0
-      existingPosition = None
-
-  submitMultiMustFail [alice] [admin] do
-    exerciseCmd marketCid Buy with
-      buyer = alice
-      side = 1
-      numShares = 1
-      costCC = 1.0
-      existingPosition = Some bobPosCid
-
-  submitMultiMustFail [bob] [admin] do
-    exerciseCmd otherMarketCid Buy with
       buyer = bob
-      side = 1
-      numShares = 1
-      costCC = 1.0
-      existingPosition = Some alicePosCid
+      side = No
+      collateralCC = 5.0
+      minSharesOut = 1.0
+      nowSeconds = tTrade + 100
+      existingPosition = None
+  m2 <- fetchMarket admin marketCid
+  assert (m2.currentPrice < m1.currentPrice)
 
-sellBurnsSharesAndCreatesPayout : Script ()
-sellBurnsSharesAndCreatesPayout = script do
-  admin <- allocateParty "Admin"
-  alice <- allocateParty "Alice"
+  -- Alice sells half her YES back.
+  let sellShares = 5.0
+  (marketCid, alicePosCid, payoutCid) <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid Sell with
+      seller = alice
+      side = Yes
+      sharesIn = sellShares
+      minProceedsCC = 0.5
+      nowSeconds = tTrade + 200
+      positionCid = alicePosCid
+  Some payout <- queryContractId alice payoutCid
+  payout.reason === "sell"
+  assert (payout.amountCC > 0.0 && payout.amountCC < sellShares)
+  submit admin do
+    exerciseCmd payoutCid MarkPaid with txHash = "0xtest"
 
-  counterCid <- createCounter admin
-  (_, marketCid) <- createMarket admin counterCid
+  -- Too-early resolution is rejected.
+  submitMustFail admin do
+    exerciseCmd marketCid ResolveT0 with
+      resolvedOutcome = Yes
+      sourceUri = "https://example.com/result"
+      nowSeconds = tTrade
+  -- Non-allowlisted source is rejected.
+  submitMustFail admin do
+    exerciseCmd marketCid ResolveT0 with
+      resolvedOutcome = Yes
+      sourceUri = "https://evil.example.com"
+      nowSeconds = tAfterExpiry
 
-  (marketCid1, alicePosCid1) <- submitMulti [alice] [admin] do
+  -- T0 resolve to YES.
+  marketCid <- submit admin do
+    exerciseCmd marketCid ResolveT0 with
+      resolvedOutcome = Yes
+      sourceUri = "https://example.com/result"
+      nowSeconds = tAfterExpiry
+  m3 <- fetchMarket admin marketCid
+  m3.status === Resolved
+  m3.outcome === Some Yes
+
+  -- Trading after resolution fails.
+  submitMultiMustFail [alice] [admin] do
     exerciseCmd marketCid Buy with
       buyer = alice
-      side = 1
-      numShares = 6
-      costCC = 3.0
+      side = Yes
+      collateralCC = 1.0
+      minSharesOut = 0.1
+      nowSeconds = tAfterExpiry
       existingPosition = None
 
-  (marketCid2, alicePosCid2, payoutCid) <- submitMulti [alice] [admin] do
-    exerciseCmd marketCid1 Sell with
-      seller = alice
-      side = 1
-      numShares = 4
-      proceedsCC = 2.0
-      positionCid = alicePosCid1
-      nowSeconds = 1234
+  -- Alice redeems: 1 CC per remaining winning YES share.
+  Some aliceFinal <- queryContractId alice alicePosCid
+  redeemCid <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid RedeemPosition with
+      holder = alice
+      nowSeconds = tAfterExpiry + 100
+      positionCid = alicePosCid
+  Some redeem <- queryContractId alice redeemCid
+  redeem.reason === "resolve"
+  redeem.amountCC === aliceFinal.yesShares
 
-  assertMarket admin marketCid2 1 12 20
-  assertPosition alice alicePosCid2 2 0 3.0
-  assertPayout admin payoutCid alice 1 2.0 "sell"
+-- ---------------------------------------------------------------------------
+-- Direct outcome-token swap (YES <-> NO)
+-- ---------------------------------------------------------------------------
 
-sellRejectsOversellAndBadSeller : Script ()
-sellRejectsOversellAndBadSeller = script do
-  admin <- allocateParty "Admin"
-  alice <- allocateParty "Alice"
-  bob <- allocateParty "Bob"
-
+swapSharesBetweenOutcomes : Script ()
+swapSharesBetweenOutcomes = do
+  (admin, alice, _) <- setup
   counterCid <- createCounter admin
-  (_, marketCid) <- createMarket admin counterCid
+  (_, marketCid, _) <- mkMarket admin counterCid defaultPolicy True 0.5 100.0
 
-  (marketCid1, alicePosCid) <- submitMulti [alice] [admin] do
+  -- Alice mints 10 complete sets, then swaps 5 NO -> YES.
+  posCid <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid Split with
+      user = alice
+      amount = 10.0
+      nowSeconds = tTrade
+      existingPosition = None
+  m0 <- fetchMarket admin marketCid
+
+  (marketCid, posCid) <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid SwapShares with
+      swapper = alice
+      fromSide = No
+      sharesIn = 5.0
+      minSharesOut = 1.0
+      nowSeconds = tTrade + 10
+      positionCid = posCid
+  Some pos <- queryContractId alice posCid
+  pos.noShares === 5.0
+  -- Swapping NO in at ~50% yields roughly as many YES out (minus fee/impact).
+  assert (pos.yesShares > 13.0 && pos.yesShares < 15.0)
+  m1 <- fetchMarket admin marketCid
+  -- Buying pressure on YES (NO in, YES out) moves the YES price up.
+  assert (m1.currentPrice > m0.currentPrice)
+
+  -- Cannot swap more than held.
+  submitMultiMustFail [alice] [admin] do
+    exerciseCmd marketCid SwapShares with
+      swapper = alice
+      fromSide = No
+      sharesIn = 50.0
+      minSharesOut = 1.0
+      nowSeconds = tTrade + 20
+      positionCid = posCid
+
+-- ---------------------------------------------------------------------------
+-- Pre-trading liquidity-collection window (dynamic pools)
+-- ---------------------------------------------------------------------------
+
+liquidityPeriodGatesTrading : Script ()
+liquidityPeriodGatesTrading = do
+  (admin, alice, _) <- setup
+  counterCid <- createCounter admin
+  let periodSecs = 3600
+  (_, marketCid, _) <- submit admin do
+    exerciseCmd counterCid CreateMarket with
+      question = "Liquidity-period market?"
+      imageUrl = ""
+      description = "dynamic pool with a pre-trading collection window"
+      resolutionDescription = "operator"
+      category = "Sports"
+      createdAt = t0
+      expiresAt = tExpiry
+      gracePeriodSecs = grace
+      isDynamic = True
+      liquidityPeriodSecs = periodSecs
+      initialProbability = 0.5
+      initialValueCC = 100.0
+      feeBps = 30
+      prizeFeeShareBps = 0
+      policy = defaultPolicy
+      auditObservers = []
+
+  let duringPeriod = t0 + 100
+  -- Buys are blocked during the collection window...
+  submitMultiMustFail [alice] [admin] do
     exerciseCmd marketCid Buy with
       buyer = alice
-      side = 2
-      numShares = 3
-      costCC = 1.0
+      side = Yes
+      collateralCC = 5.0
+      minSharesOut = 1.0
+      nowSeconds = duringPeriod
       existingPosition = None
+  -- ...but minting complete sets and providing liquidity are allowed.
+  posCid <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid Split with
+      user = alice
+      amount = 3.0
+      nowSeconds = duringPeriod
+      existingPosition = None
+  (marketCid, _) <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid ProvideLiquidity with
+      provider = alice
+      valueIncreaseCC = 10.0
+      maxCostCC = 50.0
+      nowSeconds = duringPeriod
+      existingLpPosition = None
+  -- After the window, trading opens.
+  (marketCid, _) <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid Buy with
+      buyer = alice
+      side = Yes
+      collateralCC = 5.0
+      minSharesOut = 1.0
+      nowSeconds = t0 + periodSecs + 10
+      existingPosition = Some posCid
+  m <- fetchMarket admin marketCid
+  assert (m.currentPrice > 0.5)
 
-  submitMultiMustFail [alice] [admin] do
-    exerciseCmd marketCid1 Sell with
-      seller = alice
-      side = 2
-      numShares = 4
-      proceedsCC = 1.0
-      positionCid = alicePosCid
-      nowSeconds = 1
+-- ---------------------------------------------------------------------------
+-- Split / Merge complete sets
+-- ---------------------------------------------------------------------------
 
-  submitMultiMustFail [bob] [admin] do
-    exerciseCmd marketCid1 Sell with
-      seller = bob
-      side = 2
-      numShares = 1
-      proceedsCC = 1.0
-      positionCid = alicePosCid
-      nowSeconds = 1
-
-splitAndMergeUserTradingFlow : Script ()
-splitAndMergeUserTradingFlow = script do
-  admin <- allocateParty "Admin"
-  alice <- allocateParty "Alice"
-
+splitMergeCompleteSets : Script ()
+splitMergeCompleteSets = do
+  (admin, alice, _) <- setup
   counterCid <- createCounter admin
-  (_, marketCid) <- createMarket admin counterCid
+  (_, marketCid, _) <- mkMarket admin counterCid defaultPolicy False 0.4 50.0
 
-  alicePosCid1 <- submitMulti [alice] [admin] do
+  posCid <- submitMulti [alice] [admin] do
     exerciseCmd marketCid Split with
       user = alice
-      amount = 5
+      amount = 7.0
+      nowSeconds = tTrade
       existingPosition = None
-  assertPosition alice alicePosCid1 5 5 5.0
+  Some pos <- queryContractId alice posCid
+  pos.yesShares === 7.0
+  pos.noShares === 7.0
+  pos.costBasisCC === 7.0
 
-  alicePosCid2 <- submitMulti [alice] [admin] do
-    exerciseCmd marketCid Split with
-      user = alice
-      amount = 2
-      existingPosition = Some alicePosCid1
-  assertPosition alice alicePosCid2 7 7 7.0
-
-  (alicePosCid3, payoutCid) <- submitMulti [alice] [admin] do
+  (posCid, payoutCid) <- submitMulti [alice] [admin] do
     exerciseCmd marketCid Merge with
       user = alice
-      amount = 4
-      positionCid = alicePosCid2
-      nowSeconds = 4567
-  assertPosition alice alicePosCid3 3 3 7.0
-  assertPayout admin payoutCid alice 1 4.0 "merge"
+      amount = 3.0
+      nowSeconds = tTrade + 10
+      positionCid = posCid
+  Some pos2 <- queryContractId alice posCid
+  pos2.yesShares === 4.0
+  pos2.noShares === 4.0
+  Some payout <- queryContractId alice payoutCid
+  payout.amountCC === 3.0
+  payout.reason === "merge"
 
-splitAndMergeRejectInvalidInputs : Script ()
-splitAndMergeRejectInvalidInputs = script do
-  admin <- allocateParty "Admin"
-  alice <- allocateParty "Alice"
-  bob <- allocateParty "Bob"
+  -- Over-merge fails.
+  submitMultiMustFail [alice] [admin] do
+    exerciseCmd marketCid Merge with
+      user = alice
+      amount = 100.0
+      nowSeconds = tTrade + 20
+      positionCid = posCid
 
+-- ---------------------------------------------------------------------------
+-- Value-based liquidity provision and withdrawal (D-A2)
+-- ---------------------------------------------------------------------------
+
+liquidityProvisionAndWithdrawal : Script ()
+liquidityProvisionAndWithdrawal = do
+  (admin, alice, _) <- setup
   counterCid <- createCounter admin
-  (_, marketCid) <- createMarket admin counterCid
+  -- Static pool so early withdrawal is allowed.
+  (_, marketCid, _) <- mkMarket admin counterCid defaultPolicy False 0.5 100.0
+  m0 <- fetchMarket admin marketCid
 
-  alicePosCid <- submitMulti [alice] [admin] do
-    exerciseCmd marketCid Split with
-      user = alice
-      amount = 2
+  (marketCid, lpCid) <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid ProvideLiquidity with
+      provider = alice
+      valueIncreaseCC = 25.0
+      maxCostCC = 100.0
+      nowSeconds = tTrade
+      existingLpPosition = None
+  m1 <- fetchMarket admin marketCid
+  -- Value-based deposit leaves the price unchanged and scales L by (V+dV)/V.
+  m1.currentPrice === m0.currentPrice
+  assert (approxEq 0.01 (m0.liquidityL * 1.25) m1.liquidityL)
+  assert (m1.lpTokenSupply > m0.lpTokenSupply)
+  Some lp <- queryContractId alice lpCid
+  assert (lp.lpTokens > 0.0)
+
+  -- Early exit (static): shares + fee split, LP burned.
+  (marketCid, _) <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid WithdrawLiquidity with
+      provider = alice
+      lpTokensToBurn = lp.lpTokens
+      nowSeconds = tTrade + 100
+      lpPositionCid = lpCid
       existingPosition = None
+  m2 <- fetchMarket admin marketCid
+  assert (m2.lpTokenSupply < m1.lpTokenSupply)
+  assert (m2.reserveYes < m1.reserveYes)
 
+dynamicLpLockedUntilResolution : Script ()
+dynamicLpLockedUntilResolution = do
+  (admin, alice, _) <- setup
+  counterCid <- createCounter admin
+  (_, marketCid, _) <- mkMarket admin counterCid defaultPolicy True 0.5 100.0
+  (marketCid, lpCid) <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid ProvideLiquidity with
+      provider = alice
+      valueIncreaseCC = 10.0
+      maxCostCC = 50.0
+      nowSeconds = tTrade
+      existingLpPosition = None
+  -- Locked while trading.
   submitMultiMustFail [alice] [admin] do
-    exerciseCmd marketCid Split with
-      user = alice
-      amount = 0
-      existingPosition = Some alicePosCid
+    exerciseCmd marketCid WithdrawLiquidity with
+      provider = alice
+      lpTokensToBurn = 1.0
+      nowSeconds = tTrade + 10
+      lpPositionCid = lpCid
+      existingPosition = None
+  -- After resolution the LP exits with winning reserve + fee share.
+  marketCid <- submit admin do
+    exerciseCmd marketCid ResolveT0 with
+      resolvedOutcome = No
+      sourceUri = "https://example.com/result"
+      nowSeconds = tAfterExpiry
+  Some lp <- queryContractId alice lpCid
+  (_, _) <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid WithdrawLiquidity with
+      provider = alice
+      lpTokensToBurn = lp.lpTokens
+      nowSeconds = tAfterExpiry + 10
+      lpPositionCid = lpCid
+      existingPosition = None
+  payouts <- query @PendingPayout alice
+  assert (any (\(_, p) -> p.reason == "liquidity" && p.user == alice) payouts)
 
+-- ---------------------------------------------------------------------------
+-- T2 reporter quorum (D-B3)
+-- ---------------------------------------------------------------------------
+
+reporterQuorumResolves : Script ()
+reporterQuorumResolves = do
+  (admin, alice, _) <- setup
+  r1 <- allocateParty "Reporter1"
+  r2 <- allocateParty "Reporter2"
+  r3 <- allocateParty "Reporter3"
+  let policy = defaultPolicy with
+        operatorResolution = False
+        reporters = [r1, r2, r3]
+        quorum = 2
+  counterCid <- createCounter admin
+  (_, marketCid, _) <- mkMarket admin counterCid policy True 0.5 100.0
+  m <- fetchMarket admin marketCid
+
+  -- T0 is disabled under this policy.
+  submitMustFail admin do
+    exerciseCmd marketCid ResolveT0 with
+      resolvedOutcome = Yes
+      sourceUri = "https://example.com/result"
+      nowSeconds = tAfterExpiry
+
+  let mkAtt reporter out = createCmd OutcomeAttestation with
+        attester = reporter
+        admin
+        marketId = m.marketId
+        sourceUri = "https://example.com/result"
+        fetchedAt = tAfterExpiry
+        outcome = out
+        payloadHash = "deadbeef"
+        sourceSignature = None
+        responseExcerpt = Some "2-1"
+  att1 <- submit r1 (mkAtt r1 Yes)
+  att2 <- submit r2 (mkAtt r2 Yes)
+  attBad <- submit r3 (mkAtt r3 No)
+
+  -- Disagreeing attestations cannot resolve.
+  submitMustFail admin do
+    exerciseCmd marketCid Resolve with
+      attestationCids = [att1, attBad]
+      nowSeconds = tAfterExpiry + 10
+  -- Sub-quorum cannot resolve.
+  submitMustFail admin do
+    exerciseCmd marketCid Resolve with
+      attestationCids = [att1]
+      nowSeconds = tAfterExpiry + 10
+  -- 2-of-3 agreeing attestations resolve.
+  marketCid <- submit admin do
+    exerciseCmd marketCid Resolve with
+      attestationCids = [att1, att2]
+      nowSeconds = tAfterExpiry + 10
+  m2 <- fetchMarket admin marketCid
+  m2.status === Resolved
+  m2.outcome === Some Yes
+
+-- ---------------------------------------------------------------------------
+-- T3 optimistic propose / challenge / finalize (D-B4)
+-- ---------------------------------------------------------------------------
+
+optimisticFinalizeUnchallenged : Script ()
+optimisticFinalizeUnchallenged = do
+  (admin, alice, bob) <- setup
+  let policy = defaultPolicy with
+        operatorResolution = False
+        challengeSecs = 3600
+        bondCC = 10.0
+  counterCid <- createCounter admin
+  (_, marketCid, _) <- mkMarket admin counterCid policy True 0.5 100.0
+
+  -- Propose before expiry fails.
   submitMultiMustFail [bob] [admin] do
-    exerciseCmd marketCid Split with
-      user = bob
-      amount = 1
-      existingPosition = Some alicePosCid
-
+    exerciseCmd marketCid ProposeOutcome with
+      proposer = bob
+      proposedOutcome = Yes
+      nowSeconds = tTrade
+  -- Bob proposes YES with a bond after expiry.
+  marketCid <- submitMulti [bob] [admin] do
+    exerciseCmd marketCid ProposeOutcome with
+      proposer = bob
+      proposedOutcome = Yes
+      nowSeconds = tAfterExpiry
+  m <- fetchMarket admin marketCid
+  m.status === Proposed
+  -- Finalize inside the window fails.
   submitMultiMustFail [alice] [admin] do
-    exerciseCmd marketCid Merge with
-      user = alice
-      amount = 3
-      positionCid = alicePosCid
-      nowSeconds = 1
+    exerciseCmd marketCid FinalizeOutcome with
+      finalizer = alice
+      nowSeconds = tAfterExpiry + 100
+  -- After the window, anyone finalizes; bond returns to the proposer.
+  marketCid <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid FinalizeOutcome with
+      finalizer = alice
+      nowSeconds = tAfterExpiry + 3700
+  m2 <- fetchMarket admin marketCid
+  m2.status === Resolved
+  m2.outcome === Some Yes
+  payouts <- query @PendingPayout bob
+  assert (any (\(_, p) -> p.reason == "bond" && p.user == bob && p.amountCC == 10.0) payouts)
 
+optimisticChallengeEscalatesToQuorum : Script ()
+optimisticChallengeEscalatesToQuorum = do
+  (admin, alice, bob) <- setup
+  r1 <- allocateParty "ReporterA"
+  r2 <- allocateParty "ReporterB"
+  let policy = defaultPolicy with
+        operatorResolution = False
+        reporters = [r1, r2]
+        quorum = 2
+        challengeSecs = 3600
+        bondCC = 10.0
+  counterCid <- createCounter admin
+  (_, marketCid, _) <- mkMarket admin counterCid policy True 0.5 100.0
+  m <- fetchMarket admin marketCid
+
+  -- Bob proposes NO (wrongly); Alice challenges with YES.
+  marketCid <- submitMulti [bob] [admin] do
+    exerciseCmd marketCid ProposeOutcome with
+      proposer = bob
+      proposedOutcome = No
+      nowSeconds = tAfterExpiry
+  marketCid <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid ChallengeOutcome with
+      challenger = alice
+      challengerOutcome = Yes
+      nowSeconds = tAfterExpiry + 100
+  -- A challenged proposal cannot be finalized - it must escalate.
   submitMultiMustFail [bob] [admin] do
-    exerciseCmd marketCid Merge with
-      user = bob
-      amount = 1
-      positionCid = alicePosCid
-      nowSeconds = 1
+    exerciseCmd marketCid FinalizeOutcome with
+      finalizer = bob
+      nowSeconds = tAfterExpiry + 3700
+  -- Reporters attest YES; Resolve settles and slashes Bob's bond to Alice.
+  let mkAtt reporter = createCmd OutcomeAttestation with
+        attester = reporter
+        admin
+        marketId = m.marketId
+        sourceUri = "https://example.com/result"
+        fetchedAt = tAfterExpiry + 200
+        outcome = Yes
+        payloadHash = "deadbeef"
+        sourceSignature = None
+        responseExcerpt = None
+  att1 <- submit r1 (mkAtt r1)
+  att2 <- submit r2 (mkAtt r2)
+  marketCid <- submit admin do
+    exerciseCmd marketCid Resolve with
+      attestationCids = [att1, att2]
+      nowSeconds = tAfterExpiry + 300
+  m2 <- fetchMarket admin marketCid
+  m2.status === Resolved
+  m2.outcome === Some Yes
+  payouts <- query @PendingPayout alice
+  assert (any (\(_, p) -> p.reason == "bond" && p.user == alice && p.amountCC == 20.0) payouts)
+
+-- ---------------------------------------------------------------------------
+-- Void path (expired without resolution) and void refunds (D-B1)
+-- ---------------------------------------------------------------------------
+
+voidRefundsCostBasis : Script ()
+voidRefundsCostBasis = do
+  (admin, alice, _) <- setup
+  counterCid <- createCounter admin
+  (_, marketCid, _) <- mkMarket admin counterCid defaultPolicy True 0.5 100.0
+  (marketCid, posCid) <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid Buy with
+      buyer = alice
+      side = Yes
+      collateralCC = 8.0
+      minSharesOut = 1.0
+      nowSeconds = tTrade
+      existingPosition = None
+  -- Void before grace elapses fails.
+  submitMustFail admin do
+    exerciseCmd marketCid VoidMarket with nowSeconds = tAfterExpiry
+  marketCid <- submit admin do
+    exerciseCmd marketCid VoidMarket with nowSeconds = tAfterGrace
+  m <- fetchMarket admin marketCid
+  m.status === Voided
+  refundCid <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid RedeemPosition with
+      holder = alice
+      nowSeconds = tAfterGrace + 10
+      positionCid = posCid
+  Some refund <- queryContractId alice refundCid
+  refund.reason === "void-refund"
+  refund.amountCC === 8.0
+
+-- ---------------------------------------------------------------------------
+-- Prediction-model marketplace: commit-before-outcome + Brier scoring (D-E1)
+-- ---------------------------------------------------------------------------
+
+forecastCommitAndScoring : Script ()
+forecastCommitAndScoring = do
+  (admin, alice, bob) <- setup
+  counterCid <- createCounter admin
+  (_, marketCid, _) <- mkMarket admin counterCid defaultPolicy True 0.5 100.0
+
+  -- Trade to fund the prize pool (20% of the 0.3% fee).
+  (marketCid, _) <- submitMulti [bob] [admin] do
+    exerciseCmd marketCid Buy with
+      buyer = bob
+      side = Yes
+      collateralCC = 100.0
+      minSharesOut = 1.0
+      nowSeconds = tTrade
+      existingPosition = None
+  m <- fetchMarket admin marketCid
+  assert (m.prizePoolCC > 0.0)
+
+  -- Alice's model is confident YES (beats the market price), Bob's says NO.
+  fAlice <- submitMulti [alice] [admin] do
+    exerciseCmd marketCid CommitForecast with
+      author = alice
+      modelId = "alice-model-1"
+      probabilityYes = 0.9
+      nowSeconds = tTrade + 10
+  fBob <- submitMulti [bob] [admin] do
+    exerciseCmd marketCid CommitForecast with
+      author = bob
+      modelId = "bob-model-1"
+      probabilityYes = 0.1
+      nowSeconds = tTrade + 10
+  -- Forecasts cannot be committed after expiry (commit-before-outcome).
+  submitMultiMustFail [alice] [admin] do
+    exerciseCmd marketCid CommitForecast with
+      author = alice
+      modelId = "alice-model-1"
+      probabilityYes = 0.99
+      nowSeconds = tAfterExpiry
+
+  marketCid <- submit admin do
+    exerciseCmd marketCid ResolveT0 with
+      resolvedOutcome = Yes
+      sourceUri = "https://example.com/result"
+      nowSeconds = tAfterExpiry
+  marketCid <- submit admin do
+    exerciseCmd marketCid ScoreAndDistribute with
+      forecastCids = [fAlice, fBob]
+      nowSeconds = tAfterExpiry + 10
+  m2 <- fetchMarket admin marketCid
+  m2.prizePoolCC === 0.0
+  -- Only Alice beat the market; she gets the whole pool.
+  alicePrizes <- query @PendingPayout alice
+  assert (any (\(_, p) -> p.reason == "model-prize" && p.user == alice) alicePrizes)
+  bobPrizes <- query @PendingPayout bob
+  assert (not (any (\(_, p) -> p.reason == "model-prize" && p.user == bob) bobPrizes))

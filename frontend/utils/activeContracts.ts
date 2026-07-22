@@ -45,67 +45,6 @@ function getDisclosure(
   };
 }
 
-/**
- * Fetch the active MarketCounter contract from the participant Ledger API.
- *
- * MarketCounter's signatory is the Enterprise Wallet admin party (created via wallet-deploy/),
- * not the connected end-user wallet — so we always query as that party. The id is
- * read from VITE_ENTERPRISE_WALLET_PARTY_ID; an unset env is a configuration bug
- * (no contract could be visible to anyone else), so we throw rather than return null.
- */
-export async function fetchMarketCounterContractId(): Promise<string | null> {
-  const adminParty = String(import.meta.env.VITE_ENTERPRISE_WALLET_PARTY_ID ?? "").trim();
-  if (!adminParty) {
-    throw new Error(
-      "VITE_ENTERPRISE_WALLET_PARTY_ID is not set. Set it in .env to the Enterprise Wallet party id (see wallet-deploy/README.md)."
-    );
-  }
-  try {
-    const client = createParticipantClient();
-    const list = await client.queryActiveContracts(
-      adminParty,
-      templateId(TRUTHORACLE_MODULE, "MarketCounter")
-    );
-    // API may return up to 200 contracts; keep only the one signed by the admin we asked about.
-    const forAdmin = list.filter((item) => {
-      const payload = getPayload(item);
-      const admin = payload.admin ?? payload.Admin;
-      return admin === adminParty;
-    });
-    const first = forAdmin[0];
-    return first ? getContractId(first) : null;
-  } catch (e) {
-    console.warn("fetchMarketCounterContractId", e);
-    return null;
-  }
-}
-
-export interface PredictionMarketRecord {
-  contractId: string;
-  marketId: number;
-  question: string;
-  imageUrl: string;
-  description: string;
-  resolutionDescription: string;
-  createdAt: number;
-  yesShares: number;
-  noShares: number;
-  liquidityParam: number;
-  /** Base64 created-event blob, needed to build a DisclosedContract for parties that can't see the cid directly. */
-  createdEventBlob?: string;
-  /** Synchronizer the contract lives on; required alongside createdEventBlob on a disclosed contract. */
-  synchronizerId?: string;
-}
-
-export interface ResolvedMarketRecord {
-  contractId: string;
-  marketId: number;
-  question: string;
-  /** Daml `MarketResult` variant. The JSON Ledger API serializes `Yes | No | Draw` as a string tag. */
-  result: "Yes" | "No" | "Draw" | string;
-  payoutPerShareCC: number;
-}
-
 function adminParty(): string {
   const p = String(import.meta.env.VITE_ENTERPRISE_WALLET_PARTY_ID ?? "").trim();
   if (!p) {
@@ -116,7 +55,7 @@ function adminParty(): string {
   return p;
 }
 
-/** Daml Int fields come back as numeric strings on the JSON Ledger API. */
+/** Daml Int/Decimal fields come back as numeric strings on the JSON Ledger API. */
 function num(v: unknown): number {
   if (typeof v === "number") return v;
   if (typeof v === "string" && v.trim() !== "") return Number(v);
@@ -127,18 +66,182 @@ function asString(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
+/** Daml enums serialize as their constructor tag; variants as {tag, value}. */
+function enumTag(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (v && typeof v === "object" && "tag" in (v as Record<string, unknown>)) {
+    return asString((v as Record<string, unknown>).tag);
+  }
+  return "";
+}
+
+/** Daml Optional serializes as null | value. */
+function optionalEnum(v: unknown): string | null {
+  if (v == null) return null;
+  const tag = enumTag(v);
+  return tag || null;
+}
+
+export type MarketStatus = "Trading" | "Proposed" | "Resolved" | "Voided";
+export type OutcomeTag = "Yes" | "No" | "VoidOutcome";
+
+export interface ResolutionPolicyRecord {
+  operatorResolution: boolean;
+  sources: string[];
+  sourceKeys: { sourceUri: string; publicKey: string }[];
+  reporters: string[];
+  quorum: number;
+  challengeSecs: number;
+  bondCC: number;
+}
+
+export interface ProposalRecord {
+  proposer: string;
+  proposedOutcome: OutcomeTag;
+  proposedAt: number;
+  bondCC: number;
+  challenger: string | null;
+  challengerOutcome: OutcomeTag | null;
+}
+
+export interface PredictionMarketRecord {
+  contractId: string;
+  marketId: number;
+  question: string;
+  imageUrl: string;
+  description: string;
+  resolutionDescription: string;
+  category: string;
+  createdAt: number;
+  expiresAt: number;
+  gracePeriodSecs: number;
+  isDynamic: boolean;
+  liquidityPeriodSecs: number;
+  reserveYes: number;
+  reserveNo: number;
+  liquidityL: number;
+  lpTokenSupply: number;
+  /** Cached pm-AMM YES price — the display probability. */
+  currentPrice: number;
+  feeBps: number;
+  prizeFeeShareBps: number;
+  accumulatedFeesCC: number;
+  prizePoolCC: number;
+  totalVolumeCC: number;
+  status: MarketStatus;
+  outcome: OutcomeTag | null;
+  resolvedAt: number | null;
+  proposal: ProposalRecord | null;
+  policy: ResolutionPolicyRecord;
+  /** Base64 created-event blob, needed to build a DisclosedContract for parties that can't see the cid directly. */
+  createdEventBlob?: string;
+  /** Synchronizer the contract lives on; required alongside createdEventBlob on a disclosed contract. */
+  synchronizerId?: string;
+}
+
+function parsePolicy(v: unknown): ResolutionPolicyRecord {
+  const p = (v ?? {}) as Record<string, unknown>;
+  const sourceKeys = Array.isArray(p.sourceKeys)
+    ? (p.sourceKeys as Record<string, unknown>[]).map((k) => ({
+        sourceUri: asString(k.sourceUri),
+        publicKey: asString(k.publicKey),
+      }))
+    : [];
+  return {
+    operatorResolution: p.operatorResolution === true,
+    sources: Array.isArray(p.sources) ? (p.sources as unknown[]).map(asString) : [],
+    sourceKeys,
+    reporters: Array.isArray(p.reporters) ? (p.reporters as unknown[]).map(asString) : [],
+    quorum: num(p.quorum),
+    challengeSecs: num(p.challengeSecs),
+    bondCC: num(p.bondCC),
+  };
+}
+
+function parseProposal(v: unknown): ProposalRecord | null {
+  if (v == null) return null;
+  const p = v as Record<string, unknown>;
+  return {
+    proposer: asString(p.proposer),
+    proposedOutcome: (enumTag(p.proposedOutcome) || "Yes") as OutcomeTag,
+    proposedAt: num(p.proposedAt),
+    bondCC: num(p.bondCC),
+    challenger: p.challenger == null ? null : asString(p.challenger),
+    challengerOutcome: optionalEnum(p.challengerOutcome) as OutcomeTag | null,
+  };
+}
+
+function parseMarket(item: unknown): PredictionMarketRecord | null {
+  const cid = getContractId(item);
+  if (!cid) return null;
+  const p = getPayload(item);
+  const { createdEventBlob, synchronizerId } = getDisclosure(item);
+  return {
+    contractId: cid,
+    marketId: num(p.marketId),
+    question: asString(p.question),
+    imageUrl: asString(p.imageUrl),
+    description: asString(p.description),
+    resolutionDescription: asString(p.resolutionDescription),
+    category: asString(p.category),
+    createdAt: num(p.createdAt),
+    expiresAt: num(p.expiresAt),
+    gracePeriodSecs: num(p.gracePeriodSecs),
+    isDynamic: p.isDynamic === true,
+    liquidityPeriodSecs: num(p.liquidityPeriodSecs),
+    reserveYes: num(p.reserveYes),
+    reserveNo: num(p.reserveNo),
+    liquidityL: num(p.liquidityL),
+    lpTokenSupply: num(p.lpTokenSupply),
+    currentPrice: num(p.currentPrice),
+    feeBps: num(p.feeBps),
+    prizeFeeShareBps: num(p.prizeFeeShareBps),
+    accumulatedFeesCC: num(p.accumulatedFeesCC),
+    prizePoolCC: num(p.prizePoolCC),
+    totalVolumeCC: num(p.totalVolumeCC),
+    status: (enumTag(p.status) || "Trading") as MarketStatus,
+    outcome: optionalEnum(p.outcome) as OutcomeTag | null,
+    resolvedAt: p.resolvedAt == null ? null : num(p.resolvedAt),
+    proposal: parseProposal(p.proposal),
+    policy: parsePolicy(p.policy),
+    createdEventBlob,
+    synchronizerId,
+  };
+}
+
 /**
- * List every active PredictionMarket. Queries as the Enterprise Wallet admin party
- * because that party is the template's `signatory admin`. End-user wallets reach
- * the market via disclosed contracts (the createdEventBlob captured here) — no
- * participants list is needed any more. The Keycloak service-account token has
- * read authority for any party.
+ * Fetch the active MarketCounter contract from the participant Ledger API.
+ * MarketCounter's signatory is the Enterprise Wallet admin party.
+ */
+export async function fetchMarketCounterContractId(): Promise<string | null> {
+  try {
+    const client = createParticipantClient();
+    const list = await client.queryActiveContracts(
+      adminParty(),
+      templateId(TRUTHORACLE_MODULE, "MarketCounter")
+    );
+    const forAdmin = list.filter((item) => {
+      const payload = getPayload(item);
+      const admin = payload.admin ?? payload.Admin;
+      return admin === adminParty();
+    });
+    const first = forAdmin[0];
+    return first ? getContractId(first) : null;
+  } catch (e) {
+    console.warn("fetchMarketCounterContractId", e);
+    return null;
+  }
+}
+
+/**
+ * List every active PredictionMarket (all lifecycle states — Trading, Proposed,
+ * Resolved, Voided live on the same template; filter on `status`). Queries as
+ * the Enterprise Wallet admin party (template signatory); end-user wallets
+ * reach the market via disclosed contracts (createdEventBlob captured here).
  */
 export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecord[]> {
   try {
     const client = createParticipantClient();
-    // Fetch with createdEventBlob so handleBuyClick can pass the market as a DisclosedContract
-    // to the wallet — external buyer participants don't see admin-only contracts directly.
     const list = await client.queryActiveContracts(
       adminParty(),
       templateId(TRUTHORACLE_MODULE, "PredictionMarket"),
@@ -146,24 +249,8 @@ export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecor
     );
     const out: PredictionMarketRecord[] = [];
     for (const item of list) {
-      const cid = getContractId(item);
-      if (!cid) continue;
-      const p = getPayload(item);
-      const { createdEventBlob, synchronizerId } = getDisclosure(item);
-      out.push({
-        contractId: cid,
-        marketId: num(p.marketId),
-        question: asString(p.question),
-        imageUrl: asString(p.imageUrl),
-        description: asString(p.description),
-        resolutionDescription: asString(p.resolutionDescription),
-        createdAt: num(p.createdAt),
-        yesShares: num(p.yesShares),
-        noShares: num(p.noShares),
-        liquidityParam: num(p.liquidityParam),
-        createdEventBlob,
-        synchronizerId,
-      });
+      const rec = parseMarket(item);
+      if (rec) out.push(rec);
     }
     out.sort((a, b) => b.marketId - a.marketId);
     return out;
@@ -173,40 +260,14 @@ export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecor
   }
 }
 
-/**
- * List every ResolvedMarket (closed, with recorded result). Same query strategy as
- * fetchAllPredictionMarkets — admin is signatory.
- */
-export async function fetchAllResolvedMarkets(): Promise<ResolvedMarketRecord[]> {
-  try {
-    const client = createParticipantClient();
-    const list = await client.queryActiveContracts(
-      adminParty(),
-      templateId(TRUTHORACLE_MODULE, "ResolvedMarket")
-    );
-    const out: ResolvedMarketRecord[] = [];
-    for (const item of list) {
-      const cid = getContractId(item);
-      if (!cid) continue;
-      const p = getPayload(item);
-      out.push({
-        contractId: cid,
-        marketId: num(p.marketId),
-        question: asString(p.question),
-        result: typeof p.result === "string" ? p.result : "",
-        payoutPerShareCC: num(p.payoutPerShareCC ?? p.payoutPerShare),
-      });
-    }
-    out.sort((a, b) => b.marketId - a.marketId);
-    return out;
-  } catch (e) {
-    console.warn("fetchAllResolvedMarkets", e);
-    return [];
-  }
+/** Markets whose lifecycle has ended (Resolved or Voided). */
+export async function fetchAllResolvedMarkets(): Promise<PredictionMarketRecord[]> {
+  const all = await fetchAllPredictionMarkets();
+  return all.filter((m) => m.status === "Resolved" || m.status === "Voided");
 }
 
 /**
- * Fetch active PredictionMarket contracts from the participant and return the one matching marketId.
+ * Fetch active PredictionMarket contracts and return the one matching marketId.
  */
 export async function fetchPredictionMarketContractId(
   marketId: number,
@@ -231,47 +292,33 @@ export async function fetchPredictionMarketContractId(
   }
 }
 
-/**
- * Fetch UserMarketData for the given party and marketId (optional) from the participant.
- */
-export async function fetchUserMarketDataContractId(
-  partyId: string,
-  marketId?: number
-): Promise<string | null> {
-  try {
-    const client = createParticipantClient();
-    const list = await client.queryActiveContracts(
-      partyId,
-      templateId(TRUTHORACLE_MODULE, "UserMarketData")
-    );
-    for (const item of list) {
-      const cid = getContractId(item);
-      const payload = getPayload(item);
-      const user = payload.user;
-      const mid = payload.marketId ?? payload.market_id;
-      if (cid && user === partyId && (marketId == null || Number(mid) === marketId)) return cid;
-    }
-    return null;
-  } catch (e) {
-    console.warn("fetchUserMarketDataContractId", e);
-    return null;
-  }
-}
-
 export interface UserMarketPosition {
   contractId: string;
   marketId: number;
   yesShares: number;
   noShares: number;
-  /** Lifetime CC invested in this market (informational, not money authoritative). */
-  amountInvestedCC: number;
+  /** Lifetime CC spent on this market (void refunds / accounting). */
+  costBasisCC: number;
 }
 
-/**
- * Fetch the buyer's UserMarketData payload for a given market. Used to detect
- * trade confirmation by polling for the new share counts.
- */
-export async function fetchUserMarketDataPosition(
+function parsePosition(item: unknown, partyId: string): UserMarketPosition | null {
+  const cid = getContractId(item);
+  if (!cid) return null;
+  const p = getPayload(item);
+  if (p.holder !== partyId) return null;
+  const mid = p.marketId ?? p.market_id;
+  if (mid == null) return null;
+  return {
+    contractId: cid,
+    marketId: Number(mid),
+    yesShares: num(p.yesShares),
+    noShares: num(p.noShares),
+    costBasisCC: num(p.costBasisCC),
+  };
+}
+
+/** Fetch the holder's Position for a given market (or null). */
+export async function fetchUserPosition(
   partyId: string,
   marketId: number
 ): Promise<UserMarketPosition | null> {
@@ -279,60 +326,190 @@ export async function fetchUserMarketDataPosition(
     const client = createParticipantClient();
     const list = await client.queryActiveContracts(
       partyId,
-      templateId(TRUTHORACLE_MODULE, "UserMarketData")
+      templateId(TRUTHORACLE_MODULE, "Position")
     );
     for (const item of list) {
-      const cid = getContractId(item);
-      const p = getPayload(item);
-      const mid = p.marketId ?? p.market_id;
-      if (cid && p.user === partyId && Number(mid) === marketId) {
-        return {
-          contractId: cid,
-          marketId: Number(mid),
-          yesShares: num(p.yesShares ?? p.yes_shares),
-          noShares: num(p.noShares ?? p.no_shares),
-          amountInvestedCC: num(p.amountInvestedCC ?? p.amount_invested_cc),
-        };
-      }
+      const pos = parsePosition(item, partyId);
+      if (pos && pos.marketId === marketId) return pos;
     }
     return null;
   } catch (e) {
-    console.warn("fetchUserMarketDataPosition", e);
+    console.warn("fetchUserPosition", e);
     return null;
   }
 }
 
-/**
- * List every UserMarketData position the buyer holds across all markets.
- */
-export async function fetchAllUserMarketDataPositions(
+/** List every Position the holder has across all markets. */
+export async function fetchAllUserPositions(
   partyId: string
 ): Promise<UserMarketPosition[]> {
   try {
     const client = createParticipantClient();
     const list = await client.queryActiveContracts(
       partyId,
-      templateId(TRUTHORACLE_MODULE, "UserMarketData")
+      templateId(TRUTHORACLE_MODULE, "Position")
     );
     const out: UserMarketPosition[] = [];
     for (const item of list) {
-      const cid = getContractId(item);
-      const p = getPayload(item);
-      const mid = p.marketId ?? p.market_id;
-      if (cid && p.user === partyId && mid != null) {
-        out.push({
-          contractId: cid,
-          marketId: Number(mid),
-          yesShares: num(p.yesShares ?? p.yes_shares),
-          noShares: num(p.noShares ?? p.no_shares),
-          amountInvestedCC: num(p.amountInvestedCC ?? p.amount_invested_cc),
-        });
-      }
+      const pos = parsePosition(item, partyId);
+      if (pos) out.push(pos);
     }
     out.sort((a, b) => b.marketId - a.marketId);
     return out;
   } catch (e) {
-    console.warn("fetchAllUserMarketDataPositions", e);
+    console.warn("fetchAllUserPositions", e);
+    return [];
+  }
+}
+
+// Back-compat aliases (previous template was UserMarketData).
+export const fetchUserMarketDataPosition = fetchUserPosition;
+export const fetchAllUserMarketDataPositions = fetchAllUserPositions;
+export async function fetchUserMarketDataContractId(
+  partyId: string,
+  marketId?: number
+): Promise<string | null> {
+  if (marketId != null) {
+    const pos = await fetchUserPosition(partyId, marketId);
+    return pos?.contractId ?? null;
+  }
+  const all = await fetchAllUserPositions(partyId);
+  return all[0]?.contractId ?? null;
+}
+
+export interface LiquidityPositionRecord {
+  contractId: string;
+  marketId: number;
+  provider: string;
+  lpTokens: number;
+  depositedCC: number;
+}
+
+/** Fetch the provider's LiquidityPosition for a market (or null). */
+export async function fetchUserLpPosition(
+  partyId: string,
+  marketId: number
+): Promise<LiquidityPositionRecord | null> {
+  try {
+    const client = createParticipantClient();
+    const list = await client.queryActiveContracts(
+      partyId,
+      templateId(TRUTHORACLE_MODULE, "LiquidityPosition")
+    );
+    for (const item of list) {
+      const cid = getContractId(item);
+      if (!cid) continue;
+      const p = getPayload(item);
+      if (p.provider !== partyId) continue;
+      if (Number(p.marketId) !== marketId) continue;
+      return {
+        contractId: cid,
+        marketId: Number(p.marketId),
+        provider: asString(p.provider),
+        lpTokens: num(p.lpTokens),
+        depositedCC: num(p.depositedCC),
+      };
+    }
+    return null;
+  } catch (e) {
+    console.warn("fetchUserLpPosition", e);
+    return null;
+  }
+}
+
+export interface OutcomeAttestationRecord {
+  contractId: string;
+  attester: string;
+  marketId: number;
+  sourceUri: string;
+  fetchedAt: number;
+  outcome: OutcomeTag;
+  payloadHash: string;
+  hasSourceSignature: boolean;
+  responseExcerpt: string | null;
+}
+
+/**
+ * List attestations for a market. Query as the admin (observer of every
+ * attestation) for the resolution console, or as a reporter for their own.
+ */
+export async function fetchAttestations(
+  partyId: string,
+  marketId?: number
+): Promise<OutcomeAttestationRecord[]> {
+  try {
+    const client = createParticipantClient();
+    const list = await client.queryActiveContracts(
+      partyId,
+      templateId(TRUTHORACLE_MODULE, "OutcomeAttestation")
+    );
+    const out: OutcomeAttestationRecord[] = [];
+    for (const item of list) {
+      const cid = getContractId(item);
+      if (!cid) continue;
+      const p = getPayload(item);
+      if (marketId != null && Number(p.marketId) !== marketId) continue;
+      out.push({
+        contractId: cid,
+        attester: asString(p.attester),
+        marketId: num(p.marketId),
+        sourceUri: asString(p.sourceUri),
+        fetchedAt: num(p.fetchedAt),
+        outcome: (enumTag(p.outcome) || "Yes") as OutcomeTag,
+        payloadHash: asString(p.payloadHash),
+        hasSourceSignature: p.sourceSignature != null,
+        responseExcerpt: p.responseExcerpt == null ? null : asString(p.responseExcerpt),
+      });
+    }
+    out.sort((a, b) => b.fetchedAt - a.fetchedAt);
+    return out;
+  } catch (e) {
+    console.warn("fetchAttestations", e);
+    return [];
+  }
+}
+
+export interface ModelForecastRecord {
+  contractId: string;
+  author: string;
+  marketId: number;
+  modelId: string;
+  probabilityYes: number;
+  committedAt: number;
+  marketPriceAtCommit: number;
+}
+
+/** List committed model forecasts (query as admin for all, or as the author). */
+export async function fetchModelForecasts(
+  partyId: string,
+  marketId?: number
+): Promise<ModelForecastRecord[]> {
+  try {
+    const client = createParticipantClient();
+    const list = await client.queryActiveContracts(
+      partyId,
+      templateId(TRUTHORACLE_MODULE, "ModelForecast")
+    );
+    const out: ModelForecastRecord[] = [];
+    for (const item of list) {
+      const cid = getContractId(item);
+      if (!cid) continue;
+      const p = getPayload(item);
+      if (marketId != null && Number(p.marketId) !== marketId) continue;
+      out.push({
+        contractId: cid,
+        author: asString(p.author),
+        marketId: num(p.marketId),
+        modelId: asString(p.modelId),
+        probabilityYes: num(p.probabilityYes),
+        committedAt: num(p.committedAt),
+        marketPriceAtCommit: num(p.marketPriceAtCommit),
+      });
+    }
+    out.sort((a, b) => b.committedAt - a.committedAt);
+    return out;
+  } catch (e) {
+    console.warn("fetchModelForecasts", e);
     return [];
   }
 }
