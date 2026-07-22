@@ -1,17 +1,39 @@
 # TruthOracle DAML Contracts (Canton Network)
 
-DAML contracts for the TruthOracle prediction market platform on **Canton Network**. Markets and rewards use **Canton Coin** (native on testnet and mainnet); no custom token.
+DAML contracts for the TruthOracle prediction market protocol on **Canton Network**,
+implementing the TruthOracle proposal v0.6 / implementation plan v1.1 (see `docs/`):
+a **dynamic pm-AMM** (Paradigm's Gaussian-score AMM — price `P = Φ((y−x)/L_eff)`,
+`L_eff = L0·√(T−t)`) with **tiered objective resolution** (T0–T3). Markets and rewards
+use **Canton Coin** (native on testnet and mainnet); no custom token.
 
 ## Roles
 
-- **Admin** – One account (party) is the platform admin. Only the admin can:
-  - Create markets (`MarketCounter.CreateMarket`), add participants to a market (`PredictionMarket.AddParticipant`), record results (`PredictionMarket.RecordResult`), and archive markets (`PredictionMarket.ArchiveMarket`).
-- **Users** – Normal users can trade on markets they’re allowed to (`PredictionMarket.Trade`) and claim rewards (`Incentives`). Balances and payments use **Canton Coin**.
+- **Admin (operator/treasury)** – Creates markets (`MarketCounter.CreateMarket` with a
+  `ResolutionPolicy`), resolves them (`ResolveT0` / `Resolve` from attestations /
+  `VoidMarket`), settles the payout queue (`PendingPayout.MarkPaid`), and scores model
+  forecasts (`ScoreAndDistribute`).
+- **Traders** – `Buy` / `Sell` against the pm-AMM (slippage-bounded, priced on-ledger),
+  `Split` / `Merge` complete sets (1 CC = 1 YES + 1 NO), `RedeemPosition` after
+  resolution (1 CC per winning share; cost-basis refund on Void).
+- **Liquidity providers** – `ProvideLiquidity` (value-based, price-preserving) and
+  `WithdrawLiquidity` (dynamic pools lock LPs until resolution — uniform LVR).
+- **Reporters / sources (T1/T2)** – create `OutcomeAttestation` contracts; `Resolve`
+  accepts a first-party `secp256k1`-signed source reading (T1) or an M-of-N reporter
+  quorum (T2).
+- **Proposers / challengers (T3)** – `ProposeOutcome` / `ChallengeOutcome` /
+  `FinalizeOutcome` with CC bonds; challenges escalate objectively to T1/T2, never a vote.
+- **Forecasters** – `CommitForecast` while a market is Trading; Brier-scored against the
+  realised outcome, prize pool funded from a fee slice.
 
 ## Modules
 
-- **Truthoracle.daml** – Prediction markets: admin creates markets and resolves them; users in `participants` trade (buy shares).
-- **Incentives.daml** – Rewards: early participant, market creator, winning prediction; users claim.
+- **PmAmmMath.daml** – Normal distribution (`Φ`, `φ`, `Φ⁻¹`), closed-form optimal
+  reserves / pool value, effective-liquidity decay, and the Newton swap solver.
+- **Truthoracle.daml** – `PredictionMarket` (inline pm-AMM + `ResolutionPolicy` +
+  lifecycle `Trading | Proposed | Resolved | Voided`), `Position`, `LiquidityPosition`,
+  `OutcomeAttestation`, `ModelForecast`, `PendingPayout`, `MarketCounter`.
+- **Marketplace.daml** – `PredictionModel` registry (prediction-model marketplace).
+- **Incentives.daml** – Rewards: early participant, market creator, winning prediction.
 
 ### Reward claims (important)
 
@@ -34,7 +56,7 @@ cd daml
 daml build
 ```
 
-Output: `.daml/dist/truthoracle-1.0.0.dar`.
+Output: `.daml/dist/truthoracle-v11-1.0.0.dar`.
 
 **Optional: use `dpm` instead**  
 The SDK install does not add `dpm` to your PATH. To use the Digital Asset Package Manager CLI, install it separately: [DPM manual install](https://docs.digitalasset.com/build/3.4/dpm/manual-install.html). Then you can run `dpm build` in the `daml/` directory; it uses the same `daml.yaml` and produces the same DAR.

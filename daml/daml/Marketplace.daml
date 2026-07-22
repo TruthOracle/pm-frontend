@@ -1,0 +1,35 @@
+-- TruthOracle Prediction-Model Marketplace (proposal v0.6 section 6).
+-- Forecasters register a model here; per-market forecasts are committed via
+-- the market's CommitForecast choice (Truthoracle.ModelForecast), which pins
+-- the commit to ledger order while the market is still Trading. Scoring and
+-- prize distribution run on the market (ScoreAndDistribute, Brier-weighted,
+-- gated on beating the pm-AMM price at commit time).
+module Marketplace where
+
+-- Registry entry signed by the model author. Models run off-ledger; only
+-- their outputs (ModelForecast contracts) are committed on-ledger.
+template PredictionModel
+  with
+    author : Party
+    admin : Party        -- operator; observes for curation and "The Model" aggregation
+    modelId : Text
+    name : Text
+    description : Text
+    payoutParty : Party  -- receives prize-pool payouts (usually the author)
+  where
+    signatory author
+    observer admin
+
+    choice UpdateModelInfo : ContractId PredictionModel
+      with
+        newName : Text
+        newDescription : Text
+      controller author
+      do
+        create this with
+          name = newName
+          description = newDescription
+
+    choice RetireModel : ()
+      controller author
+      do return ()

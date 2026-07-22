@@ -1,0 +1,177 @@
+-- TruthOracle pm-AMM math (Paradigm dynamic pm-AMM, Gaussian score dynamics).
+-- Pure Decimal arithmetic: normal distribution (Abramowitz-Stegun CDF, Acklam
+-- inverse CDF with Newton refinement), closed-form optimal reserves, pool value,
+-- and the one-dimensional Newton solver for the swap-direction invariant.
+--
+-- Invariant:  (y - x) * cdf(z) + L * pdf(z) - y = 0,   z = (y - x) / L
+-- Price:      P(YES) = cdf((y - x) / L_eff)
+-- Dynamic:    L_eff = L0 * sqrt((T - t) / (T - t0))
+-- Reserves:   x*(P) = y*(P) - L*icdf(P),  y*(P) = L*(icdf(P)*P + pdf(icdf(P)))
+-- Value:      V(P)  = L * pdf(icdf(P))
+module PmAmmMath where
+
+import DA.Math (sqrt, exp, log)
+
+oneOverSqrtTwoPi : Decimal
+oneOverSqrtTwoPi = 0.3989422804
+
+-- Clamp helpers -------------------------------------------------------------
+
+clampDec : Decimal -> Decimal -> Decimal -> Decimal
+clampDec lo hi v = max lo (min hi v)
+
+-- Probabilities kept away from 0/1 so icdf and divisions stay finite.
+clampProb : Decimal -> Decimal
+clampProb = clampDec 0.0001 0.9999
+
+-- Standard normal distribution ---------------------------------------------
+
+-- | Standard normal PDF. Argument clamped to [-8, 8] (tails are ~0 and
+-- exp would overflow Decimal beyond that).
+normPdf : Decimal -> Decimal
+normPdf zRaw =
+  let z = clampDec (-8.0) 8.0 zRaw
+  in oneOverSqrtTwoPi * exp (negate (z * z) / 2.0)
+
+-- | Standard normal CDF, Abramowitz-Stegun 26.2.17 (|error| < 7.5e-8).
+normCdf : Decimal -> Decimal
+normCdf z
+  | z < 0.0 = 1.0 - normCdf (negate z)
+  | z > 8.0 = 1.0
+  | otherwise =
+      let t = 1.0 / (1.0 + 0.2316419 * z)
+          poly = t * (0.3193815300 + t * (-0.3565637820 + t * (1.7814779370 + t * (-1.8212559780 + t * 1.3302744290))))
+      in 1.0 - normPdf z * poly
+
+-- | Inverse standard normal CDF: Acklam's rational approximation with two
+-- Newton refinement steps. Input clamped to [0.0001, 0.9999].
+normInvCdf : Decimal -> Decimal
+normInvCdf pRaw =
+  let p = clampProb pRaw
+      pLow = 0.02425
+      approx =
+        if p < pLow then
+          let q = sqrt (negate (2.0 * log p))
+          in ((((( -0.0077848940 * q - 0.3223964580) * q - 2.4007582772) * q - 2.5497325393) * q + 4.3746641415) * q + 2.9381639827)
+             / ((((0.0077846957 * q + 0.3224671291) * q + 2.4451341371) * q + 3.7544086619) * q + 1.0)
+             * (-1.0)
+        else if p > 1.0 - pLow then
+          let q = sqrt (negate (2.0 * log (1.0 - p)))
+          in ((((( -0.0077848940 * q - 0.3223964580) * q - 2.4007582772) * q - 2.5497325393) * q + 4.3746641415) * q + 2.9381639827)
+             / ((((0.0077846957 * q + 0.3224671291) * q + 2.4451341371) * q + 3.7544086619) * q + 1.0)
+        else
+          let q = p - 0.5
+              r = q * q
+          in ((((( -39.6968302866 * r + 220.9460984245) * r - 275.9285104470) * r + 138.3577518673) * r - 30.6647980661) * r + 2.5066282775) * q
+             / (((((-54.4760987982 * r + 161.5858368580) * r - 155.6989798599) * r + 66.8013118877) * r - 13.2806815529) * r + 1.0)
+      refine z = z - (normCdf z - p) / max 0.0000000001 (normPdf z)
+  in refine (refine approx)
+
+-- pm-AMM closed forms --------------------------------------------------------
+
+-- | Optimal reserves (x = YES inventory, y = NO inventory) for price p and
+-- liquidity L: y*(P) = L*(z*P + pdf z), x*(P) = y*(P) - L*z, with z = icdf P.
+optimalReserves : Decimal -> Decimal -> (Decimal, Decimal)
+optimalReserves p l =
+  let z = normInvCdf p
+      y = l * (z * p + normPdf z)
+      x = y - l * z
+  in (max 0.0 x, max 0.0 y)
+
+-- | Pool value V(P) = L * pdf(icdf P), denominated in collateral.
+poolValue : Decimal -> Decimal -> Decimal
+poolValue p l = l * normPdf (normInvCdf p)
+
+-- | Liquidity from a target pool value: L = V / pdf(icdf P).
+liquidityFromValue : Decimal -> Decimal -> Decimal
+liquidityFromValue v p = v / max 0.0000000001 (normPdf (normInvCdf p))
+
+-- | Marginal YES price from reserves.
+priceFromReserves : Decimal -> Decimal -> Decimal -> Decimal
+priceFromReserves x y l = normCdf ((y - x) / max 0.0000000001 l)
+
+-- | Invariant residual I(x, y, L). Zero (up to rounding) for valid reserves.
+invariantValue : Decimal -> Decimal -> Decimal -> Decimal
+invariantValue x y l =
+  let z = (y - x) / max 0.0000000001 l
+  in (y - x) * normCdf z + l * normPdf z - y
+
+-- | Effective (time-decayed) liquidity for a dynamic pool:
+-- L_eff = L0 * sqrt((T - now) / (T - t0)). Static pools pass isDynamic=False.
+effectiveLiquidity : Bool -> Decimal -> Int -> Int -> Int -> Decimal
+effectiveLiquidity isDynamic l0 createdAt expiresAt nowSecs
+  | not isDynamic = l0
+  | nowSecs <= createdAt = l0
+  | otherwise =
+      let total = intToDecimal (expiresAt - createdAt)
+          left  = intToDecimal (expiresAt - nowSecs)
+      in if left <= 0.0 || total <= 0.0
+           then 0.0
+           else l0 * sqrt (left / total)
+
+-- Swap solvers ---------------------------------------------------------------
+-- Trades are expressed against the *virtual* reserves (optimalReserves of the
+-- cached price at the current effective L). A buy of YES with net collateral c
+-- mints c pairs and swaps the c NO into the pool:
+--   x' = x + c - n,  y' = y + c,  n = total YES the buyer receives.
+-- Solved by Newton on n; dI/dn = cdf(z) = current price, so steps are stable.
+-- We target the pool's pre-trade invariant residual
+-- rather than zero, preserving any rounding residue.
+
+buyIter : Decimal -> Decimal -> Decimal -> Decimal -> Decimal -> Int -> Decimal -> Decimal
+buyIter x y l c target fuel n =
+  if fuel <= 0 then n
+  else
+    let z = (y - x + n) / max 0.0000000001 l
+        f = (y - x + n) * normCdf z + l * normPdf z - (y + c) - target
+        deriv = max 0.0001 (normCdf z)
+        n' = max 0.0 (n - f / deriv)
+    in if abs (n' - n) < 0.0000001 then n'
+       else buyIter x y l c target (fuel - 1) n'
+
+-- | Shares of YES received for net collateral c against virtual reserves
+-- (x, y) at effective liquidity l. For NO, call with mirrored reserves
+-- (the invariant is symmetric under x <-> y).
+solveBuyShares : Decimal -> Decimal -> Decimal -> Decimal -> Decimal
+solveBuyShares x y l c =
+  let target = invariantValue x y l
+      p0 = max 0.01 (priceFromReserves x y l)
+      n0 = c / p0
+  in buyIter x y l c target 30 n0
+
+swapIter : Decimal -> Decimal -> Decimal -> Decimal -> Decimal -> Int -> Decimal -> Decimal
+swapIter x y l sIn target fuel m =
+  if fuel <= 0 then m
+  else
+    let z = (y - m - (x + sIn)) / max 0.0000000001 l
+        f = (y - m - x - sIn) * normCdf z + l * normPdf z - (y - m) - target
+        deriv = max 0.0001 (1.0 - normCdf z)
+        m' = max 0.0 (m - f / deriv)
+    in if abs (m' - m) < 0.0000001 then m'
+       else swapIter x y l sIn target (fuel - 1) m'
+
+-- | Direct outcome-token swap (the pm-AMM's primitive trading operation):
+-- deposit sIn shares into the x side, receive m shares from the y side, preserving
+-- the pre-trade invariant residual: solve I(x + sIn, y - m) = I(x, y).
+-- dI/dm = 1 - cdf(z) (the y-side price), so Newton steps are stable.
+-- For the opposite direction, call with mirrored reserves.
+solveSwapOut : Decimal -> Decimal -> Decimal -> Decimal -> Decimal
+solveSwapOut x y l sIn =
+  let target = invariantValue x y l
+      pIn = max 0.01 (priceFromReserves x y l)  -- price of the x side
+      pOut = max 0.01 (1.0 - pIn)
+      m0 = sIn * pIn / pOut
+  in swapIter x y l sIn target 30 m0
+
+-- | Collateral received for selling s YES shares (closed form: the reserve
+-- difference y' - x' = (y - x) - s is independent of the proceeds c):
+--   x' = x + s - c,  y' = y - c
+--   c = I0 - [(y - x - s) * cdf(zBar) + L * pdf(zBar) - y],  zBar = (y-x-s)/L
+-- For NO, call with mirrored reserves.
+solveSellProceeds : Decimal -> Decimal -> Decimal -> Decimal -> Decimal
+solveSellProceeds x y l s =
+  let i0 = invariantValue x y l
+      zBar = (y - x - s) / max 0.0000000001 l
+      a = (y - x - s) * normCdf zBar + l * normPdf zBar - y
+      c = i0 - a
+  in clampDec 0.0 s c

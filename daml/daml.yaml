@@ -2,7 +2,10 @@
 # Prediction market platform for Canton Network testnet
 
 sdk-version: "3.4.10"
-name: truthoracle-v10
+# Breaking protocol rewrites get a new package *name* (truthoracle -> v5 -> v10 -> v11):
+# Canton 3.x smart-contract-upgrade checks reject schema-incompatible DARs uploaded
+# under an existing package name.
+name: truthoracle-v11
 version: 1.0.0
 source: daml
 dependencies:
