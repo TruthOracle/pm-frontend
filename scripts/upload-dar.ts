@@ -8,6 +8,14 @@ function viteEnv(name: string) {
   return typeof v === "string" ? v.trim() : "";
 }
 
+function firstEnv(...names: string[]) {
+  for (const name of names) {
+    const value = viteEnv(name);
+    if (value) return value;
+  }
+  return "";
+}
+
 function mustEnv(value: string, name: string) {
   if (!value || !value.trim()) throw new Error(`Missing required config: ${name}`);
   return value;
@@ -54,10 +62,15 @@ async function main() {
       "",
       "Config (root `.env`):",
       "  ZKPC_LEDGER_API_URL          e.g. https://api.validator.main.zkpc.cantor8.tech/api/ledger",
+      "                                fallback: VITE_CANTON_PARTICIPANT_URL",
       "  ZKPC_KEYCLOAK_URL            e.g. https://auth.main.zkpc.cantor8.tech",
+      "                                fallback: VITE_KEYCLOAK_URL",
       "  ZKPC_KEYCLOAK_REALM          default: master",
+      "                                fallback: VITE_KEYCLOAK_REALM",
       "  ZKPC_KEYCLOAK_CLIENT_ID      (admin client id from Cantor8)",
+      "                                fallback: VITE_KEYCLOAK_CLIENT_ID",
       "  ZKPC_KEYCLOAK_CLIENT_SECRET  (admin client secret from Cantor8)",
+      "                                fallback: VITE_KEYCLOAK_CLIENT_SECRET",
     ].join("\n"));
     return;
   }
@@ -76,12 +89,15 @@ async function main() {
     throw new Error(`DAR not found: ${darPath}\nBuild it first: cd daml && dpm build`);
   }
 
-  const LEDGER_API = stripTrailingSlash(mustEnv(viteEnv("ZKPC_LEDGER_API_URL"), "ZKPC_LEDGER_API_URL"));
+  const LEDGER_API = stripTrailingSlash(mustEnv(
+    firstEnv("ZKPC_LEDGER_API_URL", "VITE_CANTON_PARTICIPANT_URL"),
+    "ZKPC_LEDGER_API_URL or VITE_CANTON_PARTICIPANT_URL",
+  ));
   const bearerToken = await getKeycloakAccessToken({
-    keycloakUrl: mustEnv(viteEnv("ZKPC_KEYCLOAK_URL"), "ZKPC_KEYCLOAK_URL"),
-    realm: viteEnv("ZKPC_KEYCLOAK_REALM") || "master",
-    clientId: mustEnv(viteEnv("ZKPC_KEYCLOAK_CLIENT_ID"), "ZKPC_KEYCLOAK_CLIENT_ID"),
-    clientSecret: mustEnv(viteEnv("ZKPC_KEYCLOAK_CLIENT_SECRET"), "ZKPC_KEYCLOAK_CLIENT_SECRET"),
+    keycloakUrl: mustEnv(firstEnv("ZKPC_KEYCLOAK_URL", "VITE_KEYCLOAK_URL"), "ZKPC_KEYCLOAK_URL or VITE_KEYCLOAK_URL"),
+    realm: firstEnv("ZKPC_KEYCLOAK_REALM", "VITE_KEYCLOAK_REALM") || "master",
+    clientId: mustEnv(firstEnv("ZKPC_KEYCLOAK_CLIENT_ID", "VITE_KEYCLOAK_CLIENT_ID"), "ZKPC_KEYCLOAK_CLIENT_ID or VITE_KEYCLOAK_CLIENT_ID"),
+    clientSecret: mustEnv(firstEnv("ZKPC_KEYCLOAK_CLIENT_SECRET", "VITE_KEYCLOAK_CLIENT_SECRET"), "ZKPC_KEYCLOAK_CLIENT_SECRET or VITE_KEYCLOAK_CLIENT_SECRET"),
   });
 
   const darBytes = fs.readFileSync(darPath);
