@@ -14,7 +14,7 @@
     "fmt": "npm run _fmt -- --write",
     "create:contract": "tsx scripts/create-contract.ts",
     "ledger:query": "tsx scripts/ledger-query.ts",
-    "dars:build": "cd daml && dpm build",
+    "dars:build": "cd daml && daml build",
     "dars:upload": "tsx scripts/upload-dar.ts"
   },
   "dependencies": {
