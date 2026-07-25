@@ -9,6 +9,10 @@
       "destination": "https://api.validator.dev.digik.cantor8.tech/api/ledger/:path*"
     },
     {
+      "source": "/__proxy/wallet/:path*",
+      "destination": "https://enterprise-wallet-production.up.railway.app/:path*"
+    },
+    {
       "source": "/((?!.*\\.).*)",
       "destination": "/"
     }
