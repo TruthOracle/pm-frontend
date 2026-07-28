@@ -95,7 +95,7 @@ function Homepage() {
             </div>
 
             <h1 className="mb-5 text-4xl font-extrabold tracking-tight text-foreground sm:text-6xl lg:text-68 lg:leading-72">
-              Create markets. <span className="gradient-text">Trade the probability.</span>
+            Forecast the Future. <span className="gradient-text">Reap the Profits.</span>
             </h1>
 
             <p className="mb-8 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">
