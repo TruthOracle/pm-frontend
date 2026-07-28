@@ -12,8 +12,6 @@ export default defineConfig(({ mode }) => {
   const ledgerTarget =
     env.VITE_CANTON_PARTICIPANT_URL?.replace(/\/$/, "") ||
     "https://api.validator.dev.digik.cantor8.tech/api/ledger";
-  const enterpriseWalletTarget =
-    env.VITE_ENTERPRISE_WALLET_URL?.replace(/\/$/, "") || "http://localhost:8080";
 
   return {
     build: {
@@ -36,12 +34,6 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: true,
           rewrite: (p) => p.replace(/^\/__proxy\/ledger/, ""),
-        },
-        "/__proxy/wallet": {
-          target: enterpriseWalletTarget,
-          changeOrigin: true,
-          secure: false,
-          rewrite: (p) => p.replace(/^\/__proxy\/wallet/, ""),
         },
       },
     },

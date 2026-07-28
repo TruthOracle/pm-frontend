@@ -18,10 +18,6 @@ function appName(): string {
 
 function walletBaseUrl(): string {
   const raw = String(import.meta.env.VITE_ENTERPRISE_WALLET_URL ?? "http://localhost:8080").trim();
-  const proxy = String(import.meta.env.VITE_ENTERPRISE_WALLET_PROXY_URL ?? "/__proxy/wallet").trim();
-  if (proxy && raw.startsWith("http")) {
-    return proxy.replace(/\/$/, "");
-  }
   return raw.replace(/\/$/, "");
 }
 

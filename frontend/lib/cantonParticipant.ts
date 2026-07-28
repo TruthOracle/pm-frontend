@@ -23,13 +23,13 @@ const TOKEN_REFRESH_MARGIN_SEC = 60;
  * Token endpoint: POST .../realms/{realm}/protocol/openid-connect/token
  */
 /**
- * Always use same-origin proxy to avoid CORS.
- * Dev: Vite proxy in vite.config.ts forwards /__proxy/keycloak → VITE_KEYCLOAK_URL.
- * Prod: Vercel rewrite in vercel.json forwards /__proxy/keycloak → upstream Keycloak.
+ * Use same-origin proxy by default to avoid CORS.
+ * VITE_KEYCLOAK_PROXY_URL is the browser-visible proxy path.
+ * VITE_KEYCLOAK_URL is the upstream target used by local Vite and Vercel.
  */
 function getKeycloakBaseUrl(): string {
   if (!import.meta.env.VITE_KEYCLOAK_URL) return "";
-  return "/__proxy/keycloak";
+  return String(import.meta.env.VITE_KEYCLOAK_PROXY_URL ?? "/__proxy/keycloak").replace(/\/$/, "");
 }
 
 async function fetchKeycloakAccessToken(): Promise<string> {
@@ -427,13 +427,8 @@ export class CantonParticipantClient {
   }
 }
 
-/**
- * Always use same-origin /__proxy/ledger to avoid CORS.
- * Dev: Vite proxy forwards to VITE_CANTON_PARTICIPANT_URL.
- * Prod: Vercel rewrite forwards to upstream Canton participant.
- */
 function getLedgerBaseUrl(): string {
-  return "/__proxy/ledger";
+  return String(import.meta.env.VITE_CANTON_PARTICIPANT_PROXY_URL ?? "/__proxy/ledger").replace(/\/$/, "");
 }
 
 /**

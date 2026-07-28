@@ -2,15 +2,11 @@
   "rewrites": [
     {
       "source": "/__proxy/keycloak/:path*",
-      "destination": "https://auth.dev.digik.cantor8.tech/:path*"
+      "destination": "/api/proxy/keycloak/:path*"
     },
     {
       "source": "/__proxy/ledger/:path*",
-      "destination": "https://api.validator.dev.digik.cantor8.tech/api/ledger/:path*"
-    },
-    {
-      "source": "/__proxy/wallet/:path*",
-      "destination": "https://enterprise-wallet-production.up.railway.app/:path*"
+      "destination": "/api/proxy/ledger/:path*"
     },
     {
       "source": "/((?!.*\\.).*)",
