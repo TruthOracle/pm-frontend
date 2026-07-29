@@ -3,6 +3,9 @@ import { TRUTHORACLE_PACKAGE_ID, TRUTHORACLE_PACKAGE_NAME } from "@/constants";
 
 const TRUTHORACLE_MODULE = "Truthoracle";
 const INCENTIVES_MODULE = "Incentives";
+const PREFERRED_PREDICTION_MARKET_CONTRACT_ID = String(
+  import.meta.env.VITE_PREDICTION_MARKET_CONTRACT_ID ?? "",
+).trim();
 
 function templateId(moduleName: string, entityName: string) {
   return {
@@ -253,6 +256,15 @@ export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecor
       if (rec) out.push(rec);
     }
     out.sort((a, b) => b.marketId - a.marketId);
+    if (PREFERRED_PREDICTION_MARKET_CONTRACT_ID) {
+      const preferredIndex = out.findIndex(
+        (market) => market.contractId === PREFERRED_PREDICTION_MARKET_CONTRACT_ID,
+      );
+      if (preferredIndex > 0) {
+        const [preferredMarket] = out.splice(preferredIndex, 1);
+        out.unshift(preferredMarket);
+      }
+    }
     return out;
   } catch (e) {
     console.warn("fetchAllPredictionMarkets", e);
