@@ -33,7 +33,7 @@ function readBody(req) {
   });
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method === "OPTIONS") {
     res.statusCode = 204;
     res.end();
@@ -71,4 +71,4 @@ module.exports = async function handler(req, res) {
     }
   });
   res.end(Buffer.from(await upstream.arrayBuffer()));
-};
+}

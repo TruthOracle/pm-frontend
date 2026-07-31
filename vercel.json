@@ -9,7 +9,7 @@
       "destination": "/api/proxy/ledger/:path*"
     },
     {
-      "source": "/((?!.*\\.).*)",
+      "source": "/((?!api/|__proxy/|_vercel/|.*\\.).*)",
       "destination": "/"
     }
   ]
