@@ -2,14 +2,14 @@
   "rewrites": [
     {
       "source": "/__proxy/keycloak/:path*",
-      "destination": "https://auth.dev.digik.cantor8.tech/:path*"
+      "destination": "/api/proxy/keycloak/:path*"
     },
     {
       "source": "/__proxy/ledger/:path*",
-      "destination": "https://api.validator.dev.digik.cantor8.tech/api/ledger/:path*"
+      "destination": "/api/proxy/ledger/:path*"
     },
     {
-      "source": "/((?!api/|.*\\.).*)",
+      "source": "/((?!.*\\.).*)",
       "destination": "/"
     }
   ]
