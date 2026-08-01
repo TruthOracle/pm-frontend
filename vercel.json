@@ -2,14 +2,14 @@
   "rewrites": [
     {
       "source": "/__proxy/keycloak/:path*",
-      "destination": "/api/proxy/keycloak/:path*"
+      "destination": "/api/proxy/keycloak?path=:path*"
     },
     {
       "source": "/__proxy/ledger/:path*",
-      "destination": "/api/proxy/ledger/:path*"
+      "destination": "/api/proxy/ledger?path=:path*"
     },
     {
-      "source": "/((?!.*\\.).*)",
+      "source": "/((?!api/|__proxy/|_vercel/|.*\\.).*)",
       "destination": "/"
     }
   ]
