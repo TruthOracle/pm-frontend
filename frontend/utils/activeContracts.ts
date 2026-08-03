@@ -1,6 +1,6 @@
 import { createParticipantClient } from "@/lib/cantonParticipant";
 import { TRUTHORACLE_PACKAGE_ID, TRUTHORACLE_PACKAGE_NAME } from "@/constants";
-import { ENTERPRISE_WALLET_PARTY_ID, PREDICTION_MARKET_CONTRACT_ID } from "@/config";
+import { ENTERPRISE_WALLET_PARTY_ID } from "@/config";
 
 const TRUTHORACLE_MODULE = "Truthoracle";
 const INCENTIVES_MODULE = "Incentives";
@@ -253,11 +253,6 @@ export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecor
       if (rec) out.push(rec);
     }
     out.sort((a, b) => b.marketId - a.marketId);
-
-    if (PREDICTION_MARKET_CONTRACT_ID) {
-      const envMarkets = out.filter((market) => market.contractId === PREDICTION_MARKET_CONTRACT_ID);
-      if (envMarkets.length > 0) return envMarkets;
-    }
     return out;
   } catch (e) {
     console.warn("fetchAllPredictionMarkets", e);

@@ -95,7 +95,7 @@ Point your frontend/Ledger API client at **localhost:6865** to use the sandbox.
 
 ## Prerequisites
 
-- **DAML SDK 3.4.10** (matches `daml.yaml`). Install: [get.daml.com](https://get.daml.com/) or [DPM install](https://docs.digitalasset.com/build/3.4/dpm/manual-install.html).
+- **DPM with SDK 3.4.10** (matches `daml.yaml`). Install: [DPM install](https://docs.digitalasset.com/build/3.4/dpm/manual-install.html).
 - **Canton** – either:
   - **Local**: DPM sandbox (`dpm sandbox`) or Canton Open Source, or
   - **Canton Network TestNet**: access to a participant node (validator or via a provider).
@@ -119,7 +119,7 @@ This produces a DAR under `.daml/dist/`:
 Optional: run tests before deploying:
 
 ```bash
-daml test
+dpm test
 ```
 
 ---

@@ -40,37 +40,37 @@ use **Canton Coin** (native on testnet and mainnet); no custom token.
 - Prefer **`ClaimRewardsBatch`** with a `claims` list when claiming more than one reward in a single submission. Several **`ClaimReward`** exercises on the same `UserRewardsSummary` contract id would fail: the first choice consumes the summary.
 - **`ClaimReward`** (single) still updates `totalEarned` / `claimedMarkets` by archiving the old summary and creating a new one; return type is **`(ContractId ClaimedReward, ContractId UserRewardsSummary)`**.
 - The duplicate **`ClaimAllReward`** choice was removed; use **`ClaimRewardsBatch`** or **`ClaimReward`**.
-- After any DAML change: **`daml build`**, upload the new **`.dar`**, then set **`VITE_TRUTHORACLE_PACKAGE_ID`** / `frontend/constants.ts` to the new package id.
+- After any DAML change: **`dpm build`**, upload the new **`.dar`**, then set **`VITE_TRUTHORACLE_PACKAGE_ID`** / `frontend/constants.ts` to the new package id.
 
 ## Prerequisites
 
-- [DAML SDK](https://docs.daml.com/getting-started/installation.html) 3.4.10 (install via `curl -sSL https://get.daml.com/ | sh`)
+- **DPM** (Digital Asset Package Manager) with SDK 3.4.10 — see [DPM install](https://docs.digitalasset.com/build/3.4/dpm/manual-install.html)
 - Canton Network testnet access
 
 ## Build
 
-From the repo root, use the DAML SDK’s `daml` command (installed by get.daml.com):
-
 ```bash
 cd daml
-daml build
+dpm build
 ```
 
-Output: `.daml/dist/truthoracle-v11-1.0.0.dar`.
+Or from the repo root: `npm run dars:build`.
 
-**Optional: use `dpm` instead**  
-The SDK install does not add `dpm` to your PATH. To use the Digital Asset Package Manager CLI, install it separately: [DPM manual install](https://docs.digitalasset.com/build/3.4/dpm/manual-install.html). Then you can run `dpm build` in the `daml/` directory; it uses the same `daml.yaml` and produces the same DAR.
+Output: `.daml/dist/truthoracle-v12-1.0.0.dar`.
+
+**Note on `daml` vs `dpm`**  
+The legacy `daml` CLI (from `get.daml.com`) reads the same `daml.yaml` and produces the same DAR, so `daml build` still works if you have it installed. `dpm` is the supported path for SDK 3.4.x.
 
 ## Test
 
 ```bash
-daml test
+dpm test
 ```
 
 ## Deploy to Canton Network
 
 **Step-by-step instructions:** see **[DEPLOYMENT.md](./DEPLOYMENT.md)** for building the DAR, uploading it to a Canton participant (local or TestNet), and configuring parties.
 
-In short: run `daml build`, then upload the resulting `.dar` from `daml/.daml/dist/` to your participant via the Canton console (e.g. `participant1.dars.upload("path/to/truthoracle-*.dar")`). See [Canton Network documentation](https://docs.digitalasset.com/canton/) for participant setup.
+In short: run `dpm build`, then upload the resulting `.dar` from `daml/.daml/dist/` to your participant via the Canton console (e.g. `participant1.dars.upload("path/to/truthoracle-*.dar")`). See [Canton Network documentation](https://docs.digitalasset.com/canton/) for participant setup.
 
 The frontend and `blockend/cantonService.js` integrate with Canton via the Canton Network Dapp SDK. Wire read operations (market count, metadata, rewards, balances) to your Canton participant API (REST or gRPC) as needed.
