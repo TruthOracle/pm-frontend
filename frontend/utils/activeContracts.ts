@@ -1,6 +1,12 @@
 import { createParticipantClient } from "@/lib/cantonParticipant";
 import { TRUTHORACLE_PACKAGE_ID, TRUTHORACLE_PACKAGE_NAME } from "@/constants";
-import { ENTERPRISE_WALLET_PARTY_ID, PREDICTION_MARKET_CONTRACT_ID } from "@/config";
+import {
+  ENTERPRISE_WALLET_PARTY_ID,
+  MARKET_COUNTER_CREATED_AT,
+  MARKET_COUNTER_CONTRACT_ID,
+  MARKET_COUNTER_VALUE,
+  PREDICTION_MARKET_CONTRACT_ID,
+} from "@/config";
 
 const TRUTHORACLE_MODULE = "Truthoracle";
 const INCENTIVES_MODULE = "Incentives";
@@ -139,6 +145,27 @@ export interface PredictionMarketRecord {
   synchronizerId?: string;
 }
 
+function configuredCounterCreatedAtSecs(): number | null {
+  const ms = Date.parse(MARKET_COUNTER_CREATED_AT);
+  return Number.isFinite(ms) ? Math.floor(ms / 1000) : null;
+}
+
+function filterConfiguredMarkets(markets: PredictionMarketRecord[]): PredictionMarketRecord[] {
+  if (PREDICTION_MARKET_CONTRACT_ID) {
+    return markets.filter((market) => market.contractId === PREDICTION_MARKET_CONTRACT_ID);
+  }
+
+  if (!MARKET_COUNTER_CONTRACT_ID) return markets;
+
+  const expectedMarketId = MARKET_COUNTER_VALUE + 1;
+  const createdAtSecs = configuredCounterCreatedAtSecs();
+  return markets.filter((market) => {
+    if (market.marketId !== expectedMarketId) return false;
+    if (createdAtSecs == null) return true;
+    return market.createdAt >= createdAtSecs;
+  });
+}
+
 function parsePolicy(v: unknown): ResolutionPolicyRecord {
   const p = (v ?? {}) as Record<string, unknown>;
   const sourceKeys = Array.isArray(p.sourceKeys)
@@ -215,6 +242,8 @@ function parseMarket(item: unknown): PredictionMarketRecord | null {
  */
 export async function fetchMarketCounterContractId(): Promise<string | null> {
   try {
+    if (MARKET_COUNTER_CONTRACT_ID) return MARKET_COUNTER_CONTRACT_ID;
+
     const client = createParticipantClient();
     const list = await client.queryActiveContracts(
       adminParty(),
@@ -253,12 +282,7 @@ export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecor
       if (rec) out.push(rec);
     }
     out.sort((a, b) => b.marketId - a.marketId);
-
-    if (PREDICTION_MARKET_CONTRACT_ID) {
-      const envMarkets = out.filter((market) => market.contractId === PREDICTION_MARKET_CONTRACT_ID);
-      if (envMarkets.length > 0) return envMarkets;
-    }
-    return out;
+    return filterConfiguredMarkets(out);
   } catch (e) {
     console.warn("fetchAllPredictionMarkets", e);
     return [];

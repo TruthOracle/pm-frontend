@@ -11,6 +11,11 @@ function readBoolean(name: string): boolean {
   return env[name] === "true";
 }
 
+function readNumber(name: string, fallback: number): number {
+  const value = Number(readString(name));
+  return Number.isFinite(value) ? value : fallback;
+}
+
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/$/, "");
 }
@@ -34,6 +39,15 @@ export const TRUTHORACLE_PACKAGE_NAME = readString(
 );
 export const PREDICTION_MARKET_CONTRACT_ID = readString(
   "VITE_PREDICTION_MARKET_CONTRACT_ID",
+);
+export const MARKET_COUNTER_CONTRACT_ID = readString(
+  "VITE_MARKET_COUNTER_CONTRACT_ID",
+  "00b050a56ac7b4b035f7023d3ab666d92eee99fadf2426b028783fc5ad0bb42328ca1212204fe7028d6ddf6801fc4d01381f1b5b2368a3a47d76e62425ccdfaa7bb3971f9b",
+);
+export const MARKET_COUNTER_VALUE = readNumber("VITE_MARKET_COUNTER_VALUE", 0);
+export const MARKET_COUNTER_CREATED_AT = readString(
+  "VITE_MARKET_COUNTER_CREATED_AT",
+  "2026-08-03T06:41:40.004073Z",
 );
 
 export const PARTICIPANT_URL = readString(
