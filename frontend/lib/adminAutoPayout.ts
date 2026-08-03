@@ -18,14 +18,14 @@ import {
     enterpriseWalletPartyId,
     submitAdminTransaction,
 } from "@/lib/enterpriseWalletSubmit";
+import { ENTERPRISE_WALLET_APP_NAME, ENTERPRISE_WALLET_PROXY_URL } from "@/config";
 
 function walletBaseUrl(): string {
-    if (import.meta.env.DEV) return "/__proxy/wallet";
-    return String(import.meta.env.VITE_ENTERPRISE_WALLET_URL ?? "http://localhost:8080").replace(/\/$/, "");
+    return ENTERPRISE_WALLET_PROXY_URL;
 }
 
 function appName(): string {
-    return String(import.meta.env.VITE_ENTERPRISE_WALLET_APP_NAME ?? "truthoracle").trim();
+    return ENTERPRISE_WALLET_APP_NAME;
 }
 
 export interface AutoPayoutArgs {

@@ -7,25 +7,28 @@
  */
 import type { PrepareExecuteParams } from "@/lib/cantonDapp";
 import { normalizeCommands } from "@/utils/normalizeCommand";
+import {
+  ENTERPRISE_WALLET_APP_NAME,
+  ENTERPRISE_WALLET_PARTY_ID,
+  ENTERPRISE_WALLET_PROXY_URL,
+} from "@/config";
 
 export function enterpriseWalletPartyId(): string {
-  return String(import.meta.env.VITE_ENTERPRISE_WALLET_PARTY_ID ?? "").trim();
+  return ENTERPRISE_WALLET_PARTY_ID;
 }
 
 function appName(): string {
-  return String(import.meta.env.VITE_ENTERPRISE_WALLET_APP_NAME ?? "truthoracle").trim();
+  return ENTERPRISE_WALLET_APP_NAME;
 }
 
 function walletBaseUrl(): string {
-  const raw = String(import.meta.env.VITE_ENTERPRISE_WALLET_URL ?? "http://localhost:8080").trim();
-  return raw.replace(/\/$/, "");
+  return ENTERPRISE_WALLET_PROXY_URL;
 }
 
 export function useEnterpriseWalletForAdmin(): boolean {
   const party = enterpriseWalletPartyId();
   if (!party) return false;
-  const url = String(import.meta.env.VITE_ENTERPRISE_WALLET_URL ?? "http://localhost:8080").trim();
-  return Boolean(url);
+  return Boolean(ENTERPRISE_WALLET_PROXY_URL);
 }
 
 /**

@@ -11,6 +11,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { C8WalletProvider } from "@cantor8/wallet-connect-sdk";
 import type { AccountInfoPayload } from "@cantor8/wallet-connect-sdk";
 import type { PrepareExecuteParams } from "@/lib/cantonDapp";
+import { APP_NETWORK } from "@/config";
 import { normalizeCommands } from "@/utils/normalizeCommand";
 import type {
   CantonAccount,
@@ -29,7 +30,7 @@ type C8SdkNetwork = "devnet" | "mainnet";
 
 /** Resolve the C8 network from env, falling back to devnet for unsupported values. */
 function resolveNetwork(): C8Network {
-  const raw = String(import.meta.env.VITE_APP_NETWORK ?? "devnet").toLowerCase().trim();
+  const raw = APP_NETWORK.toLowerCase().trim();
   if (raw === "mainnet" || raw === "local") return raw;
   return "devnet";
 }

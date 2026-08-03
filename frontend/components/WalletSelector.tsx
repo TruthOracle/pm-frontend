@@ -20,6 +20,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { getCantonCoinHoldings, type AmuletHoldings } from "@/view-functions/getAccountBalance";
 import { useQuery } from "@tanstack/react-query";
 import Pusher from "pusher-js";
+import { MODULE_ADDRESS, PUSHER_CLUSTER, PUSHER_KEY } from "@/config";
 
 function truncatePartyId(partyId: string, chars = 6): string {
   if (!partyId || partyId.length <= chars * 2) return partyId;
@@ -28,10 +29,8 @@ function truncatePartyId(partyId: string, chars = 6): string {
 
 let pusher: Pusher | null = null;
 try {
-  const pusherKey = process.env.NEXT_PUBLIC_PUSHER_KEY || "5c9c8369bdc5cdcb8b7c";
-  const pusherCluster = process.env.NEXT_PUBLIC_PUSHER_CLUSTER || "ap2";
-  if (pusherKey && pusherCluster) {
-    pusher = new Pusher(pusherKey, { cluster: pusherCluster, enabledTransports: ["ws", "wss"] });
+  if (PUSHER_KEY && PUSHER_CLUSTER) {
+    pusher = new Pusher(PUSHER_KEY, { cluster: PUSHER_CLUSTER, enabledTransports: ["ws", "wss"] });
   }
 } catch {
   // ignore
@@ -82,13 +81,12 @@ export function WalletSelector() {
   const formatEvent = (event: AccountEvent) => {
     const date = new Date(event.timestamp * 1000);
     const timeString = date.toLocaleTimeString();
-    const moduleAddress = process.env.NEXT_PUBLIC_MODULE_ADDRESS || "0xbde9b5978954614b28adf8e8c71d919271ccad89a878d4d914249444a31f2b49";
     switch (event.event_type) {
-      case `${moduleAddress}::truthoracle::MarketCreated`:
+      case `${MODULE_ADDRESS}::truthoracle::MarketCreated`:
         return `${timeString} - Created market: ${event.event_data.market_id}`;
-      case `${moduleAddress}::truthoracle::buy_shares`:
+      case `${MODULE_ADDRESS}::truthoracle::buy_shares`:
         return `${timeString} - Bought shares: ${event.event_data.amount} for market ${event.event_data.market_id}`;
-      case `${moduleAddress}::truthoracle::withdraw_payout`:
+      case `${MODULE_ADDRESS}::truthoracle::withdraw_payout`:
         return `${timeString} - Withdrew payout: ${event.event_data.amount} from market ${event.event_data.market_id}`;
       default:
         return `${timeString} - ${event.event_type}`;
@@ -204,7 +202,6 @@ export function WalletSelector() {
     </Dialog>
   );
 }
-
 
 
 

@@ -10,13 +10,14 @@
  * @see https://www.npmjs.com/package/@fivenorth/loop-sdk
  */
 import { loop } from "@fivenorth/loop-sdk";
+import { LOOP_NETWORK } from "@/config";
 
 export type LoopNetwork = "local" | "devnet" | "testnet" | "mainnet";
 
 export function getLoopNetwork(): LoopNetwork {
   if (typeof window === "undefined") return "devnet";
   // Use devnet by default so Connect works from localhost (Loop "local" expects backend at localhost:8080).
-  const envNetwork = typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_LOOP_NETWORK as LoopNetwork | undefined;
+  const envNetwork = LOOP_NETWORK as LoopNetwork;
   if (envNetwork && ["local", "devnet", "testnet", "mainnet"].includes(envNetwork)) return envNetwork;
   return "devnet";
 }

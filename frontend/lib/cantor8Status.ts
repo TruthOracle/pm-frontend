@@ -17,9 +17,11 @@
  *   GET /api/transfer/history?limit=10        — recent transfers (deprecated but functional)
  */
 
+import { APP_NETWORK, DEBUG_WALLET_STATUS } from "@/config";
+
 /** Devnet/mainnet wallet backend URL — mirrors the SDK's `origin → backend` switch. */
 function getWalletBackendUrl(): string {
-  const network = String(import.meta.env.VITE_APP_NETWORK ?? "devnet").toLowerCase().trim();
+  const network = APP_NETWORK.toLowerCase().trim();
   if (network === "mainnet") return "https://wallet-backend.main.cantor8.tech";
   return "https://wallet-backend.dev.digik.cantor8.tech";
 }
@@ -108,7 +110,7 @@ export async function getWalletTransferHistory(_partyId: string): Promise<Wallet
  * UserMarketData (see `waitForPositionUpdate` in MarketView).
  */
 export async function probeWalletStatusEndpoints(partyId: string, commandId: string): Promise<void> {
-  if (import.meta.env.VITE_DEBUG_WALLET_STATUS !== "true") return;
+  if (!DEBUG_WALLET_STATUS) return;
   console.log(
     `[wallet-status] probing for commandId=${commandId} party=${partyId.slice(0, 24)}… (enable VITE_DEBUG_WALLET_STATUS=true to see this)`,
   );

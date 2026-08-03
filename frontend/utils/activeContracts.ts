@@ -1,12 +1,9 @@
 import { createParticipantClient } from "@/lib/cantonParticipant";
 import { TRUTHORACLE_PACKAGE_ID, TRUTHORACLE_PACKAGE_NAME } from "@/constants";
+import { ENTERPRISE_WALLET_PARTY_ID, PREDICTION_MARKET_CONTRACT_ID } from "@/config";
 
 const TRUTHORACLE_MODULE = "Truthoracle";
 const INCENTIVES_MODULE = "Incentives";
-
-const ENV_PREDICTION_MARKET_CONTRACT_ID = String(
-  import.meta.env.VITE_PREDICTION_MARKET_CONTRACT_ID ?? "",
-).trim();
 
 function templateId(moduleName: string, entityName: string) {
   return {
@@ -50,13 +47,12 @@ function getDisclosure(
 }
 
 function adminParty(): string {
-  const p = String(import.meta.env.VITE_ENTERPRISE_WALLET_PARTY_ID ?? "").trim();
-  if (!p) {
+  if (!ENTERPRISE_WALLET_PARTY_ID) {
     throw new Error(
       "VITE_ENTERPRISE_WALLET_PARTY_ID is not set. Set it in .env to the Enterprise Wallet party id (see wallet-deploy/README.md)."
     );
   }
-  return p;
+  return ENTERPRISE_WALLET_PARTY_ID;
 }
 
 /** Daml Int/Decimal fields come back as numeric strings on the JSON Ledger API. */
@@ -258,8 +254,8 @@ export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecor
     }
     out.sort((a, b) => b.marketId - a.marketId);
 
-    if (ENV_PREDICTION_MARKET_CONTRACT_ID) {
-      const envMarkets = out.filter((market) => market.contractId === ENV_PREDICTION_MARKET_CONTRACT_ID);
+    if (PREDICTION_MARKET_CONTRACT_ID) {
+      const envMarkets = out.filter((market) => market.contractId === PREDICTION_MARKET_CONTRACT_ID);
       if (envMarkets.length > 0) return envMarkets;
     }
     return out;
