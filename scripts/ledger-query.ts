@@ -83,7 +83,7 @@ async function main() {
   const KNOWN_TEMPLATES = [
     { module: "Truthoracle", entity: "MarketCounter" },
     { module: "Truthoracle", entity: "PredictionMarket" },
-    { module: "Truthoracle", entity: "UserMarketData" },
+    { module: "Truthoracle", entity: "Position" },
     { module: "Incentives", entity: "UserRewardsSummary" },
   ];
 

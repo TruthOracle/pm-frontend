@@ -46,13 +46,13 @@ Balances and payments use **Canton Coin** (native on Canton Network testnet and 
 ### Build DAML
 ```bash
 cd daml
-daml build
+dpm build
 ```
 
 ### Test DAML
 ```bash
 cd daml
-daml test
+dpm test
 ```
 
 ### Deploy to Canton Network

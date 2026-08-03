@@ -57,7 +57,7 @@ async function main() {
       "Upload a DAR to a Canton participant via the JSON Ledger API (POST /v2/packages).",
       "",
       "Usage:",
-      "  npm run dars:upload                       # uploads daml/.daml/dist/truthoracle-v11-1.0.0.dar",
+      "  npm run dars:upload                       # uploads daml/.daml/dist/truthoracle-v12-1.0.0.dar",
       "  npm run dars:upload -- path/to/file.dar   # uploads a specific DAR",
       "",
       "Config (root `.env`):",
@@ -83,7 +83,7 @@ async function main() {
   const positional = process.argv.slice(2).filter((a) => !a.startsWith("-"));
   const darPath = path.resolve(
     repoRoot,
-    positional[0] || "daml/.daml/dist/truthoracle-v11-1.0.0.dar",
+    positional[0] || "daml/.daml/dist/truthoracle-v12-1.0.0.dar",
   );
   if (!fs.existsSync(darPath)) {
     throw new Error(`DAR not found: ${darPath}\nBuild it first: cd daml && dpm build`);

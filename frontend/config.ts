@@ -26,14 +26,11 @@ export const WALLET_TYPE =
 
 export const TRUTHORACLE_PACKAGE_ID = readString(
   "VITE_TRUTHORACLE_PACKAGE_ID",
-  "fab6f39a9ce04e892b94462efb00f3f7f1944dd9aac3b0254229cc89b3db12a6",
+  "317054909e97d941498386868b69ca6c0938f6e6c97e615cca507466b68bacad",
 );
 export const TRUTHORACLE_PACKAGE_NAME = readString(
   "VITE_TRUTHORACLE_PACKAGE_NAME",
-  "truthoracle-v11",
-);
-export const PREDICTION_MARKET_CONTRACT_ID = readString(
-  "VITE_PREDICTION_MARKET_CONTRACT_ID",
+  "truthoracle-v12",
 );
 
 export const PARTICIPANT_URL = readString(
