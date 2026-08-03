@@ -1,6 +1,10 @@
 import { createParticipantClient } from "@/lib/cantonParticipant";
 import { TRUTHORACLE_PACKAGE_ID, TRUTHORACLE_PACKAGE_NAME } from "@/constants";
-import { ENTERPRISE_WALLET_PARTY_ID, PREDICTION_MARKET_CONTRACT_ID } from "@/config";
+import {
+  ENTERPRISE_WALLET_PARTY_ID,
+  MARKET_COUNTER_CONTRACT_ID,
+  PREDICTION_MARKET_CONTRACT_ID,
+} from "@/config";
 
 const TRUTHORACLE_MODULE = "Truthoracle";
 const INCENTIVES_MODULE = "Incentives";
@@ -215,6 +219,8 @@ function parseMarket(item: unknown): PredictionMarketRecord | null {
  */
 export async function fetchMarketCounterContractId(): Promise<string | null> {
   try {
+    if (MARKET_COUNTER_CONTRACT_ID) return MARKET_COUNTER_CONTRACT_ID;
+
     const client = createParticipantClient();
     const list = await client.queryActiveContracts(
       adminParty(),
@@ -255,9 +261,9 @@ export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecor
     out.sort((a, b) => b.marketId - a.marketId);
 
     if (PREDICTION_MARKET_CONTRACT_ID) {
-      const envMarkets = out.filter((market) => market.contractId === PREDICTION_MARKET_CONTRACT_ID);
-      if (envMarkets.length > 0) return envMarkets;
+      return out.filter((market) => market.contractId === PREDICTION_MARKET_CONTRACT_ID);
     }
+    if (MARKET_COUNTER_CONTRACT_ID) return [];
     return out;
   } catch (e) {
     console.warn("fetchAllPredictionMarkets", e);
