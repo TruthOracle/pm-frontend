@@ -2,23 +2,55 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchAllPredictionMarkets, type PredictionMarketRecord } from "@/utils/activeContracts";
 import MarketCard from "./MarketCard";
-import { Activity, ArrowRight, BadgeCheck, BarChart3, Loader2, Shield, TrendingUp, Users, Zap } from "lucide-react";
+import {
+  Activity,
+  ArrowRight,
+  BadgeCheck,
+  BarChart3,
+  Coins,
+  Droplets,
+  Gauge,
+  Loader2,
+  PlusCircle,
+  Shield,
+  Shuffle,
+  TrendingUp,
+  Zap,
+} from "lucide-react";
 
 const FEATURES = [
   {
     icon: Shield,
-    title: "On-chain & Transparent",
-    desc: "Every trade is recorded on the Canton Network ledger — fully auditable.",
+    title: "On-ledger markets",
+    desc: "Market creation, trades, liquidity, and settlement are submitted to Canton for an auditable trail.",
   },
   {
-    icon: Zap,
-    title: "Instant Settlement",
-    desc: "LMSR pricing ensures fair, real-time odds with low slippage.",
+    icon: Gauge,
+    title: "Dynamic pm-AMM pricing",
+    desc: "Yes/No prices come from the pm-AMM with fee, price-impact, and slippage previews before submit.",
   },
   {
-    icon: Users,
-    title: "Community Intelligence",
-    desc: "Harness collective wisdom to forecast politics, sports, and more.",
+    icon: Droplets,
+    title: "Built-in liquidity tools",
+    desc: "Admins seed markets with probability and pool value; users can add liquidity or mint complete sets.",
+  },
+];
+
+const MARKET_STEPS = [
+  {
+    icon: PlusCircle,
+    title: "Create pm-AMM market",
+    desc: "Set question, category, expiry, resolution rules, initial probability, pool value, fee, and liquidity period.",
+  },
+  {
+    icon: Coins,
+    title: "Seed and collect liquidity",
+    desc: "The pool starts from a target value in CC; liquidity providers can add value without moving the price.",
+  },
+  {
+    icon: Shuffle,
+    title: "Place trades",
+    desc: "Buy or sell Yes/No shares, convert between outcomes, or mint complete sets directly from the market page.",
   },
 ];
 
@@ -59,16 +91,17 @@ function Homepage() {
           <div className="max-w-3xl">
             <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-primary shadow-sm">
               <span className="h-1.5 w-1.5 rounded-full bg-oracle-yes animate-pulse" />
-              Live on Canton Network
+              Dynamic pm-AMM live on Canton
             </div>
 
             <h1 className="mb-5 text-4xl font-extrabold tracking-tight text-foreground sm:text-6xl lg:text-68 lg:leading-72">
-              Forecast the Future. <span className="gradient-text">Reap the Profits.</span>
+            Forecast the Future. <span className="gradient-text">Reap the Profits.</span>
             </h1>
 
             <p className="mb-8 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">
-              TruthOracle is a decentralized prediction market on Canton. Trade Yes/No shares on real-world events with
-              transparent settlement, real-time odds, and community intelligence.
+              TruthOracle now supports pm-AMM based market creation and a richer trading UI. Seed a binary market with
+              initial probability and pool value, then let users buy, sell, convert, mint, and provide liquidity with
+              on-ledger execution.
             </p>
 
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -80,10 +113,11 @@ function Homepage() {
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
-                to="/faq"
+                to="/admin"
                 className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-950 shadow-sm transition-all hover:border-primary/40 hover:bg-emerald-50"
               >
-                How it works
+                Create pm-AMM Market
+                <PlusCircle className="h-4 w-4" />
               </Link>
             </div>
 
@@ -91,8 +125,8 @@ function Homepage() {
             <div className="mt-10 grid grid-cols-3 gap-3 rounded-lg border border-border/80 bg-white/80 p-3 shadow-xl shadow-slate-200/50 backdrop-blur sm:gap-5 sm:p-5">
               {[
                 { label: "Active Markets", value: loading ? "—" : markets.length },
-                { label: "Network", value: "Canton" },
-                { label: "Settlement", value: "On-chain" },
+                { label: "Pricing", value: "pm-AMM" },
+                { label: "Trades", value: "Buy/Sell" },
               ].map(({ label, value }) => (
                 <div key={label} className="text-center">
                   <div className="text-xl font-bold text-foreground sm:text-2xl">{value}</div>
@@ -106,39 +140,65 @@ function Homepage() {
             <div className="rounded-lg border border-border/80 bg-white p-4 shadow-2xl shadow-slate-300/40">
               <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase text-slate-500">Live Market</p>
-                  <h2 className="mt-1 text-base font-extrabold text-slate-950">Election outcome forecast</h2>
+                  <p className="text-xs font-semibold uppercase text-slate-500">Trade preview</p>
+                  <h2 className="mt-1 text-base font-extrabold text-slate-950">Will ETH close above $4,000?</h2>
                 </div>
                 <div className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-oracle-yes">
                   <Activity className="h-3.5 w-3.5" />
-                  Active
+                  Trading
                 </div>
               </div>
               <div className="space-y-4">
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-sm font-bold text-slate-950">Yes probability</span>
-                    <span className="text-2xl font-extrabold text-oracle-yes">68%</span>
+                    <span className="text-2xl font-extrabold text-oracle-yes">62.4%</span>
                   </div>
                   <div className="prob-bar h-2">
-                    <div className="prob-bar-yes" style={{ width: "68%" }} />
+                    <div className="prob-bar-yes" style={{ width: "62.4%" }} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
                     <p className="text-xs font-semibold text-emerald-700">YES</p>
-                    <p className="mt-2 text-2xl font-bold text-emerald-700">68c</p>
+                    <p className="mt-2 text-2xl font-bold text-emerald-700">62.4c</p>
                   </div>
                   <div className="rounded-md border border-rose-200 bg-rose-50 p-4">
                     <p className="text-xs font-semibold text-rose-700">NO</p>
-                    <p className="mt-2 text-2xl font-bold text-rose-700">32c</p>
+                    <p className="mt-2 text-2xl font-bold text-rose-700">37.6c</p>
+                  </div>
+                </div>
+                <div className="flex overflow-hidden rounded-lg border border-slate-200 bg-white text-xs font-semibold">
+                  {["Buy", "Sell", "Convert"].map((item, index) => (
+                    <div
+                      key={item}
+                      className={`flex-1 px-3 py-2 text-center ${
+                        index === 0 ? "bg-primary text-primary-foreground" : "text-slate-500"
+                      }`}
+                    >
+                      {item}
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-500">
+                  <div className="mb-2 flex justify-between">
+                    <span>Spend</span>
+                    <span className="font-bold text-slate-950">25 CC</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Est. shares</span>
+                    <span className="font-bold text-slate-950">38.2 YES</span>
+                  </div>
+                  <div className="mt-1 flex justify-between">
+                    <span>Slippage bound</span>
+                    <span>1.0%</span>
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { label: "Volume", value: "12.4k" },
-                    { label: "Traders", value: "840" },
-                    { label: "Latency", value: "Live" },
+                    { label: "Pool value", value: "100 CC" },
+                    { label: "Fee", value: "0.30%" },
+                    { label: "L_eff", value: "42.8" },
                   ].map((item) => (
                     <div key={item.label} className="rounded-md border border-slate-200 bg-white p-3">
                       <p className="text-xs text-slate-500">{item.label}</p>
@@ -149,6 +209,25 @@ function Homepage() {
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* pm-AMM workflow */}
+      <section className="page-container pb-16">
+        <div className="mb-6 flex items-center gap-2">
+          <Zap className="h-5 w-5 text-primary" />
+          <h2 className="text-xl font-bold text-foreground">pm-AMM market flow</h2>
+        </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {MARKET_STEPS.map(({ icon: Icon, title, desc }) => (
+            <div key={title} className="rounded-lg border border-border/80 bg-white/85 p-5 shadow-lg shadow-slate-200/40">
+              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/10">
+                <Icon className="h-5 w-5 text-primary" />
+              </div>
+              <h3 className="mb-1.5 text-sm font-bold text-foreground">{title}</h3>
+              <p className="text-sm leading-6 text-muted-foreground">{desc}</p>
+            </div>
+          ))}
         </div>
       </section>
 
