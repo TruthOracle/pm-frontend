@@ -4,10 +4,10 @@
  * equivalent the validator surfaces alongside it.
  */
 
-const NETWORK = (import.meta.env.VITE_LOOP_NETWORK ?? "devnet").toLowerCase();
+import { LOOP_NETWORK } from "@/config";
 
 function getWalletBackendUrl(): string {
-  if (NETWORK === "mainnet") return "https://wallet-backend.main.cantor8.tech";
+  if (LOOP_NETWORK === "mainnet") return "https://wallet-backend.main.cantor8.tech";
   return "https://wallet-backend.dev.digik.cantor8.tech";
 }
 

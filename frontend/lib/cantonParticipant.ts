@@ -6,6 +6,16 @@
  */
 
 import type { PrepareExecuteParams } from "./cantonDapp";
+import {
+  DEBUG_ACTIVE_CONTRACTS,
+  IS_DEV,
+  KEYCLOAK_CLIENT_ID,
+  KEYCLOAK_CLIENT_SECRET,
+  KEYCLOAK_PROXY_URL,
+  KEYCLOAK_REALM,
+  KEYCLOAK_URL,
+  PARTICIPANT_PROXY_URL,
+} from "@/config";
 import { normalizeCommand } from "@/utils/normalizeCommand";
 
 /** In-memory cache for OAuth2 client_credentials access token (Keycloak). */
@@ -28,15 +38,15 @@ const TOKEN_REFRESH_MARGIN_SEC = 60;
  * VITE_KEYCLOAK_URL is the upstream target used by local Vite and Vercel.
  */
 function getKeycloakBaseUrl(): string {
-  if (!import.meta.env.VITE_KEYCLOAK_URL) return "";
-  return String(import.meta.env.VITE_KEYCLOAK_PROXY_URL ?? "/__proxy/keycloak").replace(/\/$/, "");
+  if (!KEYCLOAK_URL) return "";
+  return KEYCLOAK_PROXY_URL;
 }
 
 async function fetchKeycloakAccessToken(): Promise<string> {
-  const baseUrl = getKeycloakBaseUrl() || import.meta.env.VITE_KEYCLOAK_URL?.replace(/\/$/, "");
-  const realm = import.meta.env.VITE_KEYCLOAK_REALM ?? "master";
-  const clientId = import.meta.env.VITE_KEYCLOAK_CLIENT_ID;
-  const clientSecret = import.meta.env.VITE_KEYCLOAK_CLIENT_SECRET;
+  const baseUrl = getKeycloakBaseUrl() || KEYCLOAK_URL;
+  const realm = KEYCLOAK_REALM;
+  const clientId = KEYCLOAK_CLIENT_ID;
+  const clientSecret = KEYCLOAK_CLIENT_SECRET;
 
   if (!baseUrl || !clientId || !clientSecret) {
     throw new Error(
@@ -350,7 +360,7 @@ export class CantonParticipantClient {
       ? raw
       : (raw as Record<string, unknown>).activeContracts ?? (raw as Record<string, unknown>).contracts ?? [];
 
-    if (import.meta.env.DEV && import.meta.env.VITE_DEBUG_ACTIVE_CONTRACTS === "true") {
+    if (IS_DEV && DEBUG_ACTIVE_CONTRACTS) {
       console.debug("[active-contracts]", {
         partyId,
         templateIdStr,
@@ -428,7 +438,7 @@ export class CantonParticipantClient {
 }
 
 function getLedgerBaseUrl(): string {
-  return String(import.meta.env.VITE_CANTON_PARTICIPANT_PROXY_URL ?? "/__proxy/ledger").replace(/\/$/, "");
+  return PARTICIPANT_PROXY_URL;
 }
 
 /**

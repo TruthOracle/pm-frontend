@@ -18,14 +18,10 @@ import {
   Cantor8WalletProvider as Cantor8Provider,
   useCantor8Wallet as useCantor8WalletHook,
 } from "@/wallets/cantor8/Cantor8WalletContext";
+import { WALLET_TYPE } from "@/config";
 
 export type { CantonAccount, CantonNetworkInfo, CantonWalletItem, CantonWalletContextValue } from "./types";
 export type { PrepareExecuteParams } from "./types";
-
-//const WALLET_TYPE = (import.meta.env.VITE_WALLET_TYPE ?? "cantor8") as "canton" | "cantor8";
-
- const raw = import.meta.env.VITE_WALLET_TYPE ?? "cantor8";
- const WALLET_TYPE = String(raw).toLowerCase().trim() === "canton" ? "canton" : "cantor8";
 
 /** Main provider – use Canton or Cantor8 based on VITE_WALLET_TYPE */
 export const CantonWalletProvider =

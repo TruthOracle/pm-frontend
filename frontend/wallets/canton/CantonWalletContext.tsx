@@ -15,6 +15,7 @@ import {
   type LoopTxResult,
 } from "@/lib/loopSdk";
 import type { PrepareExecuteParams } from "@/lib/cantonDapp";
+import { USE_PARTICIPANT_API } from "@/config";
 import { createParticipantClient } from "@/lib/cantonParticipant";
 import type {
   CantonAccount,
@@ -95,9 +96,7 @@ export function CantonWalletProvider({ children }: { children: React.ReactNode }
 
   const signAndSubmitTransaction = useCallback(
     async (params: PrepareExecuteParams): Promise<{ hash: string }> => {
-      const useParticipantApi = import.meta.env.VITE_USE_PARTICIPANT_API === "true";
-
-      if (useParticipantApi) {
+      if (USE_PARTICIPANT_API) {
         const client = createParticipantClient();
         return await client.submitTransaction(params);
       } else {
