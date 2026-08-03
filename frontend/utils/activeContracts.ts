@@ -263,6 +263,7 @@ export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecor
     if (PREDICTION_MARKET_CONTRACT_ID) {
       return out.filter((market) => market.contractId === PREDICTION_MARKET_CONTRACT_ID);
     }
+    if (MARKET_COUNTER_CONTRACT_ID) return [];
     return out;
   } catch (e) {
     console.warn("fetchAllPredictionMarkets", e);
