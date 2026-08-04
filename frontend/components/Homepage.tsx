@@ -1,29 +1,63 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchAllPredictionMarkets, type PredictionMarketRecord } from "@/utils/activeContracts";
+import { useIsAdmin } from "@/lib/useIsAdmin";
 import MarketCard from "./MarketCard";
 import MarketRangeGraph from "./MarketRangeGraph";
-import { Activity, ArrowLeft, ArrowRight, BadgeCheck, BarChart3, Loader2, Shield, TrendingUp, Users, Zap } from "lucide-react";
+import {
+  Activity,
+  ArrowLeft,
+  ArrowRight,
+  BadgeCheck,
+  BarChart3,
+  Coins,
+  Droplets,
+  Gauge,
+  Loader2,
+  PlusCircle,
+  Shield,
+  Shuffle,
+  TrendingUp,
+} from "lucide-react";
 
 const FEATURES = [
   {
     icon: Shield,
-    title: "On-chain & Transparent",
-    desc: "Every trade is recorded on the Canton Network ledger — fully auditable.",
+    title: "On-ledger markets",
+    desc: "Market creation, trades, liquidity, and settlement are submitted to Canton for an auditable trail.",
   },
   {
-    icon: Zap,
-    title: "Instant Settlement",
-    desc: "LMSR pricing ensures fair, real-time odds with low slippage.",
+    icon: Gauge,
+    title: "Dynamic pm-AMM pricing",
+    desc: "Yes/No prices come from the pm-AMM with fee, price-impact, and slippage previews before submit.",
   },
   {
-    icon: Users,
-    title: "Community Intelligence",
-    desc: "Harness collective wisdom to forecast politics, sports, and more.",
+    icon: Droplets,
+    title: "Built-in liquidity tools",
+    desc: "Admins seed markets with probability and pool value; users can add liquidity or mint complete sets.",
+  },
+];
+
+const MARKET_STEPS = [
+  {
+    icon: PlusCircle,
+    title: "Create pm-AMM market",
+    desc: "Admins set the question, category, expiry, resolution rules, initial probability, pool value, fee, and liquidity period.",
+  },
+  {
+    icon: Coins,
+    title: "Seed and collect liquidity",
+    desc: "The pool starts from a target value in CC; liquidity providers can add value without moving the price.",
+  },
+  {
+    icon: Shuffle,
+    title: "Place trades",
+    desc: "Users can buy or sell Yes/No shares, convert between outcomes, or mint complete sets from the market page.",
   },
 ];
 
 function Homepage() {
+  const isAdmin = useIsAdmin();
   const [markets, setMarkets] = useState<PredictionMarketRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [liveIndex, setLiveIndex] = useState(0);
@@ -108,7 +142,7 @@ function Homepage() {
           <div className="max-w-3xl">
             <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-primary shadow-sm">
               <span className="h-1.5 w-1.5 rounded-full bg-oracle-yes animate-pulse" />
-              Live on Canton Network
+              Dynamic pm-AMM live on Canton
             </div>
 
             <h1 className="mb-5 text-4xl font-extrabold tracking-tight text-foreground sm:text-6xl lg:text-68 lg:leading-72">
@@ -116,8 +150,9 @@ function Homepage() {
             </h1>
 
             <p className="mb-8 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">
-              TruthOracle is a decentralized prediction market on Canton. Trade Yes/No shares on real-world events with
-              transparent settlement, real-time odds, and community intelligence.
+              TruthOracle supports pm-AMM based market creation and a richer trading UI. Admins seed binary markets with
+              initial probability and pool value, then users can buy, sell, convert, mint, and provide liquidity with
+              on-ledger execution.
             </p>
 
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -129,10 +164,11 @@ function Homepage() {
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
-                to="/faq"
+                to={isAdmin ? "/admin" : "/faq"}
                 className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-950 shadow-sm transition-all hover:border-primary/40 hover:bg-emerald-50"
               >
-                How it works
+                {isAdmin ? "Create pm-AMM Market" : "How it works"}
+                {isAdmin ? <PlusCircle className="h-4 w-4" /> : null}
               </Link>
             </div>
 
@@ -140,8 +176,8 @@ function Homepage() {
             <div className="mt-10 grid grid-cols-3 gap-3 rounded-lg border border-border/80 bg-white/80 p-3 shadow-xl shadow-slate-200/50 backdrop-blur sm:gap-5 sm:p-5">
               {[
                 { label: "Active Markets", value: loading ? "—" : liveMarkets.length },
-                { label: "Network", value: "Canton" },
-                { label: "Settlement", value: "On-chain" },
+                { label: "Pricing", value: "pm-AMM" },
+                { label: "Trades", value: "Buy/Sell" },
               ].map(({ label, value }) => (
                 <div key={label} className="text-center">
                   <div className="text-xl font-bold text-foreground sm:text-2xl">{value}</div>
@@ -286,7 +322,7 @@ function Homepage() {
             <h2 className="text-2xl font-bold text-foreground">Why TruthOracle?</h2>
           </div>
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-            {FEATURES.map(({ icon: Icon, title, desc }) => (
+            {[...FEATURES, ...MARKET_STEPS].map(({ icon: Icon, title, desc }) => (
               <div
                 key={title}
                 className="rounded-lg border border-border/80 bg-card p-6 shadow-lg shadow-slate-200/50 transition-colors hover:border-primary/30"

@@ -30,7 +30,7 @@ const GRAPH_CONFIG = {
   },
 } as const;
 
-const RIGHT_AXIS_PADDING = 64;
+const RIGHT_AXIS_PADDING = 76;
 
 const PERCENTAGE_STOPS = [100, 75, 50, 25, 0] as const;
 
@@ -111,7 +111,7 @@ const MarketRangeGraph = ({ market, previewPrice, compact = false, className }: 
       lastY,
       currentY,
     };
-  }, [currentPrice, displayPrice, graphConfig.height, graphConfig.width, market, width]);
+  }, [currentPrice, displayPrice, graphConfig.height, graphConfig.width, market]);
   const percentageY = (percentage: number) =>
     percentage === 0 ? chart.h - 2 : chart.h - (percentage / 100) * chart.h;
 
@@ -169,7 +169,7 @@ const MarketRangeGraph = ({ market, previewPrice, compact = false, className }: 
           {PERCENTAGE_STOPS.map((percentage) => (
             <text
               key={`label-${percentage}`}
-              x={chart.w + 2}
+              x={chart.w + 10}
               y={percentageY(percentage)}
               dominantBaseline="middle"
               fill="#64748b"
