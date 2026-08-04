@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchAllPredictionMarkets, type PredictionMarketRecord } from "@/utils/activeContracts";
 import MarketCard from "./MarketCard";
-import { Activity, ArrowRight, BadgeCheck, BarChart3, Loader2, Shield, TrendingUp, Users, Zap } from "lucide-react";
+import MarketRangeGraph from "./MarketRangeGraph";
+import { Activity, ArrowLeft, ArrowRight, BadgeCheck, BarChart3, Loader2, Shield, TrendingUp, Users, Zap } from "lucide-react";
 
 const FEATURES = [
   {
@@ -25,6 +26,8 @@ const FEATURES = [
 function Homepage() {
   const [markets, setMarkets] = useState<PredictionMarketRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [liveIndex, setLiveIndex] = useState(0);
+  const touchStartX = useRef<number | null>(null);
 
   useEffect(() => {
     const injectScript = document.createElement("script");
@@ -44,12 +47,58 @@ function Homepage() {
   }, []);
 
   useEffect(() => {
-    fetchAllPredictionMarkets()
-      .then(setMarkets)
-      .finally(() => setLoading(false));
+    let mounted = true;
+    const refreshMarkets = () => {
+      fetchAllPredictionMarkets()
+        .then((nextMarkets) => {
+          if (mounted) setMarkets(nextMarkets);
+        })
+        .finally(() => {
+          if (mounted) setLoading(false);
+        });
+    };
+
+    refreshMarkets();
+    const refreshTimer = window.setInterval(refreshMarkets, 30_000);
+    return () => {
+      mounted = false;
+      window.clearInterval(refreshTimer);
+    };
   }, []);
 
-  const featured = markets.slice(0, 3);
+  const liveMarkets = markets.filter((market) => market.status === "Trading");
+  const featured = liveMarkets.slice(0, 3);
+  const liveMarket = liveMarkets[liveIndex % Math.max(liveMarkets.length, 1)];
+
+  useEffect(() => {
+    if (liveMarkets.length < 2) return;
+    const rotationTimer = window.setInterval(() => {
+      setLiveIndex((index) => (index + 1) % liveMarkets.length);
+    }, 6_000);
+    return () => window.clearInterval(rotationTimer);
+  }, [liveMarkets.length]);
+
+  const moveLiveMarket = (direction: number) => {
+    if (liveMarkets.length < 2) return;
+    setLiveIndex((index) => (index + direction + liveMarkets.length) % liveMarkets.length);
+  };
+
+  const handleLiveMarketTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    touchStartX.current = event.touches[0]?.clientX ?? null;
+  };
+
+  const handleLiveMarketTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (touchStartX.current == null || liveMarkets.length < 2) return;
+    const distance = event.changedTouches[0]?.clientX - touchStartX.current;
+    touchStartX.current = null;
+    if (Math.abs(distance) < 40) return;
+    moveLiveMarket(distance < 0 ? 1 : -1);
+  };
+
+  const formatVolume = (value: number) => {
+    if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+    return value.toFixed(1);
+  };
 
   return (
     <div className="relative overflow-hidden">
@@ -90,7 +139,7 @@ function Homepage() {
             {/* Stats */}
             <div className="mt-10 grid grid-cols-3 gap-3 rounded-lg border border-border/80 bg-white/80 p-3 shadow-xl shadow-slate-200/50 backdrop-blur sm:gap-5 sm:p-5">
               {[
-                { label: "Active Markets", value: loading ? "—" : markets.length },
+                { label: "Active Markets", value: loading ? "—" : liveMarkets.length },
                 { label: "Network", value: "Canton" },
                 { label: "Settlement", value: "On-chain" },
               ].map(({ label, value }) => (
@@ -103,51 +152,95 @@ function Homepage() {
           </div>
 
           <div className="relative">
-            <div className="rounded-lg border border-border/80 bg-white p-4 shadow-2xl shadow-slate-300/40">
-              <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase text-slate-500">Live Market</p>
-                  <h2 className="mt-1 text-base font-extrabold text-slate-950">Election outcome forecast</h2>
-                </div>
-                <div className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-oracle-yes">
-                  <Activity className="h-3.5 w-3.5" />
-                  Active
-                </div>
-              </div>
-              <div className="space-y-4">
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="text-sm font-bold text-slate-950">Yes probability</span>
-                    <span className="text-2xl font-extrabold text-oracle-yes">68%</span>
+            {liveMarket ? (
+              <div
+                className="min-h-[480px] rounded-lg border border-border/80 bg-white p-5 shadow-2xl shadow-slate-300/40"
+                onTouchStart={handleLiveMarketTouchStart}
+                onTouchEnd={handleLiveMarketTouchEnd}
+              >
+                <div className="mb-3 flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Live market {liveMarket.category ? `· ${liveMarket.category}` : ""}
+                    </p>
+                    <Link
+                      to={`/market/${liveMarket.marketId}`}
+                      className="mt-1 block line-clamp-2 text-base font-extrabold leading-snug text-slate-950 hover:text-primary"
+                    >
+                      {liveMarket.question}
+                    </Link>
                   </div>
-                  <div className="prob-bar h-2">
-                    <div className="prob-bar-yes" style={{ width: "68%" }} />
+                  <div className="flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-oracle-yes">
+                    <Activity className="h-3.5 w-3.5" />
+                    Active
                   </div>
                 </div>
+
+                <MarketRangeGraph market={liveMarket} compact className="mb-5" />
+
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
+                  <Link
+                    to={`/market/${liveMarket.marketId}?side=yes`}
+                    className="rounded-md border border-emerald-200 bg-emerald-50 p-3 transition-colors hover:border-emerald-400"
+                  >
                     <p className="text-xs font-semibold text-emerald-700">YES</p>
-                    <p className="mt-2 text-2xl font-bold text-emerald-700">68c</p>
-                  </div>
-                  <div className="rounded-md border border-rose-200 bg-rose-50 p-4">
+                    <p className="mt-1 text-2xl font-bold text-emerald-700">{Math.round(liveMarket.currentPrice * 100)}c</p>
+                  </Link>
+                  <Link
+                    to={`/market/${liveMarket.marketId}?side=no`}
+                    className="rounded-md border border-rose-200 bg-rose-50 p-3 transition-colors hover:border-rose-400"
+                  >
                     <p className="text-xs font-semibold text-rose-700">NO</p>
-                    <p className="mt-2 text-2xl font-bold text-rose-700">32c</p>
-                  </div>
+                    <p className="mt-1 text-2xl font-bold text-rose-700">{Math.round((1 - liveMarket.currentPrice) * 100)}c</p>
+                  </Link>
                 </div>
-                <div className="grid grid-cols-3 gap-3">
+
+                <div className="mt-3 grid grid-cols-3 gap-2">
                   {[
-                    { label: "Volume", value: "12.4k" },
-                    { label: "Traders", value: "840" },
-                    { label: "Latency", value: "Live" },
+                    { label: "Volume", value: `${formatVolume(liveMarket.totalVolumeCC)} CC` },
+                    { label: "Liquidity", value: `${liveMarket.liquidityL.toFixed(1)} L` },
+                    { label: "Expires", value: new Date(liveMarket.expiresAt * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" }) },
                   ].map((item) => (
-                    <div key={item.label} className="rounded-md border border-slate-200 bg-white p-3">
-                      <p className="text-xs text-slate-500">{item.label}</p>
-                      <p className="mt-1 text-sm font-bold text-slate-950">{item.value}</p>
+                    <div key={item.label} className="rounded-md border border-slate-200 bg-white p-2.5">
+                      <p className="text-[11px] text-slate-500">{item.label}</p>
+                      <p className="mt-1 truncate text-xs font-bold text-slate-950">{item.value}</p>
                     </div>
                   ))}
                 </div>
+
+                {liveMarkets.length > 1 && (
+                  <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-3">
+                    <div className="flex items-center gap-1.5" aria-label="Live market carousel position">
+                      {liveMarkets.map((market, index) => (
+                        <button
+                          key={market.contractId}
+                          type="button"
+                          aria-label={`Show market ${index + 1}`}
+                          onClick={() => setLiveIndex(index)}
+                          className={`h-1.5 rounded-full transition-all ${index === liveIndex % liveMarkets.length ? "w-5 bg-primary" : "w-1.5 bg-slate-300"}`}
+                        />
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button type="button" aria-label="Previous live market" onClick={() => moveLiveMarket(-1)} className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-950">
+                        <ArrowLeft className="h-4 w-4" />
+                      </button>
+                      <button type="button" aria-label="Next live market" onClick={() => moveLiveMarket(1)} className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-950">
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
+            ) : (
+              <div className="flex min-h-[380px] items-center justify-center rounded-lg border border-dashed border-border bg-white/80 p-8 text-center shadow-xl shadow-slate-200/40">
+                <div>
+                  <Activity className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />
+                  <p className="font-semibold text-foreground">{loading ? "Loading live markets..." : "No live markets yet"}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Active markets will appear here automatically.</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </section>
