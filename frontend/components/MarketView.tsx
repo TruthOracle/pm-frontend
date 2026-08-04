@@ -52,6 +52,7 @@ import {
   enterpriseWalletPartyId,
   submitAdminTransaction,
 } from "@/lib/enterpriseWalletSubmit";
+import MarketRangeGraph from "./MarketRangeGraph";
 import {
   quoteBuy,
   quoteSell,
@@ -315,6 +316,14 @@ const MarketView = () => {
 
   const effectiveL = market ? marketEffectiveL(ammState(market), nowSecs) : 0;
   const currentPoolValue = market ? poolValue(market.currentPrice, effectiveL) : 0;
+  const previewPrice =
+    mainTab === "trade" && tradeSubTab === "swap"
+      ? tradeSide === "buy"
+        ? buyQuote?.newPrice
+        : tradeSide === "sell"
+          ? sellQuote?.newPrice
+          : swapQuote?.newPrice
+      : null;
 
   const disclosedForMarket = (): DisclosedContractArg[] =>
     market?.contractId && market.createdEventBlob
@@ -1248,21 +1257,12 @@ const MarketView = () => {
         />
       </div>
 
+      <MarketRangeGraph market={market} previewPrice={previewPrice} />
+
       {/* ---------------- Phase indicator ---------------- */}
       <div className={`rounded-xl border px-4 py-3 text-sm font-medium ${phaseBanner.cls}`}>
         {phase === "trading" && <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-oracle-yes" />}
         {phaseBanner.text}
-      </div>
-
-      {/* Probability bar */}
-      <div className="rounded-xl border border-border bg-card p-4">
-        <div className="mb-1.5 flex items-baseline justify-between text-sm">
-          <span className="font-bold text-oracle-yes">Yes {(probYes * 100).toFixed(1)}¢</span>
-          <span className="font-bold text-oracle-no">No {(probNo * 100).toFixed(1)}¢</span>
-        </div>
-        <div className="prob-bar">
-          <div className="prob-bar-yes" style={{ width: `${probYes * 100}%` }} />
-        </div>
       </div>
 
       {market.resolutionDescription && (

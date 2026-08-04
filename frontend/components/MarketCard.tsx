@@ -82,17 +82,6 @@ const MarketCard = ({ market }: MarketCardProps) => {
 
       {!settled ? (
         <>
-          {/* Probability display */}
-          <div className="mb-3">
-            <div className="mb-1.5 flex items-baseline justify-between">
-              <span className="text-2xl font-bold text-oracle-yes">{yesPct}%</span>
-              <span className="text-xs text-muted-foreground">chance of Yes</span>
-            </div>
-            <div className="prob-bar">
-              <div className="prob-bar-yes" style={{ width: `${yesPct}%` }} />
-            </div>
-          </div>
-
           {/* Yes / No buttons */}
           <div className="flex gap-2">
             <button className="btn-yes" onClick={(e) => handleOutcomeClick(e, "yes")}>
