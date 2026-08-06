@@ -48,6 +48,7 @@ import {
 } from "@/utils/activeContracts";
 import { getCantonCoinHoldings, type AmuletHoldings } from "@/view-functions/getAccountBalance";
 import { runAdminAutoPayout } from "@/lib/adminAutoPayout";
+import MarketChart from "./MarketChart";
 import {
   enterpriseWalletPartyId,
   submitAdminTransaction,
@@ -1280,6 +1281,9 @@ const MarketView = () => {
       )}
 
       {/* ---------------- Main tabs ---------------- */}
+      <div className="market-action-grid">
+        <MarketChart currentPrice={probYes} />
+        <div className="market-action-column">
       <div className="flex gap-1 rounded-full bg-secondary p-1">
         {tabs.filter((t) => t.visible).map((t) => (
           <button
@@ -1294,7 +1298,7 @@ const MarketView = () => {
 
       {/* ================= TRADE TAB ================= */}
       {mainTab === "trade" && (
-        <div className="flex flex-col gap-6 lg:flex-row">
+        <div className="flex flex-col gap-6">
           <div className="flex-1 space-y-4">
             {/* Sub-toggle: Swap Tokens / Mint Set */}
             <div className="flex overflow-hidden rounded-lg border border-border">
@@ -1517,13 +1521,13 @@ const MarketView = () => {
           </div>
 
           {/* Sidebar: Your Position */}
-          <div className="w-full space-y-4 lg:w-80 lg:shrink-0">{yourPositionBox}</div>
+          <div className="w-full space-y-4">{yourPositionBox}</div>
         </div>
       )}
 
       {/* ================= LIQUIDITY TAB ================= */}
       {mainTab === "liquidity" && (
-        <div className="flex flex-col gap-6 lg:flex-row">
+        <div className="flex flex-col gap-6">
           <div className="flex-1 space-y-4">
             {/* Sub-toggle: Add / Remove */}
             <div className="flex overflow-hidden rounded-lg border border-border">
@@ -1639,13 +1643,13 @@ const MarketView = () => {
           </div>
 
           {/* Sidebar: Your LP Position */}
-          <div className="w-full space-y-4 lg:w-80 lg:shrink-0">{yourLpBox}</div>
+          <div className="w-full space-y-4">{yourLpBox}</div>
         </div>
       )}
 
       {/* ================= RESOLVE TAB ================= */}
       {mainTab === "resolve" && showResolveTab && (
-        <div className="flex flex-col gap-6 lg:flex-row">
+        <div className="flex flex-col gap-6">
           <div className="flex-1 space-y-4">
             {/* T3 optimistic flow */}
             {market.policy.challengeSecs > 0 && (
@@ -1797,13 +1801,13 @@ const MarketView = () => {
               </div>
             )}
           </div>
-          <div className="w-full space-y-4 lg:w-80 lg:shrink-0">{yourPositionBox}</div>
+          <div className="w-full space-y-4">{yourPositionBox}</div>
         </div>
       )}
 
       {/* ================= SETTLE TAB ================= */}
       {mainTab === "settle" && showSettleTab && (
-        <div className="flex flex-col gap-6 lg:flex-row">
+        <div className="flex flex-col gap-6">
           <div className="flex-1 space-y-4">
             <div className="trade-panel text-center">
               <h2 className="mb-2 text-base font-bold text-foreground">Market Result</h2>
@@ -1871,12 +1875,15 @@ const MarketView = () => {
               </div>
             )}
           </div>
-          <div className="w-full space-y-4 lg:w-80 lg:shrink-0">
+          <div className="w-full space-y-4">
             {yourPositionBox}
             {lpPosition && lpPosition.lpTokens > 0 && yourLpBox}
           </div>
         </div>
       )}
+
+        </div>
+      </div>
 
       {/* About pm-AMM */}
       <div className="rounded-xl border border-border bg-card/50 p-5">

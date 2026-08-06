@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchAllPredictionMarkets, type PredictionMarketRecord } from "@/utils/activeContracts";
 import MarketCard from "./MarketCard";
-import { Activity, ArrowRight, BadgeCheck, BarChart3, Loader2, Shield, TrendingUp, Users, Zap } from "lucide-react";
+import { Activity, ArrowRight, BadgeCheck, BarChart3, ChevronLeft, ChevronRight, Gauge, Loader2, Shield, TrendingUp, Users, Zap } from "lucide-react";
+import MarketSparkline from "./MarketSparkline";
 
 const FEATURES = [
   {
@@ -20,11 +21,18 @@ const FEATURES = [
     title: "Community Intelligence",
     desc: "Harness collective wisdom to forecast politics, sports, and more.",
   },
+  {
+    icon: Gauge,
+    title: "Dynamic pm-AMM",
+    desc: "Real-time liquidity and probability-based pricing keep every market responsive and transparent.",
+  },
 ];
 
 function Homepage() {
   const [markets, setMarkets] = useState<PredictionMarketRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeMarketIndex, setActiveMarketIndex] = useState(0);
+  const [slideDirection, setSlideDirection] = useState<"next" | "previous">("next");
 
   useEffect(() => {
     const injectScript = document.createElement("script");
@@ -49,7 +57,35 @@ function Homepage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const featured = markets.slice(0, 3);
+  const featured = markets.filter((market) => market.status !== "Resolved" && market.status !== "Voided").slice(0, 3);
+  const activeMarket = featured[activeMarketIndex];
+  const liveProbability = activeMarket?.currentPrice ?? 0.68;
+  const liveExpiry = activeMarket
+    ? new Date(activeMarket.expiresAt * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+    : "—";
+
+  useEffect(() => {
+    setActiveMarketIndex((index) => (featured.length > 0 ? index % featured.length : 0));
+  }, [featured.length]);
+
+  useEffect(() => {
+    if (featured.length <= 1) return;
+    const timer = window.setInterval(() => {
+      setSlideDirection("next");
+      setActiveMarketIndex((index) => (index + 1) % featured.length);
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, [featured.length]);
+
+  const showPreviousMarket = () => {
+    setSlideDirection("previous");
+    setActiveMarketIndex((index) => (index - 1 + featured.length) % featured.length);
+  };
+
+  const showNextMarket = () => {
+    setSlideDirection("next");
+    setActiveMarketIndex((index) => (index + 1) % featured.length);
+  };
 
   return (
     <div className="relative overflow-hidden">
@@ -103,42 +139,63 @@ function Homepage() {
           </div>
 
           <div className="relative">
-            <div className="rounded-lg border border-border/80 bg-white p-4 shadow-2xl shadow-slate-300/40">
-              <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-4">
+            <div
+              key={activeMarket?.contractId ?? "live-market-preview"}
+              className={`market-preview-swap ${slideDirection === "next" ? "market-preview-slide-next" : "market-preview-slide-previous"} rounded-lg border border-border/80 bg-white p-4 shadow-2xl shadow-slate-300/40`}
+            >
+              <div className="mb-4 flex items-start justify-between border-b border-slate-200 pb-4">
                 <div>
                   <p className="text-xs font-semibold uppercase text-slate-500">Live Market</p>
-                  <h2 className="mt-1 text-base font-extrabold text-slate-950">Election outcome forecast</h2>
+                  <h2 className="mt-1 line-clamp-2 max-w-sm text-base font-extrabold text-slate-950">
+                    {activeMarket?.question ?? "Election outcome forecast"}
+                  </h2>
+                  <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-violet-100 bg-violet-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-violet-700">
+                    <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+                    pm-AMM powered
+                  </div>
+                  <p className="mt-2 max-w-sm text-[11px] leading-4 text-slate-500">
+                    Dynamic liquidity keeps Yes/No prices moving with real-time market demand.
+                  </p>
                 </div>
-                <div className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-oracle-yes">
-                  <Activity className="h-3.5 w-3.5" />
-                  Active
+                <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-oracle-yes">
+                    <Activity className="h-3.5 w-3.5" />
+                    Active
+                  </div>
                 </div>
               </div>
               <div className="space-y-4">
+                <div className="rounded-lg border border-slate-200 bg-white px-3 pt-3 pb-2">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Live probability</span>
+                    <span className="text-xs font-bold text-emerald-600">pm-AMM curve</span>
+                  </div>
+                  <MarketSparkline currentPrice={liveProbability} />
+                </div>
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-sm font-bold text-slate-950">Yes probability</span>
-                    <span className="text-2xl font-extrabold text-oracle-yes">68%</span>
+                    <span className="text-2xl font-extrabold text-oracle-yes">{Math.round(liveProbability * 100)}%</span>
                   </div>
                   <div className="prob-bar h-2">
-                    <div className="prob-bar-yes" style={{ width: "68%" }} />
+                    <div className="prob-bar-yes" style={{ width: `${liveProbability * 100}%` }} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
                     <p className="text-xs font-semibold text-emerald-700">YES</p>
-                    <p className="mt-2 text-2xl font-bold text-emerald-700">68c</p>
+                    <p className="mt-2 text-2xl font-bold text-emerald-700">{Math.round(liveProbability * 100)}c</p>
                   </div>
                   <div className="rounded-md border border-rose-200 bg-rose-50 p-4">
                     <p className="text-xs font-semibold text-rose-700">NO</p>
-                    <p className="mt-2 text-2xl font-bold text-rose-700">32c</p>
+                    <p className="mt-2 text-2xl font-bold text-rose-700">{Math.round((1 - liveProbability) * 100)}c</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { label: "Volume", value: "12.4k" },
-                    { label: "Traders", value: "840" },
-                    { label: "Latency", value: "Live" },
+                    { label: "Token volume", value: activeMarket ? `${activeMarket.totalVolumeCC.toFixed(1)} CC` : "—" },
+                    { label: "Fees", value: activeMarket ? `${(activeMarket.feeBps / 100).toFixed(2)}%` : "—" },
+                    { label: "Expiry", value: liveExpiry },
                   ].map((item) => (
                     <div key={item.label} className="rounded-md border border-slate-200 bg-white p-3">
                       <p className="text-xs text-slate-500">{item.label}</p>
@@ -146,6 +203,33 @@ function Homepage() {
                     </div>
                   ))}
                 </div>
+                {featured.length > 1 && (
+                  <div className="market-preview-footer">
+                    <div className="market-preview-dots" aria-label="Live market carousel position">
+                      {featured.map((market, index) => (
+                        <button
+                          key={market.contractId}
+                          type="button"
+                          onClick={() => {
+                            setSlideDirection(index > activeMarketIndex ? "next" : "previous");
+                            setActiveMarketIndex(index);
+                          }}
+                          className={`market-preview-dot ${index === activeMarketIndex ? "market-preview-dot-active" : ""}`}
+                          aria-label={`Show live market ${index + 1}`}
+                          aria-current={index === activeMarketIndex ? "true" : undefined}
+                        />
+                      ))}
+                    </div>
+                    <div className="market-preview-controls">
+                      <button type="button" onClick={showPreviousMarket} className="market-preview-arrow" aria-label="Previous live market">
+                        <ChevronLeft className="h-3.5 w-3.5" />
+                      </button>
+                      <button type="button" onClick={showNextMarket} className="market-preview-arrow" aria-label="Next live market">
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -192,7 +276,7 @@ function Homepage() {
             </div>
             <h2 className="text-2xl font-bold text-foreground">Why TruthOracle?</h2>
           </div>
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {FEATURES.map(({ icon: Icon, title, desc }) => (
               <div
                 key={title}

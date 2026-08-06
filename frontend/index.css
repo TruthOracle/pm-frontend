@@ -52,10 +52,13 @@
 
   html {
     scroll-behavior: smooth;
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
   }
 
   body {
     @apply bg-background text-foreground antialiased;
+    min-width: 320px;
     font-family:
       "Inter",
       system-ui,
@@ -214,5 +217,277 @@
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+  }
+
+  .market-action-grid {
+    display: grid;
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  .market-action-column {
+    min-width: 0;
+  }
+
+  .market-chart-panel {
+    @apply rounded-2xl border border-slate-200/90 bg-white p-5;
+    box-shadow: 0 12px 34px rgba(31, 46, 86, 0.07);
+  }
+
+  .market-chart-header {
+    @apply flex items-start justify-between gap-4 border-b border-slate-100 pb-4;
+  }
+
+  .market-chart-kicker {
+    @apply text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400;
+  }
+
+  .market-chart-value {
+    @apply mt-1 text-3xl font-extrabold tracking-[-0.05em] text-slate-950;
+  }
+
+  .market-chart-value span {
+    @apply text-sm font-semibold tracking-normal text-slate-500;
+  }
+
+  .market-chart-change {
+    @apply rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700;
+  }
+
+  .market-chart-change span {
+    @apply font-medium text-emerald-600/70;
+  }
+
+  .market-chart-canvas {
+    position: relative;
+    height: 260px;
+    margin-top: 1.25rem;
+    overflow: hidden;
+    border-radius: 0.875rem;
+    background: linear-gradient(180deg, #fbfefd 0%, #ffffff 100%);
+  }
+
+  .market-chart-canvas svg {
+    position: absolute;
+    inset: 1rem 2.5rem 0.75rem 0.75rem;
+    width: auto;
+    height: auto;
+    padding: 0;
+  }
+
+  .market-chart-grid {
+    position: absolute;
+    inset: 1rem 2.75rem 0.75rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  .market-chart-y-axis {
+    @apply absolute right-2 top-4 bottom-3 w-8 text-right text-[10px] font-medium text-slate-400;
+  }
+
+  .market-chart-y-axis span {
+    position: absolute;
+    right: 0;
+    transform: translateY(-50%);
+    white-space: nowrap;
+  }
+
+  .market-chart-y-axis span:nth-child(1) {
+    top: 0%;
+  }
+
+  .market-chart-y-axis span:nth-child(2) {
+    top: 25%;
+  }
+
+  .market-chart-y-axis span:nth-child(3) {
+    top: 50%;
+  }
+
+  .market-chart-y-axis span:nth-child(4) {
+    top: 75%;
+  }
+
+  .market-chart-y-axis span:nth-child(5) {
+    top: 100%;
+  }
+
+  .market-chart-canvas svg {
+    right: 2.5rem;
+  }
+
+  .market-chart-endpoint,
+  .market-sparkline-endpoint {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: chart-endpoint-blink 1.6s ease-in-out infinite;
+  }
+
+  @keyframes chart-endpoint-blink {
+    0%,
+    100% {
+      opacity: 0.48;
+      filter: drop-shadow(0 0 0 rgba(22, 199, 132, 0));
+    }
+    50% {
+      opacity: 1;
+      filter: drop-shadow(0 0 5px rgba(22, 199, 132, 0.42));
+    }
+  }
+
+  .market-sparkline {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 0.5rem;
+    height: 132px;
+  }
+
+  .market-sparkline-labels {
+    @apply relative text-[9px] font-medium text-slate-400;
+  }
+
+  .market-sparkline-labels span {
+    position: absolute;
+    right: 0;
+    transform: translateY(-50%);
+    white-space: nowrap;
+  }
+
+  .market-sparkline-labels span:nth-child(1) {
+    top: 0%;
+  }
+
+  .market-sparkline-labels span:nth-child(2) {
+    top: 25%;
+  }
+
+  .market-sparkline-labels span:nth-child(3) {
+    top: 50%;
+  }
+
+  .market-sparkline-labels span:nth-child(4) {
+    top: 75%;
+  }
+
+  .market-sparkline-labels span:nth-child(5) {
+    top: 100%;
+  }
+
+  .market-sparkline-plot {
+    position: relative;
+    min-width: 0;
+    overflow: hidden;
+    border-radius: 0.5rem;
+    background: linear-gradient(180deg, #fbfefd 0%, #ffffff 100%);
+  }
+
+  .market-sparkline-grid {
+    @apply absolute inset-0 flex flex-col justify-between;
+  }
+
+  .market-sparkline-grid span {
+    display: block;
+    border-top: 1px dashed rgba(148, 163, 184, 0.22);
+  }
+
+  .market-sparkline-plot svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .market-preview-arrow {
+    @apply inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition-all hover:border-primary/40 hover:bg-emerald-50 hover:text-primary;
+  }
+
+  .market-preview-swap {
+    will-change: transform, opacity;
+    animation-duration: 700ms;
+    animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+    animation-fill-mode: both;
+  }
+
+  .market-preview-slide-next {
+    animation-name: market-preview-slide-next;
+  }
+
+  .market-preview-slide-previous {
+    animation-name: market-preview-slide-previous;
+  }
+
+  @keyframes market-preview-slide-next {
+    from {
+      opacity: 0;
+      transform: translate3d(54px, 0, 0) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
+  @keyframes market-preview-slide-previous {
+    from {
+      opacity: 0;
+      transform: translate3d(-54px, 0, 0) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
+  .market-preview-footer {
+    @apply flex items-center justify-between border-t border-slate-100 pt-3;
+  }
+
+  .market-preview-controls {
+    @apply flex items-center gap-1.5;
+  }
+
+  .market-preview-dots {
+    @apply flex items-center gap-1.5;
+  }
+
+  .market-preview-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-slate-200 transition-all duration-300 hover:bg-slate-400;
+  }
+
+  .market-preview-dot-active {
+    @apply w-5 bg-emerald-500;
+  }
+
+  .market-preview-autoplay {
+    @apply text-[10px] font-semibold text-slate-400;
+  }
+
+  .market-chart-grid span {
+    display: block;
+    border-top: 1px dashed rgba(148, 163, 184, 0.24);
+  }
+
+  .market-chart-axis {
+    @apply mt-2 ml-3 mr-10 flex justify-between px-0 text-[10px] font-medium text-slate-400;
+  }
+
+  .market-chart-range {
+    @apply mt-4 flex items-center gap-1 rounded-xl bg-slate-50 p-1 text-[11px] font-bold text-slate-400;
+  }
+
+  .market-chart-range span {
+    @apply flex-1 rounded-lg px-2 py-1.5 text-center;
+  }
+
+  .market-chart-range-active {
+    @apply bg-white text-slate-950 shadow-sm ring-1 ring-slate-200/80;
+  }
+
+  @media (min-width: 1024px) {
+    .market-action-grid {
+      grid-template-columns: minmax(0, 1fr) minmax(360px, 430px);
+    }
   }
 }
