@@ -1,5 +1,6 @@
 import { useCantonWallet } from "@/wallets";
 import { useEffect, useState, useCallback, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   fetchAllPredictionMarkets,
   type PredictionMarketRecord,
@@ -15,10 +16,11 @@ const isSettled = (m: PredictionMarketRecord) =>
 
 const Marketplace = () => {
   const { account } = useCantonWallet();
+  const [searchParams] = useSearchParams();
   const [markets, setMarkets] = useState<PredictionMarketRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("active");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(searchParams.get("search") ?? "");
   const [category, setCategory] = useState<string>("All");
 
   const fetchMarkets = useCallback(async () => {
@@ -59,22 +61,26 @@ const Marketplace = () => {
   }, [tab, active, resolved, search, category]);
 
   return (
-    <div className="page-container py-8">
+    <div className="page-container py-10">
       {/* Page header */}
       <div className="mb-8">
-        <div className="mb-1 flex items-center gap-2">
+        <div className="mb-2 flex items-center gap-2">
           <BarChart3 className="h-5 w-5 text-primary" />
-          <h1 className="section-title">Markets</h1>
+          <h1 className="section-title">All markets</h1>
         </div>
-        <p className="text-sm text-muted-foreground">
-          Trade on real-world outcomes through the dynamic pm-AMM. Buy Yes or No shares on any market.
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          Follow live probabilities, compare liquidity and trade real-world outcomes through TruthOracle&apos;s dynamic pm-AMM.
         </p>
+      </div>
+
+      <div className="mb-8 flex gap-2 overflow-x-auto border-b border-slate-200 pb-3 text-sm font-medium text-slate-500">
+        {['Trending', 'Politics', 'Crypto', 'Sports', 'World', 'Technology', 'News'].map((topic, index) => <span key={topic} className={cn('whitespace-nowrap px-2', index === 0 && 'font-bold text-primary')}>{topic}</span>)}
       </div>
 
       {/* Controls */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         {/* Tabs */}
-        <div className="flex gap-1 rounded-full bg-secondary p-1">
+        <div className="flex gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
           <button
             className={cn("tab-pill", tab === "active" ? "tab-pill-active" : "tab-pill-inactive")}
             onClick={() => setTab("active")}
@@ -90,7 +96,7 @@ const Marketplace = () => {
         </div>
 
         {/* Search */}
-        <div className="relative w-full sm:w-72">
+        <div className="relative w-full sm:w-80">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
@@ -139,7 +145,7 @@ const Marketplace = () => {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((m) => (
             <MarketCard key={m.contractId} market={m} />
           ))}
