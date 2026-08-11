@@ -24,6 +24,20 @@ export function Header() {
 
   useEffect(() => setMobileMenuOpen(false), [location.pathname]);
 
+  useEffect(() => {
+    const handleSearchShortcut = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTyping = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
+      if (event.key === "/" && !isTyping) {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+      if (event.key === "Escape") setSearchOpen(false);
+    };
+    window.addEventListener("keydown", handleSearchShortcut);
+    return () => window.removeEventListener("keydown", handleSearchShortcut);
+  }, []);
+
   const handleGetCantonCoin = (e: React.MouseEvent) => {
     e.preventDefault();
     toast({
@@ -47,13 +61,20 @@ export function Header() {
             {isAdmin && <Link to="/admin" className="product-nav-link">Create market</Link>}
           </nav>
           <div className="ml-auto flex items-center gap-2">
-            <button className="search-trigger hidden md:flex" onClick={() => setSearchOpen((open) => !open)} aria-label="Search markets"><Search className="h-4 w-4" /><span>Search markets</span><kbd>/</kbd></button>
+            {searchOpen ? (
+              <div className="search-inline hidden md:flex" role="search">
+                <Search className="h-4 w-4 shrink-0 text-slate-400" />
+                <input autoFocus placeholder="Search markets" aria-label="Search markets" />
+                <button type="button" onClick={() => setSearchOpen(false)} aria-label="Close search"><X className="h-4 w-4 text-slate-400 hover:text-slate-700" /></button>
+              </div>
+            ) : (
+              <button className="search-trigger hidden md:flex" onClick={() => setSearchOpen(true)} aria-label="Search markets"><Search className="h-4 w-4" /><span>Search markets</span><kbd>/</kbd></button>
+            )}
             <button onClick={handleGetCantonCoin} className="header-utility hidden xl:inline-flex"><Coins className="h-3.5 w-3.5" /> Get CC</button>
             <div className="header-wallet"><WalletSelector /></div>
             <button className="mobile-menu-button lg:hidden" onClick={() => setMobileMenuOpen((open) => !open)} aria-label="Toggle menu">{mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}</button>
           </div>
         </div>
-        {searchOpen && <div className="search-panel"><Search className="h-4 w-4 text-slate-400" /><input autoFocus placeholder="Search markets, topics, or outcomes" aria-label="Search markets" /><span className="text-xs text-slate-400">Esc to close</span></div>}
         <div className="category-rail"><div className="flex min-w-max items-center gap-6">
           {TOPICS.map((topic, index) => <Link key={topic} to={`/marketplace?category=${topic.toLowerCase()}`} className={cn("topic-link", index === 0 && "topic-link-active")}>{index === 0 && <TrendingUp className="h-3.5 w-3.5" />}{topic}</Link>)}
           <Link to="/faq" className="topic-link">How it works <ChevronDown className="h-3.5 w-3.5" /></Link>

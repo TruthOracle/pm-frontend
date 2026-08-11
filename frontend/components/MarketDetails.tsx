@@ -1,4 +1,4 @@
-import MarketView from './MarketView';
+import MarketView from './market/MarketView';
 
 const MarketDetails = () => {
   return (
