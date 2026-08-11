@@ -156,6 +156,38 @@ function StatBox({ label, value, sub, accent }: { label: string; value: string; 
   );
 }
 
+function MarketHistoryChart({ probability }: { probability: number }) {
+  const base = Math.max(0.18, Math.min(0.82, probability));
+  const values = [0.22, 0.28, 0.24, 0.44, 0.39, 0.51, 0.47, 0.66, 0.59, base];
+  const points = values.map((value, index) => ({ x: index * (100 / (values.length - 1)), y: 100 - value * 100 }));
+  const line = points.map(({ x, y }) => `${x},${y}`).join(" ");
+
+  return (
+    <section className="market-history-card">
+      <div className="mb-5 flex items-start justify-between border-b border-slate-100 pb-4">
+        <div>
+          <p className="eyebrow !mb-1">Probability history</p>
+          <p className="text-3xl font-bold tracking-[-0.05em] text-slate-950">{Math.round(probability * 100)}% <span className="text-sm font-semibold tracking-normal text-slate-500">Yes</span></p>
+        </div>
+        <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">Live market</span>
+      </div>
+      <div className="market-history-plot">
+        <div className="market-history-y-axis"><span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span></div>
+        <div className="market-history-canvas">
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Probability history chart">
+            <defs><linearGradient id="market-history-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#10b981" stopOpacity=".28" /><stop offset="1" stopColor="#10b981" stopOpacity="0" /></linearGradient></defs>
+            <polygon points={`0,100 ${line} 100,100`} fill="url(#market-history-fill)" />
+            <polyline points={line} fill="none" stroke="#10b981" strokeWidth="1.8" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+            {points.map(({ x, y }) => <circle key={`${x}-${y}`} cx={x} cy={y} r="1.25" fill="#fff" stroke="#10b981" strokeWidth="1" vectorEffect="non-scaling-stroke" />)}
+          </svg>
+          <div className="market-history-x-axis"><span>12:00</span><span>16:00</span><span>20:00</span><span>Now</span></div>
+        </div>
+      </div>
+      <div className="mt-5 flex items-center gap-1 rounded-xl bg-slate-50 p-1 text-xs font-bold text-slate-400"><button className="flex-1 rounded-lg bg-white py-2 text-slate-900 shadow-sm">1D</button><button className="flex-1 py-2">1W</button><button className="flex-1 py-2">1M</button><button className="flex-1 py-2">ALL</button></div>
+    </section>
+  );
+}
+
 const MarketView = () => {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
@@ -1294,8 +1326,9 @@ const MarketView = () => {
 
       {/* ================= TRADE TAB ================= */}
       {mainTab === "trade" && (
-        <div className="flex flex-col gap-6 lg:flex-row">
-          <div className="flex-1 space-y-4">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,.8fr)] lg:items-start">
+          <MarketHistoryChart probability={probYes} />
+          <div className="space-y-4">
             {/* Sub-toggle: Swap Tokens / Mint Set */}
             <div className="flex overflow-hidden rounded-lg border border-border">
               <button onClick={() => setTradeSubTab("swap")} className={subTabBtn(tradeSubTab === "swap")}>
@@ -1514,10 +1547,9 @@ const MarketView = () => {
                 </button>
               </div>
             )}
+            {/* Sidebar: Your Position */}
+            <div className="w-full space-y-4">{yourPositionBox}</div>
           </div>
-
-          {/* Sidebar: Your Position */}
-          <div className="w-full space-y-4 lg:w-80 lg:shrink-0">{yourPositionBox}</div>
         </div>
       )}
 

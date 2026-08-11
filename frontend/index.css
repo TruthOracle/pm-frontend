@@ -6,6 +6,9 @@
 
 @layer base {
   :root {
+    --page-surface: 0 0% 100%;
+    --grid-line: rgba(148, 163, 184, 0.045);
+    --grid-size: 6px;
     --background: 0 0% 100%;
     --foreground: 224 44% 13%;
 
@@ -55,7 +58,8 @@
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply text-foreground antialiased;
+    background: hsl(var(--page-surface));
     font-family:
       "Inter",
       system-ui,
@@ -72,14 +76,13 @@
   .app-shell {
     position: relative;
     isolation: isolate;
+    background-color: hsl(var(--page-surface));
+    background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: var(--grid-size) var(--grid-size);
   }
 
   .app-shell::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
+    display: none;
     /* background-image:
       linear-gradient(rgba(15, 23, 42, 0.06) 0.5px, transparent 0.5px),
       linear-gradient(90deg, rgba(15, 23, 42, 0.06) 0.5px, transparent 0.5px),
@@ -90,8 +93,8 @@
     linear-gradient(90deg, rgba(15, 23, 42, 0.025) 1px, transparent 1px),
     linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 248, 255, 0.72));
     background-size:
-      3px 3px,
-      3px 3px,
+      var(--grid-size) var(--grid-size),
+      var(--grid-size) var(--grid-size),
       100% 100%;
     background-position:
       -1px -1px,
@@ -105,9 +108,7 @@
     inset: 0;
     z-index: 0;
     pointer-events: none;
-    background:
-      linear-gradient(120deg, rgba(7, 138, 91, 0.08), transparent 34%),
-      linear-gradient(300deg, rgba(15, 23, 42, 0.06), transparent 38%);
+    background: transparent;
   }
 
   .app-shell > * {
@@ -215,4 +216,90 @@
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
+}
+
+/* Product shell: compact like a trading terminal, warm enough for editorial content. */
+@layer components {
+  .site-header { @apply fixed inset-x-0 top-0 z-50 border-b border-slate-200/80; background-color: hsl(var(--page-surface)); background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px); background-size: var(--grid-size) var(--grid-size); backdrop-filter: blur(16px); }
+  .brand-mark { @apply flex h-6 w-6 shrink-0 items-center justify-center rounded bg-slate-950; }
+  .header-wallet button { @apply whitespace-nowrap rounded-md px-3 py-1.5 text-xs; }
+  @media (max-width: 639px) {
+    .header-wallet button { @apply px-2 py-1; }
+  }
+  .product-nav-link { @apply rounded-full px-3 py-2 text-sm font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950; }
+  .product-nav-link-active { @apply bg-slate-100 text-slate-950; }
+  .search-trigger { @apply h-9 items-center gap-2 rounded-full bg-slate-100 px-3.5 text-sm text-slate-400 transition-colors hover:bg-slate-200; }
+  .search-trigger kbd { @apply ml-5 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-400; }
+  .header-utility { @apply items-center gap-1.5 rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:border-primary/30 hover:text-primary; }
+  .mobile-menu-button { @apply flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600; }
+  .search-panel { @apply flex items-center gap-3 border-t border-slate-100 py-3; }
+  .search-panel input { @apply flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400; }
+  .category-rail { @apply -mx-4 overflow-x-auto border-t border-slate-100 sm:-mx-6 lg:-mx-8; scrollbar-width: none; }
+  .category-rail::-webkit-scrollbar { display: none; }
+  .category-rail > div { @apply px-4 py-2.5 sm:px-6 lg:px-8; }
+  .topic-link { @apply inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-slate-500 transition-colors hover:text-slate-950; }
+  .topic-link-active { @apply text-slate-950; }
+  .mobile-menu { @apply border-t border-slate-100 bg-white px-1 py-3 shadow-xl; }
+  .mobile-nav-link { @apply rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50; }
+  .announcement-bar { @apply flex items-center justify-center gap-2 border-b border-emerald-100 bg-emerald-50/70 px-4 py-2 text-xs font-medium text-emerald-800; }
+  .announcement-bar a { @apply ml-1 inline-flex items-center gap-1 font-bold text-emerald-950; }
+  .live-dot { @apply inline-block h-1.5 w-1.5 rounded-full bg-emerald-500; box-shadow: 0 0 0 3px rgba(16,185,129,.12); }
+  .eyebrow { @apply mb-3 inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-primary; }
+  .display-heading { @apply text-5xl font-bold leading-[0.98] tracking-[-0.075em] text-slate-950 sm:text-7xl; }
+  .primary-button { @apply inline-flex items-center gap-2 rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 transition-all hover:-translate-y-0.5 hover:bg-primary; }
+  .featured-grid { @apply grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(280px,.7fr)]; }
+  .featured-market-card { @apply overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_14px_50px_rgba(15,23,42,.06)] sm:p-8; }
+  .market-swap { animation: market-swap-in .65s cubic-bezier(.22,.8,.24,1) both; }
+  @keyframes market-swap-in { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: translateX(0); } }
+  .signal-panel { @apply rounded-2xl border border-slate-200 bg-slate-50 p-6 sm:p-8; }
+  .soft-badge { @apply rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500; }
+  .icon-tile { @apply inline-flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100 text-primary; }
+  .mini-chart { @apply relative h-32 overflow-hidden rounded-xl border border-slate-200 bg-slate-50/80; }
+  .chart-y-axis { @apply absolute inset-y-2 left-1 z-10 flex flex-col justify-between text-[8px] font-semibold text-slate-400; }
+  .chart-plot { @apply absolute inset-y-2 right-2 left-8; background-image: linear-gradient(to bottom, rgba(100,116,139,.18) 1px, transparent 1px), linear-gradient(to right, rgba(100,116,139,.10) 1px, transparent 1px); background-size: 100% 25%, 20% 100%; }
+  .chart-plot svg { @apply absolute inset-0 h-[calc(100%-16px)] w-full; }
+  .chart-x-axis { @apply absolute inset-x-0 bottom-0 flex justify-between px-0.5 text-[8px] font-semibold text-slate-400; }
+  .chart-line { @apply absolute left-[-4%] top-1/2 h-14 w-[110%] border-t-2; transform: rotate(-7deg); }
+  .chart-line-blue { @apply border-blue-400; clip-path: polygon(0 66%, 12% 62%, 22% 72%, 32% 34%, 44% 48%, 56% 18%, 66% 39%, 78% 12%, 90% 24%, 100% 0, 100% 8%, 90% 32%, 78% 20%, 66% 47%, 56% 27%, 44% 57%, 32% 43%, 22% 81%, 12% 72%, 0 76%); }
+  .chart-line-green { @apply top-[62%] border-emerald-400; transform: rotate(5deg); opacity: .75; }
+  .chart-label { @apply absolute right-2 rounded bg-white px-1.5 py-0.5 text-[10px] font-bold text-slate-500 shadow-sm; }
+  .chart-label-top { @apply top-2; } .chart-label-bottom { @apply bottom-2; }
+  .signal-bar { @apply h-1.5 overflow-hidden rounded-full bg-slate-200; } .signal-bar span { @apply block h-full rounded-full bg-primary; }
+  .latest-news { @apply mt-7 border-t border-slate-200 pt-4; }
+  .news-ticker-window { @apply h-10 overflow-hidden; }
+  .news-ticker-track { @apply transition-transform duration-700 ease-in-out; }
+  .news-ticker-item { @apply flex h-10 items-center gap-2 text-xs font-semibold leading-5; }
+  .news-item-dot { @apply h-1.5 w-1.5 shrink-0 rounded-full; background: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,.12); }
+  .news-ticker-item:nth-child(4n + 2) { color: #2563eb; }
+  .news-ticker-item:nth-child(4n + 2) .news-item-dot { background: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.12); }
+  .news-ticker-item:nth-child(4n + 3) { color: #d97706; }
+  .news-ticker-item:nth-child(4n + 3) .news-item-dot { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.12); }
+  .news-ticker-item:nth-child(4n + 4) { color: #7c3aed; }
+  .news-ticker-item:nth-child(4n + 4) .news-item-dot { background: #8b5cf6; box-shadow: 0 0 0 3px rgba(139,92,246,.12); }
+  .section-heading-row { @apply mb-5 flex items-end justify-between gap-4; }
+  .quiet-link { @apply inline-flex items-center gap-1 text-sm font-semibold text-slate-500 transition-colors hover:text-slate-950; }
+  .market-grid { @apply grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4; }
+  .news-grid { @apply grid gap-4 md:grid-cols-3; }
+  .news-card { @apply overflow-hidden rounded-2xl border border-slate-200 bg-white transition-all hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-200/60; }
+  .news-art { @apply flex h-32 items-end justify-between bg-gradient-to-br from-slate-950 via-slate-800 to-emerald-900 p-5 text-white; } .news-art span { @apply rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider; }
+  .trust-strip { @apply flex items-center gap-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-5 sm:p-6; }
+  .empty-state { @apply flex min-h-48 items-center justify-center rounded-2xl border border-dashed border-slate-200 text-sm text-slate-500; }
+  .market-history-card { @apply rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_14px_50px_rgba(15,23,42,.06)] sm:p-6; }
+  .market-history-plot { @apply relative flex h-56 gap-2 rounded-xl bg-slate-50/60 px-1 py-2; }
+  .market-history-y-axis { @apply flex w-9 shrink-0 flex-col justify-between py-1 text-[10px] font-semibold text-slate-400; }
+  .market-history-canvas { @apply relative min-w-0 flex-1; background-image: linear-gradient(to bottom, rgba(100,116,139,.18) 1px, transparent 1px), linear-gradient(to right, rgba(100,116,139,.08) 1px, transparent 1px); background-size: 100% 25%, 20% 100%; }
+  .market-history-canvas svg { @apply absolute inset-x-0 top-0 h-[calc(100%-22px)] w-full; }
+  .market-history-x-axis { @apply absolute inset-x-0 bottom-0 flex justify-between text-[10px] font-semibold text-slate-400; }
+  .site-footer { @apply mt-auto bg-slate-950; }
+  .site-header, .site-footer { background-color: transparent; background-image: none; }
+  .site-footer { @apply mt-auto border-t border-slate-200/80 text-slate-950; }
+  .footer-label { @apply mb-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500; }
+  .footer-link { @apply block py-1.5 text-sm text-slate-700 transition-colors hover:text-primary; }
+  .footer-link small { @apply mt-0.5 block text-xs font-normal text-slate-400; }
+  .footer-topic-grid { @apply grid grid-cols-2 gap-x-8 gap-y-1 sm:grid-cols-3; }
+  .footer-socials { @apply flex items-center gap-4 text-slate-700; }
+  .footer-socials a { @apply transition-colors hover:text-primary; }
+  .footer-socials span { @apply inline-flex items-center gap-1.5 text-sm; }
+  .page-transition { animation: page-enter .35s ease-out both; }
+  @keyframes page-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 }
