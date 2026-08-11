@@ -15,7 +15,7 @@
     --popover: 0 0% 100%;
     --popover-foreground: 224 44% 13%;
 
-    --primary: 159 72% 32%;
+    --primary: 160 84% 30%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 220 35% 96%;
@@ -34,7 +34,7 @@
     --success: 158 64% 45%;
     --success-foreground: 0 0% 100%;
 
-    --border: 218 32% 88%;
+    --border: 214 24% 89%;
     --input: 218 32% 88%;
     --ring: 159 72% 32%;
 
@@ -61,6 +61,7 @@
       system-ui,
       -apple-system,
       sans-serif;
+    letter-spacing: -0.01em;
   }
 
   body::selection {
@@ -85,18 +86,7 @@
       linear-gradient(90deg, rgba(15, 23, 42, 0.06) 0.5px, transparent 0.5px),
       linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 248, 255, 0.72)); */
 
-      background-image:
-    linear-gradient(rgba(15, 23, 42, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(15, 23, 42, 0.025) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 248, 255, 0.72));
-    background-size:
-      3px 3px,
-      3px 3px,
-      100% 100%;
-    background-position:
-      -1px -1px,
-      -1px -1px,
-      0 0;
+    background: #fff;
   }
 
   .app-shell::after {
@@ -105,9 +95,7 @@
     inset: 0;
     z-index: 0;
     pointer-events: none;
-    background:
-      linear-gradient(120deg, rgba(7, 138, 91, 0.08), transparent 34%),
-      linear-gradient(300deg, rgba(15, 23, 42, 0.06), transparent 38%);
+    background: transparent;
   }
 
   .app-shell > * {
@@ -116,18 +104,25 @@
   }
 
   .glass-header {
-    @apply fixed top-0 left-0 right-0 z-50 border-b border-slate-900/10;
-    background: rgba(255, 255, 255, 0.9);
-    backdrop-filter: blur(18px) saturate(1.35);
-    -webkit-backdrop-filter: blur(18px) saturate(1.35);
-    box-shadow:
-      0 1px 0 rgba(15, 23, 42, 0.04),
-      0 18px 44px rgba(15, 23, 42, 0.06);
+    @apply fixed top-0 left-0 right-0 z-50 border-b border-slate-200;
+    background: #fff;
+    box-shadow: none;
   }
+
+  .brand-mark { background: #071411; }
+  .header-search { @apply h-10 min-w-[240px] flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-400 transition-colors; max-width: 390px; }
+  .header-search:focus-within { @apply border-primary/50 bg-white ring-2 ring-primary/10; }
+  .header-search input { @apply min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400; }
+  .header-topic-row { @apply border-t border-slate-100 bg-white; }
+  .header-topic { @apply inline-flex shrink-0 items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-950; }
+  .header-topic-active { @apply font-bold text-slate-950; }
+  .header-search kbd { @apply ml-auto rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-400; }
+  .page-transition { animation: page-in 360ms cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes page-in { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
 
   .market-card {
     @apply relative overflow-hidden rounded-lg border border-border/80 bg-card transition-all duration-200;
-    box-shadow: 0 16px 44px rgba(31, 46, 86, 0.08);
+    box-shadow: 0 8px 24px rgba(31, 46, 86, 0.055);
   }
 
   .market-card:hover {
@@ -181,7 +176,7 @@
   }
 
   .page-container {
-    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+    @apply mx-auto w-full max-w-[1280px] px-4 sm:px-6 lg:px-8;
   }
 
   .section-title {
@@ -215,4 +210,34 @@
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
+
+  .section-rule { @apply border-t border-slate-200/80; }
+  .market-ticker { @apply overflow-hidden border-y border-slate-200 bg-white; }
+  .ticker-track { display: flex; width: max-content; animation: ticker 32s linear infinite; }
+  .ticker-track:hover { animation-play-state: paused; }
+  @keyframes ticker { to { transform: translateX(-50%); } }
+  .ticker-item { @apply flex items-center gap-3 border-r border-slate-200 px-6 py-3 text-sm; }
+  .ticker-dot { @apply h-1.5 w-1.5 rounded-full bg-primary; box-shadow: 0 0 0 4px rgba(16, 144, 94, .1); }
+  .news-chip { @apply flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-primary/30 hover:text-primary; }
+  .news-chip::before { content: ""; @apply h-1.5 w-1.5 rounded-full bg-amber-400; }
+  .news-card { @apply min-h-[138px] rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg hover:shadow-slate-200/60; }
+  .site-footer { @apply mt-16 border-t border-slate-200 bg-white; }
+  .footer-grid { @apply grid gap-10 py-12 sm:grid-cols-2 lg:grid-cols-[1.7fr_1fr_1fr_1fr]; }
+  .footer-brand p { @apply my-4 max-w-xs text-sm leading-6 text-slate-500; }
+  .footer-mark { @apply flex h-6 w-6 items-center justify-center rounded bg-slate-950 text-[9px] font-bold text-white; }
+  .footer-label { @apply mb-4 text-xs font-bold uppercase tracking-[.16em] text-slate-400; }
+  .site-footer a:not(.footer-icon) { @apply mb-3 flex items-center gap-1 text-sm text-slate-600 transition hover:text-primary; }
+  .site-footer a svg { @apply h-3.5 w-3.5; }
+  .footer-icon { @apply flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:border-primary hover:text-primary; }
+  .footer-icon svg { @apply h-4 w-4; }
+  .footer-bottom { @apply flex flex-col gap-2 border-t border-slate-100 py-5 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between; }
+  .chart-grid { stroke: #dbe4ea; stroke-dasharray: 2 5; }
+  .chart-line { fill: none; stroke: #138b61; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.5; }
+  .chart-fill { fill: url(#chartFill); }
+  .home-chart-axis-label { fill: #8a9bb0; font-size: 10px; font-weight: 600; }
+  .market-chart-axis-label { fill: #718097; font-size: 13px; font-weight: 700; }
+  .live-market-slide { animation: live-market-slide .45s ease both; }
+  @keyframes live-market-slide { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: translateX(0); } }
+  .market-chart-panel { box-shadow: 0 12px 30px rgba(31, 46, 86, .06); }
+  .carousel-arrow { @apply flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-primary hover:text-primary; }
 }

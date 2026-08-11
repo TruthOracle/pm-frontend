@@ -289,6 +289,7 @@ const MarketView = () => {
 
   const probYes = market?.currentPrice ?? 0.5;
   const probNo = 1 - probYes;
+  const marketChartMonth = new Date().toLocaleString(undefined, { month: "short" });
 
   const buyQuote = useMemo(() => {
     if (!market || !selectedSide || collateralIn <= 0 || phase !== "trading") return null;
@@ -1254,17 +1255,6 @@ const MarketView = () => {
         {phaseBanner.text}
       </div>
 
-      {/* Probability bar */}
-      <div className="rounded-xl border border-border bg-card p-4">
-        <div className="mb-1.5 flex items-baseline justify-between text-sm">
-          <span className="font-bold text-oracle-yes">Yes {(probYes * 100).toFixed(1)}¢</span>
-          <span className="font-bold text-oracle-no">No {(probNo * 100).toFixed(1)}¢</span>
-        </div>
-        <div className="prob-bar">
-          <div className="prob-bar-yes" style={{ width: `${probYes * 100}%` }} />
-        </div>
-      </div>
-
       {market.resolutionDescription && (
         <p className="rounded-lg border border-border bg-secondary/50 px-4 py-3 text-sm text-muted-foreground">
           <span className="font-medium text-foreground">Resolution criteria: </span>
@@ -1280,7 +1270,7 @@ const MarketView = () => {
       )}
 
       {/* ---------------- Main tabs ---------------- */}
-      <div className="flex gap-1 rounded-full bg-secondary p-1">
+      <div className="flex gap-1 rounded-lg border border-border bg-white p-1 shadow-sm">
         {tabs.filter((t) => t.visible).map((t) => (
           <button
             key={t.key}
@@ -1294,8 +1284,45 @@ const MarketView = () => {
 
       {/* ================= TRADE TAB ================= */}
       {mainTab === "trade" && (
-        <div className="flex flex-col gap-6 lg:flex-row">
-          <div className="flex-1 space-y-4">
+        <div className="market-trade-layout grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(350px,420px)]">
+          <div className="min-w-0">
+            <div className="market-chart-panel rounded-xl border border-border bg-card p-4">
+              <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Probability history</p>
+                  <div className="mt-1 flex items-baseline gap-2">
+                    <span className="text-4xl font-extrabold leading-none text-foreground">{(probYes * 100).toFixed(0)}%</span>
+                    <span className="text-base font-bold text-oracle-yes">Yes</span>
+                    <span className="text-sm text-muted-foreground">last price</span>
+                  </div>
+                </div>
+                <span className="rounded-full bg-emerald-50 px-3.5 py-1.5 text-sm font-semibold text-primary">Live · 24h</span>
+              </div>
+              <svg viewBox="0 0 940 230" className="mt-2 h-56 w-full" role="img" aria-label="Market probability history">
+                <defs><linearGradient id="marketFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#138b61" stopOpacity=".18" /><stop offset="1" stopColor="#138b61" stopOpacity="0" /></linearGradient></defs>
+                <path d="M0 178H880 M0 134H880 M0 90H880 M0 46H880 M0 2H880" className="chart-grid" />
+                <path d="M0 158 C35 138 50 154 80 140 S125 125 150 134 S200 104 230 120 S275 92 305 106 S345 126 380 98 S425 82 455 92 S500 64 530 79 S575 60 605 72 S650 50 680 64 S730 80 755 58 S810 46 845 54 S865 36 880 30 V178 H0Z" fill="url(#marketFill)" />
+                <path d="M0 158 C35 138 50 154 80 140 S125 125 150 134 S200 104 230 120 S275 92 305 106 S345 126 380 98 S425 82 455 92 S500 64 530 79 S575 60 605 72 S650 50 680 64 S730 80 755 58 S810 46 845 54 S865 36 880 30" className="chart-line" />
+                <circle cx="880" cy="30" r="5" fill="#138b61" />
+                {[100, 75, 50, 25, 0].map((label, index) => (
+                  <text key={label} x="895" y={6 + index * 44} className="market-chart-axis-label">{label}%</text>
+                ))}
+                <text x="0" y="220" className="market-chart-axis-label">{marketChartMonth}</text>
+                <text x="836" y="220" className="market-chart-axis-label">Now</text>
+              </svg>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex overflow-hidden rounded-md border border-border bg-secondary/50 p-1 text-xs font-semibold text-muted-foreground">
+                  {["1D", "1W", "1M", "ALL"].map((range, index) => (
+                    <button key={range} type="button" className={`rounded px-8 py-2 transition ${index === 0 ? "bg-white text-foreground shadow-sm" : "hover:text-foreground"}`}>
+                      {range}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-sm font-medium text-muted-foreground">No {(probNo * 100).toFixed(1)}¢</span>
+              </div>
+            </div>
+          </div>
+          <div className="min-w-0 space-y-4">
             {/* Sub-toggle: Swap Tokens / Mint Set */}
             <div className="flex overflow-hidden rounded-lg border border-border">
               <button onClick={() => setTradeSubTab("swap")} className={subTabBtn(tradeSubTab === "swap")}>
@@ -1516,8 +1543,8 @@ const MarketView = () => {
             )}
           </div>
 
-          {/* Sidebar: Your Position */}
-          <div className="w-full space-y-4 lg:w-80 lg:shrink-0">{yourPositionBox}</div>
+          {/* Position stays with the ticket so the right rail remains self-contained. */}
+          {yourPositionBox}
         </div>
       )}
 
