@@ -59,51 +59,13 @@ import {
   quoteProvideLiquidity,
   marketEffectiveL,
   poolValue,
-  type AmmMarketState,
 } from "@/lib/marketPricing";
-
-type MarketPhase = "liquidity_period" | "trading" | "expired" | "proposed" | "resolved" | "voided";
-type MainTab = "trade" | "liquidity" | "resolve" | "settle";
-type TradeSubTab = "swap" | "mint";
-type LiquiditySubTab = "add" | "remove";
-
-function getMarketPhase(m: PredictionMarketRecord, nowSecs = Math.floor(Date.now() / 1000)): MarketPhase {
-  if (m.status === "Resolved") return "resolved";
-  if (m.status === "Voided") return "voided";
-  if (m.status === "Proposed") return "proposed";
-  if (nowSecs >= m.expiresAt) return "expired";
-  if (nowSecs < m.createdAt + m.liquidityPeriodSecs) return "liquidity_period";
-  return "trading";
-}
-
-function ammState(m: PredictionMarketRecord): AmmMarketState & { lpTokenSupply: number } {
-  return {
-    currentPrice: m.currentPrice,
-    liquidityL: m.liquidityL,
-    isDynamic: m.isDynamic,
-    createdAt: m.createdAt,
-    expiresAt: m.expiresAt,
-    feeBps: m.feeBps,
-    liquidityPeriodSecs: m.liquidityPeriodSecs,
-    lpTokenSupply: m.lpTokenSupply,
-  };
-}
-
-const SLIPPAGE_OPTIONS = [0.005, 0.01, 0.02];
-
-function fmtCC(v: number, dp = 4) {
-  return v.toFixed(dp).replace(/\.?0+$/, "") || "0";
-}
-
-function fmtCountdown(target: number, nowSecs: number): string {
-  const s = Math.max(0, target - nowSecs);
-  const d = Math.floor(s / 86400);
-  const h = Math.floor((s % 86400) / 3600);
-  const mnt = Math.floor((s % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${mnt}m`;
-  return `${mnt}m ${s % 60}s`;
-}
+import { ammState, fmtCC, fmtCountdown, getMarketPhase } from "./marketHelpers";
+import MarketTradePanel from "./MarketTradePanel";
+import MarketLiquidityPanel from "./MarketLiquidityPanel";
+import MarketResolutionPanel from "./MarketResolutionPanel";
+import MarketSettlementPanel from "./MarketSettlementPanel";
+import type { MainTab, TradeSubTab, LiquiditySubTab } from "./marketTypes";
 
 async function waitForPositionUpdate(
   partyId: string,
@@ -1079,136 +1041,33 @@ const MarketView = () => {
     { key: "settle", label: "Settle", visible: showSettleTab },
   ];
 
-  // ---- Phase banner (MarketPhaseIndicator) ----
-  const phaseBanner = (() => {
-    switch (phase) {
-      case "liquidity_period":
-        return {
-          cls: "border-oracle-blue/30 bg-oracle-blue/10 text-oracle-blue",
-          text: `Liquidity collection — trading opens in ${fmtCountdown(market.createdAt + market.liquidityPeriodSecs, nowSecs)} (mint sets & add liquidity now; swaps open at trading start)`,
-        };
-      case "trading":
-        return {
-          cls: "border-oracle-yes/30 bg-oracle-yes/10 text-oracle-yes",
-          text: `Trading live — expires in ${fmtCountdown(market.expiresAt, nowSecs)}${market.isDynamic ? ` · liquidity decaying √(T−t), L_eff ${fmtCC(effectiveL, 2)}` : ""}`,
-        };
-      case "expired":
-        return {
-          cls: "border-yellow-500/30 bg-yellow-500/10 text-yellow-600",
-          text: `Trading ended — awaiting resolution (grace ends in ${fmtCountdown(market.expiresAt + market.gracePeriodSecs, nowSecs)})`,
-        };
-      case "proposed":
-        return {
-          cls: "border-oracle-purple/30 bg-oracle-purple/10 text-oracle-purple",
-          text: market.proposal
-            ? `Outcome ${market.proposal.proposedOutcome} proposed — ${market.proposal.challenger ? "challenged, awaiting objective escalation" : `challenge window closes in ${fmtCountdown(market.proposal.proposedAt + market.policy.challengeSecs, nowSecs)}`}`
-            : "Outcome proposed",
-        };
-      case "resolved":
-        return {
-          cls: "border-primary/30 bg-primary/10 text-primary",
-          text: `Resolved: ${market.outcome === "Yes" ? "Yes wins" : market.outcome === "No" ? "No wins" : "Void"} — winning shares redeem 1:1 in the Settle tab`,
-        };
-      case "voided":
-        return {
-          cls: "border-border bg-secondary text-muted-foreground",
-          text: "Voided — cost-basis refunds available in the Settle tab",
-        };
-    }
-  })();
-
-  // ---- Sidebar: Your Position (Trade tab) ----
-  const yourPositionBox = (
-    <div className="rounded-xl border border-primary/20 bg-primary/5 p-5">
-      <h3 className="mb-3 text-sm font-semibold text-foreground">Your Position</h3>
-      {!account ? (
-        <p className="text-xs text-muted-foreground">Connect a wallet to see your position.</p>
-      ) : !userPosition ? (
-        <p className="text-xs text-muted-foreground">No position in this market yet.</p>
-      ) : (
-        <>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">YES shares</span>
-              <span className="font-semibold text-oracle-yes">{fmtCC(userPosition.yesShares, 2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">NO shares</span>
-              <span className="font-semibold text-oracle-no">{fmtCC(userPosition.noShares, 2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Cost basis</span>
-              <span className="font-semibold text-foreground">{fmtCC(userPosition.costBasisCC, 2)} CC</span>
-            </div>
-            <div className="flex justify-between border-t border-border pt-2">
-              <span className="text-muted-foreground">Value at current price</span>
-              <span className="font-semibold text-foreground">
-                {fmtCC(userPosition.yesShares * probYes + userPosition.noShares * probNo, 2)} CC
-              </span>
-            </div>
-          </div>
-        </>
-      )}
-      {holdings && (
-        <p className="mt-3 border-t border-border pt-2 text-xs text-muted-foreground">
-          Wallet balance: <span className="font-medium text-primary">{holdings.balance.toFixed(2)} CC</span>
-        </p>
-      )}
-    </div>
-  );
-
-  // ---- Sidebar: Your LP Position (Liquidity tab) ----
-  const yourLpBox = (
-    <div className="rounded-xl border border-oracle-blue/20 bg-oracle-blue/5 p-5">
-      <h3 className="mb-3 text-sm font-semibold text-foreground">Your LP Position</h3>
-      {!account ? (
-        <p className="text-xs text-muted-foreground">Connect a wallet to see your LP position.</p>
-      ) : !lpPosition || lpPosition.lpTokens <= 0 ? (
-        <p className="text-xs text-muted-foreground">No liquidity provided yet.</p>
-      ) : (
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">LP tokens</span>
-            <span className="font-semibold text-foreground">{fmtCC(lpPosition.lpTokens, 4)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Share of pool</span>
-            <span className="font-semibold text-foreground">
-              {market.lpTokenSupply > 0 ? ((lpPosition.lpTokens / market.lpTokenSupply) * 100).toFixed(2) : "0"}%
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Deposited</span>
-            <span className="font-semibold text-foreground">{fmtCC(lpPosition.depositedCC, 2)} CC</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">YES reserve share</span>
-            <span className="text-foreground">
-              {fmtCC(market.lpTokenSupply > 0 ? (lpPosition.lpTokens / market.lpTokenSupply) * market.reserveYes : 0, 2)}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">NO reserve share</span>
-            <span className="text-foreground">
-              {fmtCC(market.lpTokenSupply > 0 ? (lpPosition.lpTokens / market.lpTokenSupply) * market.reserveNo : 0, 2)}
-            </span>
-          </div>
-          <div className="flex justify-between border-t border-border pt-2">
-            <span className="text-muted-foreground">Fee pot (pool)</span>
-            <span className="text-foreground">{fmtCC(market.accumulatedFeesCC, 4)} CC</span>
-          </div>
-        </div>
-      )}
-      {market.isDynamic && (
-        <p className="mt-3 rounded bg-oracle-purple/10 px-2 py-1.5 text-center text-[11px] text-oracle-purple">
-          Dynamic pool: LP locked until resolution; expected total LVR ≈ V₀/2.
-        </p>
-      )}
-    </div>
-  );
-
   const subTabBtn = (active: boolean) =>
     `flex-1 py-2 text-sm font-semibold transition-all ${active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"}`;
+
+  const tradeContext = {
+    setMainTab, subTabBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs,
+    tradeSide, setTradeSide, selectedSide, setSelectedSide, probYes, probNo,
+    collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage,
+    buyQuote, sellQuote, swapQuote, account, busy, handleTradeClick, mintMode,
+    setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge,
+    userPosition, holdings,
+  };
+  const liquidityContext = {
+    setMainTab, subTabBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity,
+    liquidityValue, setLiquidityValue, liquidityQuote, busy, handleProvideLiquidity,
+    lpPosition, market, phase, withdrawPct, setWithdrawPct, handleWithdrawLiquidity, account,
+  };
+  const resolutionContext = {
+    market, phase, nowSecs, busy, account, setResolveOutcome, resolveOutcome,
+    handleResolveT0, attestations, handleResolveWithAttestations, resolveSource,
+    setResolveSource, handlePropose, handleChallenge, handleFinalize, userPosition,
+    holdings, probYes, probNo, isAdmin, handleVoidMarket,
+  };
+  const settlementContext = {
+    phase, market, redeemable, busy, account, handleRedeem, lpPosition,
+    withdrawPct, setWithdrawPct, handleWithdrawLiquidity, userPosition,
+    holdings, probYes, probNo,
+  };
 
   return (
     <div className="space-y-6">
@@ -1248,23 +1107,6 @@ const MarketView = () => {
         />
       </div>
 
-      {/* ---------------- Phase indicator ---------------- */}
-      <div className={`rounded-xl border px-4 py-3 text-sm font-medium ${phaseBanner.cls}`}>
-        {phase === "trading" && <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-oracle-yes" />}
-        {phaseBanner.text}
-      </div>
-
-      {/* Probability bar */}
-      <div className="rounded-xl border border-border bg-card p-4">
-        <div className="mb-1.5 flex items-baseline justify-between text-sm">
-          <span className="font-bold text-oracle-yes">Yes {(probYes * 100).toFixed(1)}¢</span>
-          <span className="font-bold text-oracle-no">No {(probNo * 100).toFixed(1)}¢</span>
-        </div>
-        <div className="prob-bar">
-          <div className="prob-bar-yes" style={{ width: `${probYes * 100}%` }} />
-        </div>
-      </div>
-
       {market.resolutionDescription && (
         <p className="rounded-lg border border-border bg-secondary/50 px-4 py-3 text-sm text-muted-foreground">
           <span className="font-medium text-foreground">Resolution criteria: </span>
@@ -1279,603 +1121,36 @@ const MarketView = () => {
         </p>
       )}
 
-      {/* ---------------- Main tabs ---------------- */}
-      <div className="flex gap-1 rounded-full bg-secondary p-1">
-        {tabs.filter((t) => t.visible).map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setMainTab(t.key)}
-            className={`tab-pill ${mainTab === t.key ? "tab-pill-active" : "tab-pill-inactive"}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {/* ---------------- Secondary tabs ---------------- */}
+      {tabs.some((t) => t.visible && t.key !== "trade" && t.key !== "liquidity") && (
+        <div className="flex gap-1 rounded-full bg-secondary p-1">
+          {tabs.filter((t) => t.visible && t.key !== "trade" && t.key !== "liquidity").map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setMainTab(t.key)}
+              className={`tab-pill ${mainTab === t.key ? "tab-pill-active" : "tab-pill-inactive"}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ================= TRADE TAB ================= */}
       {mainTab === "trade" && (
-        <div className="flex flex-col gap-6 lg:flex-row">
-          <div className="flex-1 space-y-4">
-            {/* Sub-toggle: Swap Tokens / Mint Set */}
-            <div className="flex overflow-hidden rounded-lg border border-border">
-              <button onClick={() => setTradeSubTab("swap")} className={subTabBtn(tradeSubTab === "swap")}>
-                Swap Tokens
-              </button>
-              <button onClick={() => setTradeSubTab("mint")} className={subTabBtn(tradeSubTab === "mint")}>
-                Mint Set
-              </button>
-            </div>
-
-            {phase !== "trading" && phase !== "liquidity_period" ? (
-              <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-                Trading is closed — the market has {phase === "expired" || phase === "proposed" ? "expired and awaits resolution" : "settled"}.
-              </div>
-            ) : tradeSubTab === "swap" && phase === "liquidity_period" ? (
-              <div className="rounded-xl border border-dashed border-oracle-blue/40 p-8 text-center text-sm text-muted-foreground">
-                Swaps open when trading starts in{" "}
-                <span className="font-semibold text-oracle-blue">
-                  {fmtCountdown(market.createdAt + market.liquidityPeriodSecs, nowSecs)}
-                </span>
-                . Meanwhile you can mint complete sets and add liquidity.
-              </div>
-            ) : tradeSubTab === "swap" ? (
-              <div className="trade-panel">
-                <div className="mb-4 flex overflow-hidden rounded-lg border border-border">
-                  <button onClick={() => setTradeSide("buy")} className={subTabBtn(tradeSide === "buy")}>
-                    Buy
-                  </button>
-                  <button onClick={() => setTradeSide("sell")} className={subTabBtn(tradeSide === "sell")}>
-                    Sell
-                  </button>
-                  <button onClick={() => setTradeSide("convert")} className={subTabBtn(tradeSide === "convert")}>
-                    Convert
-                  </button>
-                </div>
-
-                <div className="mb-4 flex flex-col gap-2">
-                  <button
-                    onClick={() => setSelectedSide("yes")}
-                    className={
-                      selectedSide === "yes"
-                        ? "rounded-lg border-2 border-oracle-yes bg-oracle-yes/20 py-2.5 text-sm font-bold text-oracle-yes ring-2 ring-oracle-yes/30"
-                        : "rounded-lg border border-oracle-yes/30 py-2.5 text-sm font-semibold text-oracle-yes hover:bg-oracle-yes/10"
-                    }
-                  >
-                    Yes — {(probYes * 100).toFixed(1)}¢
-                  </button>
-                  <button
-                    onClick={() => setSelectedSide("no")}
-                    className={
-                      selectedSide === "no"
-                        ? "rounded-lg border-2 border-oracle-no bg-oracle-no/20 py-2.5 text-sm font-bold text-oracle-no ring-2 ring-oracle-no/30"
-                        : "rounded-lg border border-oracle-no/30 py-2.5 text-sm font-semibold text-oracle-no hover:bg-oracle-no/10"
-                    }
-                  >
-                    No — {(probNo * 100).toFixed(1)}¢
-                  </button>
-                </div>
-
-                <div className="mb-3">
-                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                    {tradeSide === "buy"
-                      ? "Spend (CC)"
-                      : tradeSide === "sell"
-                        ? "Shares to sell"
-                        : `Shares to convert (from ${selectedSide === "no" ? "NO" : "YES"})`}
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="any"
-                    value={tradeSide === "buy" ? (collateralIn || "") : (sharesIn || "")}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value);
-                      const val = isNaN(v) || v < 0 ? 0 : v;
-                      if (tradeSide === "buy") setCollateralIn(val);
-                      else setSharesIn(val);
-                    }}
-                    placeholder="0.0"
-                    className="input-field text-center"
-                  />
-                </div>
-
-                <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Slippage</span>
-                  <div className="flex gap-1">
-                    {SLIPPAGE_OPTIONS.map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => setSlippage(s)}
-                        className={`rounded px-2 py-0.5 ${slippage === s ? "bg-primary text-primary-foreground" : "bg-secondary"}`}
-                      >
-                        {(s * 100).toFixed(1)}%
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {tradeSide === "buy" && buyQuote && (
-                  <div className="mb-3 space-y-1 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
-                    <div className="flex justify-between"><span>Est. shares</span><span className="text-foreground">{fmtCC(buyQuote.sharesOut, 3)}</span></div>
-                    <div className="flex justify-between"><span>Min received</span><span>{fmtCC(buyQuote.sharesOut * (1 - slippage), 3)}</span></div>
-                    <div className="flex justify-between"><span>Avg price</span><span>{(buyQuote.avgPrice * 100).toFixed(1)}¢</span></div>
-                    <div className="flex justify-between"><span>Fee</span><span>{fmtCC(buyQuote.fee)} CC</span></div>
-                    <div className={`flex justify-between ${buyQuote.priceImpact > 0.05 ? "text-oracle-no" : ""}`}>
-                      <span>Price impact</span><span>{(buyQuote.priceImpact * 100).toFixed(2)}%</span>
-                    </div>
-                  </div>
-                )}
-                {tradeSide === "sell" && sellQuote && (
-                  <div className="mb-3 space-y-1 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
-                    <div className="flex justify-between"><span>Est. proceeds</span><span className="text-foreground">{fmtCC(sellQuote.netProceeds)} CC</span></div>
-                    <div className="flex justify-between"><span>Min received</span><span>{fmtCC(sellQuote.netProceeds * (1 - slippage))} CC</span></div>
-                    <div className="flex justify-between"><span>Avg price</span><span>{(sellQuote.avgPrice * 100).toFixed(1)}¢</span></div>
-                    <div className="flex justify-between"><span>Fee</span><span>{fmtCC(sellQuote.fee)} CC</span></div>
-                  </div>
-                )}
-                {tradeSide === "convert" && swapQuote && selectedSide && (
-                  <div className="mb-3 space-y-1 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
-                    <div className="flex justify-between">
-                      <span>Est. {selectedSide === "yes" ? "NO" : "YES"} received</span>
-                      <span className="text-foreground">{fmtCC(swapQuote.sharesOut, 3)}</span>
-                    </div>
-                    <div className="flex justify-between"><span>Min received</span><span>{fmtCC(swapQuote.sharesOut * (1 - slippage), 3)}</span></div>
-                    <div className="flex justify-between"><span>Fee (input shares)</span><span>{fmtCC(swapQuote.fee, 3)}</span></div>
-                    <div className={`flex justify-between ${swapQuote.priceImpact > 0.05 ? "text-oracle-no" : ""}`}>
-                      <span>Price impact</span><span>{(swapQuote.priceImpact * 100).toFixed(2)}%</span>
-                    </div>
-                  </div>
-                )}
-
-                {(() => {
-                  const reason = !account
-                    ? "Connect wallet"
-                    : busy !== null
-                      ? "Submitting…"
-                      : !selectedSide
-                        ? tradeSide === "convert" ? "Select the side to convert from" : "Select Yes or No"
-                        : tradeSide === "buy"
-                          ? collateralIn <= 0 ? "Enter CC to spend" : null
-                          : sharesIn <= 0
-                            ? tradeSide === "convert" ? "Enter shares to convert" : "Enter shares to sell"
-                            : null;
-                  const disabled = reason !== null;
-                  return (
-                    <button
-                      onClick={handleTradeClick}
-                      disabled={disabled}
-                      className={`w-full rounded-lg py-3 text-sm font-bold transition-all ${
-                        disabled
-                          ? "cursor-not-allowed bg-secondary text-muted-foreground"
-                          : "bg-primary text-primary-foreground hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/20"
-                      }`}
-                    >
-                      {reason ??
-                        (tradeSide === "buy"
-                          ? "Buy Shares"
-                          : tradeSide === "sell"
-                            ? "Sell Shares"
-                            : `Convert ${selectedSide === "no" ? "NO → YES" : "YES → NO"}`)}
-                    </button>
-                  );
-                })()}
-                <p className="mt-2 text-center text-xs text-muted-foreground">
-                  Executed on-ledger by the pm-AMM; your slippage bound protects the quote.
-                </p>
-              </div>
-            ) : (
-              <div className="trade-panel">
-                <div className="mb-4 flex overflow-hidden rounded-lg border border-border">
-                  <button onClick={() => setMintMode("mint")} className={subTabBtn(mintMode === "mint")}>
-                    Mint
-                  </button>
-                  <button onClick={() => setMintMode("merge")} className={subTabBtn(mintMode === "merge")}>
-                    Merge
-                  </button>
-                </div>
-                <p className="mb-3 text-center text-xs text-muted-foreground">
-                  {mintMode === "mint"
-                    ? "Deposit CC to mint complete sets: 1 CC → 1 YES + 1 NO (no price impact)."
-                    : "Burn equal YES + NO pairs back into CC: 1 pair → 1 CC."}
-                </p>
-                <input
-                  type="number"
-                  min={0}
-                  step="any"
-                  value={splitMergeAmount || ""}
-                  onChange={(e) => {
-                    const v = parseFloat(e.target.value);
-                    setSplitMergeAmount(isNaN(v) || v < 0 ? 0 : v);
-                  }}
-                  placeholder={mintMode === "mint" ? "CC to deposit" : "Pairs to merge"}
-                  className="input-field mb-3 text-center"
-                />
-                {splitMergeAmount > 0 && (
-                  <div className="mb-3 space-y-1 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
-                    {mintMode === "mint" ? (
-                      <>
-                        <div className="flex justify-between"><span>You deposit</span><span className="text-foreground">{fmtCC(splitMergeAmount)} CC</span></div>
-                        <div className="flex justify-between"><span>You receive</span><span className="text-foreground">{fmtCC(splitMergeAmount, 2)} YES + {fmtCC(splitMergeAmount, 2)} NO</span></div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex justify-between"><span>You burn</span><span className="text-foreground">{fmtCC(splitMergeAmount, 2)} YES + {fmtCC(splitMergeAmount, 2)} NO</span></div>
-                        <div className="flex justify-between"><span>You receive</span><span className="text-foreground">{fmtCC(splitMergeAmount)} CC</span></div>
-                      </>
-                    )}
-                  </div>
-                )}
-                <button
-                  onClick={() => handleSplitMerge(mintMode === "mint" ? "split" : "merge")}
-                  disabled={busy !== null || splitMergeAmount <= 0 || !account || (mintMode === "merge" && !userPosition)}
-                  className="w-full rounded-lg bg-primary py-3 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-secondary disabled:text-muted-foreground"
-                >
-                  {busy === "splitmerge" ? "Submitting…" : mintMode === "mint" ? "Mint Complete Set" : "Merge Complete Set"}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Sidebar: Your Position */}
-          <div className="w-full space-y-4 lg:w-80 lg:shrink-0">{yourPositionBox}</div>
-        </div>
+        <MarketTradePanel context={tradeContext} />
       )}
-
-      {/* ================= LIQUIDITY TAB ================= */}
       {mainTab === "liquidity" && (
-        <div className="flex flex-col gap-6 lg:flex-row">
-          <div className="flex-1 space-y-4">
-            {/* Sub-toggle: Add / Remove */}
-            <div className="flex overflow-hidden rounded-lg border border-border">
-              <button onClick={() => setLiquiditySubTab("add")} className={subTabBtn(liquiditySubTab === "add")}>
-                Add Liquidity
-              </button>
-              <button onClick={() => setLiquiditySubTab("remove")} className={subTabBtn(liquiditySubTab === "remove")}>
-                Remove Liquidity
-              </button>
-            </div>
-
-            {liquiditySubTab === "add" ? (
-              !canProvideLiquidity ? (
-                <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-                  Liquidity can only be added before the market expires.
-                </div>
-              ) : (
-                <div className="trade-panel">
-                  <p className="mb-3 text-center text-xs text-muted-foreground">
-                    Value-based deposit: name a pool-value increase ΔV; the pool scales reserves and L
-                    by (V+ΔV)/V so the price is untouched. ΔL = ΔV / φ(Φ⁻¹(P)).
-                  </p>
-                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                    Desired pool-value increase (CC)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="any"
-                    value={liquidityValue || ""}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value);
-                      setLiquidityValue(isNaN(v) || v < 0 ? 0 : v);
-                    }}
-                    placeholder="0.0"
-                    className="input-field mb-3 text-center"
-                  />
-                  {liquidityQuote && (
-                    <div className="mb-3 space-y-1 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
-                      <div className="flex justify-between"><span>Collateral cost</span><span className="text-foreground">{fmtCC(liquidityQuote.costCC)} CC</span></div>
-                      <div className="flex justify-between"><span>LP tokens minted</span><span>{fmtCC(liquidityQuote.lpMinted, 4)}</span></div>
-                      <div className="flex justify-between"><span>Share of pool</span><span>{(liquidityQuote.shareOfPool * 100).toFixed(2)}%</span></div>
-                      <div className="flex justify-between"><span>New L₀</span><span>{fmtCC(liquidityQuote.newL, 2)}</span></div>
-                    </div>
-                  )}
-                  <button
-                    onClick={handleProvideLiquidity}
-                    disabled={busy !== null || liquidityValue <= 0 || !account}
-                    className="w-full rounded-lg bg-primary py-3 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-secondary disabled:text-muted-foreground"
-                  >
-                    {busy === "liquidity" ? "Submitting…" : "Add Liquidity"}
-                  </button>
-                </div>
-              )
-            ) : (
-              <div className="trade-panel">
-                {!lpPosition || lpPosition.lpTokens <= 0 ? (
-                  <div className="p-4 text-center text-sm text-muted-foreground">No LP position to remove.</div>
-                ) : (
-                  <>
-                    <p className="mb-3 text-center text-xs text-muted-foreground">
-                      {market.isDynamic && phase !== "resolved" && phase !== "voided"
-                        ? "Dynamic pool — removal unlocks after resolution/void (uniform-LVR design)."
-                        : phase === "resolved"
-                          ? "Pool is settled: you receive your share of the winning reserve + accrued fees as CC."
-                          : phase === "voided"
-                            ? "Market voided: you receive your deposit share + accrued fees as CC."
-                            : "Static pool: early removal returns proportional YES/NO shares + fee share."}
-                    </p>
-                    <div className="mb-2 flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        value={withdrawPct}
-                        onChange={(e) => setWithdrawPct(Number(e.target.value))}
-                        className="flex-1"
-                      />
-                      <span className="w-12 text-right text-sm text-foreground">{withdrawPct}%</span>
-                    </div>
-                    <div className="mb-3 flex gap-1">
-                      {[25, 50, 75, 100].map((p) => (
-                        <button
-                          key={p}
-                          onClick={() => setWithdrawPct(p)}
-                          className={`flex-1 rounded px-2 py-1 text-xs ${withdrawPct === p ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"}`}
-                        >
-                          {p}%
-                        </button>
-                      ))}
-                    </div>
-                    <div className="mb-3 space-y-1 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
-                      <div className="flex justify-between">
-                        <span>LP to burn</span>
-                        <span className="text-foreground">{fmtCC(lpPosition.lpTokens * (withdrawPct / 100), 4)}</span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={handleWithdrawLiquidity}
-                      disabled={busy !== null || withdrawPct <= 0 || (market.isDynamic && phase !== "resolved" && phase !== "voided")}
-                      className="w-full rounded-lg border border-oracle-blue/30 bg-oracle-blue/10 py-3 text-sm font-bold text-oracle-blue hover:bg-oracle-blue/20 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {busy === "withdraw"
-                        ? "Withdrawing…"
-                        : market.isDynamic && phase !== "resolved" && phase !== "voided"
-                          ? "Locked until resolution"
-                          : "Remove Liquidity"}
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Sidebar: Your LP Position */}
-          <div className="w-full space-y-4 lg:w-80 lg:shrink-0">{yourLpBox}</div>
-        </div>
+        <MarketLiquidityPanel context={liquidityContext} />
       )}
-
       {/* ================= RESOLVE TAB ================= */}
       {mainTab === "resolve" && showResolveTab && (
-        <div className="flex flex-col gap-6 lg:flex-row">
-          <div className="flex-1 space-y-4">
-            {/* T3 optimistic flow */}
-            {market.policy.challengeSecs > 0 && (
-              <div className="trade-panel border-oracle-purple/30">
-                <div className="mb-3 text-center">
-                  <h2 className="text-sm font-bold text-foreground">Optimistic Resolution (T3)</h2>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Bond {fmtCC(market.policy.bondCC)} CC · challenges escalate to the objective tier, never a vote.
-                  </p>
-                </div>
-                {phase === "expired" && (
-                  <div className="flex gap-2">
-                    {(["Yes", "No"] as OutcomeArg[]).map((o) => (
-                      <button
-                        key={o}
-                        onClick={() => handlePropose(o)}
-                        disabled={busy !== null || !account}
-                        className={`flex-1 rounded-lg border py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
-                          o === "Yes"
-                            ? "border-oracle-yes/30 text-oracle-yes hover:bg-oracle-yes/10"
-                            : "border-oracle-no/30 text-oracle-no hover:bg-oracle-no/10"
-                        }`}
-                      >
-                        Propose {o}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {phase === "proposed" && market.proposal && (
-                  <div className="space-y-3">
-                    <div className="rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
-                      <div className="flex justify-between"><span>Proposed</span><span className="text-foreground">{market.proposal.proposedOutcome}</span></div>
-                      <div className="flex justify-between"><span>Window closes</span><span>{fmtCountdown(market.proposal.proposedAt + market.policy.challengeSecs, nowSecs)}</span></div>
-                      {market.proposal.challenger && (
-                        <div className="flex justify-between text-oracle-no"><span>Challenged with</span><span>{market.proposal.challengerOutcome}</span></div>
-                      )}
-                    </div>
-                    {!market.proposal.challenger && nowSecs <= market.proposal.proposedAt + market.policy.challengeSecs && (
-                      <button
-                        onClick={() => handleChallenge(market.proposal!.proposedOutcome === "Yes" ? "No" : "Yes")}
-                        disabled={busy !== null || !account}
-                        className="w-full rounded-lg border border-oracle-no/30 py-2 text-sm font-semibold text-oracle-no hover:bg-oracle-no/10 disabled:opacity-50"
-                      >
-                        Challenge with {market.proposal.proposedOutcome === "Yes" ? "No" : "Yes"} (+bond)
-                      </button>
-                    )}
-                    {!market.proposal.challenger && nowSecs > market.proposal.proposedAt + market.policy.challengeSecs && (
-                      <button
-                        onClick={handleFinalize}
-                        disabled={busy !== null || !account}
-                        className="w-full rounded-lg bg-primary py-2 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                      >
-                        {busy === "finalize" ? "Finalizing…" : "Finalize proposal"}
-                      </button>
-                    )}
-                    {market.proposal.challenger && (
-                      <p className="text-center text-xs text-muted-foreground">
-                        Awaiting objective escalation (reporter quorum / signed source).
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Admin resolution console */}
-            {isAdmin && (
-              <div className="trade-panel border-oracle-no/20">
-                <div className="mb-4 text-center">
-                  <h2 className="text-sm font-bold text-foreground">Operator Resolution</h2>
-                  <p className="mt-1 text-xs text-muted-foreground">Admin only — irreversible.</p>
-                </div>
-
-                {market.policy.operatorResolution && phase === "expired" && (
-                  <>
-                    <div className="mb-3 flex flex-col gap-2">
-                      {(["Yes", "No", "VoidOutcome"] as OutcomeArg[]).map((r) => (
-                        <button
-                          key={r}
-                          onClick={() => setResolveOutcome(r)}
-                          className={`rounded-lg py-2 text-sm font-semibold transition-all ${
-                            resolveOutcome === r
-                              ? r === "Yes"
-                                ? "border-2 border-oracle-yes bg-oracle-yes/20 text-oracle-yes"
-                                : r === "No"
-                                  ? "border-2 border-oracle-no bg-oracle-no/20 text-oracle-no"
-                                  : "border-2 border-border bg-secondary text-foreground"
-                              : "border border-border text-muted-foreground hover:bg-secondary"
-                          }`}
-                        >
-                          {r === "Yes" ? "Yes wins" : r === "No" ? "No wins" : "Void market"}
-                        </button>
-                      ))}
-                    </div>
-                    {market.policy.sources.length > 0 && (
-                      <select
-                        value={resolveSource || market.policy.sources[0]}
-                        onChange={(e) => setResolveSource(e.target.value)}
-                        className="input-field mb-3 text-sm"
-                      >
-                        {market.policy.sources.map((s) => (
-                          <option key={s} value={s}>{s}</option>
-                        ))}
-                      </select>
-                    )}
-                    <button
-                      onClick={handleResolveT0}
-                      className="mb-3 w-full rounded-lg bg-oracle-no/20 py-2.5 text-sm font-bold text-oracle-no ring-1 ring-oracle-no/30 hover:bg-oracle-no/30 disabled:cursor-not-allowed disabled:opacity-50"
-                      disabled={busy !== null || !account}
-                    >
-                      {busy === "resolve" ? "Resolving…" : "Resolve (T0 operator)"}
-                    </button>
-                  </>
-                )}
-
-                {(market.policy.reporters.length > 0 || market.policy.sourceKeys.length > 0) && (
-                  <div className="mb-3 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
-                    <div className="mb-1 font-medium text-foreground">
-                      Attestations ({attestations.length})
-                      {market.policy.quorum > 0 && ` — need ${market.policy.quorum} agreeing`}
-                    </div>
-                    {attestations.slice(0, 5).map((a) => (
-                      <div key={a.contractId} className="flex justify-between">
-                        <span className="truncate pr-2">{a.attester.slice(0, 18)}…</span>
-                        <span className={a.outcome === "Yes" ? "text-oracle-yes" : a.outcome === "No" ? "text-oracle-no" : ""}>
-                          {a.outcome}{a.hasSourceSignature ? " ✓T1" : ""}
-                        </span>
-                      </div>
-                    ))}
-                    <button
-                      onClick={handleResolveWithAttestations}
-                      disabled={busy !== null || attestations.length === 0}
-                      className="mt-2 w-full rounded border border-border py-1.5 font-semibold text-foreground hover:bg-secondary disabled:opacity-50"
-                    >
-                      Resolve from attestations (T1/T2)
-                    </button>
-                  </div>
-                )}
-
-                {nowSecs > market.expiresAt + market.gracePeriodSecs && (
-                  <button
-                    onClick={handleVoidMarket}
-                    disabled={busy !== null}
-                    className="w-full rounded-lg border border-border py-2 text-sm font-semibold text-muted-foreground hover:bg-secondary disabled:opacity-50"
-                  >
-                    {busy === "void" ? "Voiding…" : "Void market (grace elapsed)"}
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="w-full space-y-4 lg:w-80 lg:shrink-0">{yourPositionBox}</div>
-        </div>
+        <MarketResolutionPanel context={resolutionContext} />
       )}
 
       {/* ================= SETTLE TAB ================= */}
       {mainTab === "settle" && showSettleTab && (
-        <div className="flex flex-col gap-6 lg:flex-row">
-          <div className="flex-1 space-y-4">
-            <div className="trade-panel text-center">
-              <h2 className="mb-2 text-base font-bold text-foreground">Market Result</h2>
-              <div className="text-2xl font-bold text-primary">
-                {phase === "voided" ? "Voided" : market.outcome === "Yes" ? "Winner: Yes" : market.outcome === "No" ? "Winner: No" : "Void"}
-              </div>
-              <div className="mt-4 space-y-2 text-sm text-muted-foreground">
-                <div className="flex justify-between"><span>Final probability</span><span>{(probYes * 100).toFixed(1)}% Yes</span></div>
-                <div className="flex justify-between"><span>Total volume</span><span>{fmtCC(market.totalVolumeCC, 2)} CC</span></div>
-                {market.resolvedAt && (
-                  <div className="flex justify-between"><span>Settled</span><span>{new Date(market.resolvedAt * 1000).toLocaleString()}</span></div>
-                )}
-              </div>
-            </div>
-
-            <div className="trade-panel">
-              <h3 className="mb-3 text-center text-sm font-bold text-foreground">Redeem Position</h3>
-              {!userPosition ? (
-                <p className="text-center text-sm text-muted-foreground">No position to redeem.</p>
-              ) : (
-                <>
-                  <div className="mb-3 space-y-1 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
-                    <div className="flex justify-between"><span>YES held</span><span className="text-oracle-yes">{fmtCC(userPosition.yesShares, 2)}</span></div>
-                    <div className="flex justify-between"><span>NO held</span><span className="text-oracle-no">{fmtCC(userPosition.noShares, 2)}</span></div>
-                    <div className="flex justify-between border-t border-border pt-1">
-                      <span>{phase === "voided" ? "Refund (cost basis)" : "Payout (1 CC / winning share)"}</span>
-                      <span className="font-bold text-primary">{fmtCC(redeemable)} CC</span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleRedeem}
-                    disabled={busy !== null || redeemable <= 0 || !account}
-                    className="w-full rounded-lg bg-primary py-3 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-secondary disabled:text-muted-foreground"
-                  >
-                    {busy === "redeem"
-                      ? "Redeeming…"
-                      : redeemable > 0
-                        ? phase === "voided"
-                          ? `Redeem refund — ${fmtCC(redeemable)} CC`
-                          : `Redeem winnings — ${fmtCC(redeemable)} CC`
-                        : "Nothing to redeem"}
-                  </button>
-                </>
-              )}
-            </div>
-
-            {lpPosition && lpPosition.lpTokens > 0 && (
-              <div className="trade-panel">
-                <h3 className="mb-3 text-center text-sm font-bold text-foreground">Withdraw Liquidity</h3>
-                <p className="mb-3 text-center text-xs text-muted-foreground">
-                  {phase === "voided"
-                    ? "Deposit share + accrued fees returned as CC."
-                    : "Your share of the winning reserve + accrued fees, paid as CC."}
-                </p>
-                <button
-                  onClick={() => {
-                    setWithdrawPct(100);
-                    handleWithdrawLiquidity();
-                  }}
-                  disabled={busy !== null || !account}
-                  className="w-full rounded-lg border border-oracle-blue/30 bg-oracle-blue/10 py-3 text-sm font-bold text-oracle-blue hover:bg-oracle-blue/20 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {busy === "withdraw" ? "Withdrawing…" : "Withdraw all liquidity"}
-                </button>
-              </div>
-            )}
-          </div>
-          <div className="w-full space-y-4 lg:w-80 lg:shrink-0">
-            {yourPositionBox}
-            {lpPosition && lpPosition.lpTokens > 0 && yourLpBox}
-          </div>
-        </div>
+        <MarketSettlementPanel context={settlementContext} />
       )}
 
       {/* About pm-AMM */}

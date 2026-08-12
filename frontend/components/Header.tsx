@@ -4,15 +4,15 @@ import { WalletSelector } from "./WalletSelector";
 import { Link, useLocation } from "react-router-dom";
 import { useToast } from "@chakra-ui/react";
 import { cn } from "@/lib/utils";
-import { Briefcase, Coins, Gift, HelpCircle, MoreVertical, PlusCircle, TrendingUp, X } from "lucide-react";
+import { ChevronDown, Coins, Menu, Search, TrendingUp, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const NAV_ITEMS = [
-  { to: "/marketplace", label: "Markets", icon: TrendingUp },
-  { to: "/portfolio", label: "Portfolio", icon: Briefcase },
-  { to: "/rewards", label: "Rewards", icon: Gift },
-  { to: "/faq", label: "FAQ", icon: HelpCircle },
+  { to: "/marketplace", label: "Markets" },
+  { to: "/portfolio", label: "Portfolio" },
+  { to: "/rewards", label: "Rewards" },
 ];
+const TOPICS = ["Trending", "Politics", "Sports", "Crypto", "Business", "Culture", "Science", "World"];
 
 export function Header() {
   const { account } = useCantonWallet();
@@ -20,143 +20,66 @@ export function Header() {
   const location = useLocation();
   const toast = useToast();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  useEffect(() => setMobileMenuOpen(false), [location.pathname]);
 
   useEffect(() => {
-    setMobileMenuOpen(false);
-  }, [location.pathname]);
+    const handleSearchShortcut = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTyping = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
+      if (event.key === "/" && !isTyping) {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+      if (event.key === "Escape") setSearchOpen(false);
+    };
+    window.addEventListener("keydown", handleSearchShortcut);
+    return () => window.removeEventListener("keydown", handleSearchShortcut);
+  }, []);
 
   const handleGetCantonCoin = (e: React.MouseEvent) => {
     e.preventDefault();
-    if (!account) {
-      toast({
-        title: "Connect wallet first",
-        description: "Connect your wallet to receive Canton Coin.",
-        status: "info",
-        duration: 4000,
-        isClosable: true,
-      });
-      return;
-    }
     toast({
-      title: "Canton Coin",
-      description: "Use the network faucet or transfer to get Canton Coin on testnet.",
-      status: "info",
-      duration: 5000,
-      isClosable: true,
+      title: account ? "Canton Coin" : "Connect wallet first",
+      description: account ? "Use the network faucet or transfer to get Canton Coin on testnet." : "Connect your wallet to receive Canton Coin.",
+      status: "info", duration: 4000, isClosable: true,
     });
   };
-
-  const isActive = (path: string) => (path === "/" ? location.pathname === "/" : location.pathname.startsWith(path));
+  const isActive = (path: string) => location.pathname.startsWith(path);
 
   return (
-    <header className="glass-header">
-      <div className="page-container relative flex h-16 items-center justify-between gap-4">
-        {/* Logo */}
-        <Link to="/" className="flex shrink-0 items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-950 shadow-sm ring-1 ring-slate-950/10">
-            <img src="/logonobg.svg" alt="TruthOracle" className="h-6 w-6" />
-          </div>
-          <span className="hidden text-base font-extrabold tracking-tight text-slate-950 sm:block">
-            Truth<span className="text-primary">Oracle</span>
-          </span>
-        </Link>
-
-        {/* Nav */}
-        <nav className="hidden items-center gap-1 md:flex">
-          {NAV_ITEMS.map(({ to, label }) => (
-            <Link
-              key={to}
-              to={to}
-              className={cn(
-                "nav-link rounded-md px-3 py-2",
-                isActive(to) && "nav-link-active bg-emerald-50 text-primary ring-1 ring-emerald-100",
-              )}
-            >
-              {label}
-            </Link>
-          ))}
-          {isAdmin && (
-            <Link
-              to="/admin"
-              className={cn(
-                "nav-link flex items-center gap-1.5 rounded-md px-3 py-2",
-                isActive("/admin") && "nav-link-active bg-emerald-50 text-primary ring-1 ring-emerald-100",
-              )}
-            >
-              <PlusCircle className="h-3.5 w-3.5" />
-              Create Market
-            </Link>
-          )}
-        </nav>
-
-        {/* Actions */}
-        <div className="hidden items-center gap-2 md:flex lg:gap-3">
-          <button
-            onClick={handleGetCantonCoin}
-            className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-primary/40 hover:text-primary"
-          >
-            <Coins className="h-3.5 w-3.5" />
-            Get CC
-          </button>
-          <WalletSelector />
-        </div>
-
-        <button
-          type="button"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors hover:border-primary/30 hover:text-primary md:hidden"
-          onClick={() => setMobileMenuOpen((open) => !open)}
-          aria-label="Open navigation menu"
-          aria-expanded={mobileMenuOpen}
-        >
-          {mobileMenuOpen ? <X className="h-5 w-5" /> : <MoreVertical className="h-5 w-5" />}
-        </button>
-
-        {mobileMenuOpen && (
-          <div className="absolute left-4 right-4 top-full mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl shadow-slate-300/60 md:hidden">
-            <nav className="divide-y divide-slate-100">
-              {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
-                <Link
-                  key={to}
-                  to={to}
-                  className={cn(
-                    "flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 transition-colors hover:bg-emerald-50 hover:text-primary",
-                    isActive(to) && "bg-emerald-50 text-primary",
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  {label}
-                </Link>
-              ))}
-              {isAdmin && (
-                <Link
-                  to="/admin"
-                  className={cn(
-                    "flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 transition-colors hover:bg-emerald-50 hover:text-primary",
-                    isActive("/admin") && "bg-emerald-50 text-primary",
-                  )}
-                >
-                  <PlusCircle className="h-4 w-4" />
-                  Create Market
-                </Link>
-              )}
-            </nav>
-            <div className="space-y-3 border-t border-slate-100 bg-slate-50/70 p-4">
-              <button
-                onClick={(event) => {
-                  handleGetCantonCoin(event);
-                  setMobileMenuOpen(false);
-                }}
-                className="flex w-full items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 shadow-sm transition-colors hover:border-primary/40 hover:text-primary"
-              >
-                <Coins className="h-4 w-4" />
-                Get CC
-              </button>
-              <div className="flex justify-center">
-                <WalletSelector />
+    <header className="site-header">
+      <div className="page-container">
+        <div className="flex h-[4.25rem] items-center gap-4">
+          <Link to="/" className="flex shrink-0 items-center gap-2.5" aria-label="TruthOracle home">
+            <div className="brand-mark"><img src="/logonobg.svg" alt="" className="h-4 w-4" /></div>
+            <span className="text-base font-extrabold tracking-[-0.04em] text-slate-950">Truth<span className="text-primary">Oracle</span></span>
+          </Link>
+          <nav className="hidden items-center gap-1 lg:flex">
+            {NAV_ITEMS.map(({ to, label }) => <Link key={to} to={to} className={cn("product-nav-link", isActive(to) && "product-nav-link-active")}>{label}</Link>)}
+            {isAdmin && <Link to="/admin" className="product-nav-link">Create market</Link>}
+          </nav>
+          <div className="ml-auto flex items-center gap-2">
+            {searchOpen ? (
+              <div className="search-inline hidden md:flex" role="search">
+                <Search className="h-4 w-4 shrink-0 text-slate-400" />
+                <input autoFocus placeholder="Search markets" aria-label="Search markets" />
+                <button type="button" onClick={() => setSearchOpen(false)} aria-label="Close search"><X className="h-4 w-4 text-slate-400 hover:text-slate-700" /></button>
               </div>
-            </div>
+            ) : (
+              <button className="search-trigger hidden md:flex" onClick={() => setSearchOpen(true)} aria-label="Search markets"><Search className="h-4 w-4" /><span>Search markets</span><kbd>/</kbd></button>
+            )}
+            <button onClick={handleGetCantonCoin} className="header-utility hidden xl:inline-flex"><Coins className="h-3.5 w-3.5" /> Get CC</button>
+            <div className="header-wallet"><WalletSelector /></div>
+            <button className="mobile-menu-button lg:hidden" onClick={() => setMobileMenuOpen((open) => !open)} aria-label="Toggle menu">{mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}</button>
           </div>
-        )}
+        </div>
+        <div className="category-rail"><div className="flex min-w-max items-center gap-6">
+          {TOPICS.map((topic, index) => <Link key={topic} to={`/marketplace?category=${topic.toLowerCase()}`} className={cn("topic-link", index === 0 && "topic-link-active")}>{index === 0 && <TrendingUp className="h-3.5 w-3.5" />}{topic}</Link>)}
+          <Link to="/faq" className="topic-link">How it works <ChevronDown className="h-3.5 w-3.5" /></Link>
+        </div></div>
+        {mobileMenuOpen && <div className="mobile-menu lg:hidden"><div className="grid gap-1">{NAV_ITEMS.map(({ to, label }) => <Link key={to} to={to} className={cn("mobile-nav-link", isActive(to) && "text-primary")}>{label}</Link>)}{isAdmin && <Link to="/admin" className="mobile-nav-link">Create market</Link>}</div><div className="mt-3 border-t border-slate-100 pt-3"><WalletSelector /></div></div>}
       </div>
     </header>
   );
