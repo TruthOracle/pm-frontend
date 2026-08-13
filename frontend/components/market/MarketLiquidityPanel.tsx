@@ -28,9 +28,9 @@ export default function MarketLiquidityPanel({ context }: { context: LiquidityCo
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,.8fr)] lg:items-start">
       <MarketHistoryChart probability={market.currentPrice} />
           <div className="space-y-4 lg:col-start-2 lg:row-start-1">
-            <div className="flex overflow-hidden rounded-lg border border-border bg-secondary/50 p-1">
-              <button onClick={() => setMainTab("trade")} className={subTabBtn(false)}>Trade</button>
-              <button onClick={() => setMainTab("liquidity")} className={subTabBtn(true)}>Liquidity</button>
+            <div className="flex overflow-hidden rounded-lg border border-border bg-white">
+              <button onClick={() => setMainTab("trade")} className={`${subTabBtn(false)} rounded-l-md`}>Trade</button>
+              <button onClick={() => setMainTab("liquidity")} className={`${subTabBtn(true)} rounded-r-md`}>Liquidity</button>
             </div>
             {/* Sub-toggle: Add / Remove */}
             <div className="flex overflow-hidden rounded-lg border border-border">

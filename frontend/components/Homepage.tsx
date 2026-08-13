@@ -110,9 +110,13 @@ function Homepage() {
                     </div>
                   </div>
                   <div className="mini-chart" aria-label="Market probability trend">
-                    <div className="chart-plot">
+                    <div className="chart-caption">
+                      <strong>pm-AMM curve</strong>
+                      <span>LIVE PROBABILITY</span>
+                    </div>
+                    <div className="chart-plot top-8 right-3 bottom-2 left-2">
                       <svg
-                        viewBox="0 0 452 148"
+                        viewBox="0 0 480 148"
                         preserveAspectRatio="none"
                         role="img"
                         aria-label="Live probability trend"
@@ -123,25 +127,25 @@ function Homepage() {
                             <stop offset="1" stopColor="#138b61" stopOpacity="0" />
                           </linearGradient>
                         </defs>
-                        <path d="M0 110H420 M0 83.5H420 M0 57H420 M0 30.5H420 M0 4H420" className="chart-grid" />
+                        <path d="M0 110H430 M0 83.5H430 M0 57H430 M0 30.5H430 M0 4H430" className="chart-grid" />
                         <path
                           className="chart-fill"
-                          d="M0 98 C25 90 30 80 48 86 S78 64 95 72 S120 54 140 64 S165 46 188 54 S220 72 238 47 S262 38 278 48 S302 30 320 40 S344 20 360 32 S390 24 420 10 V110 H0Z"
+                          d="M0 98 C25 90 30 80 48 86 S78 64 95 72 S120 54 140 64 S165 46 188 54 S220 72 238 47 S262 38 278 48 S302 30 320 40 S344 20 360 32 S390 24 410 10 V110 H0Z"
                         />
                         <path
                           className="chart-line"
-                          d="M0 98 C25 90 30 80 48 86 S78 64 95 72 S120 54 140 64 S165 46 188 54 S220 72 238 47 S262 38 278 48 S302 30 320 40 S344 20 360 32 S390 24 420 10"
+                          d="M0 98 C25 90 30 80 48 86 S78 64 95 72 S120 54 140 64 S165 46 188 54 S220 72 238 47 S262 38 278 48 S302 30 320 40 S344 20 360 32 S390 24 410 10"
                         />
-                        <circle cx="420" cy="10" r="4" fill="#138b61" />
+                        <circle cx="410" cy="10" r="4" fill="#138b61" />
                         {[100, 75, 50, 25, 0].map((label, index) => (
-                          <text key={label} x="424" y={8 + index * 26.5} className="home-chart-axis-label">
+                          <text key={label} x="442" y={8 + index * 26.5} className="home-chart-axis-label">
                             {label}%
                           </text>
                         ))}
                         <text x="0" y="144" className="home-chart-axis-label">
                           {chartMonth}
                         </text>
-                        <text x="398" y="144" className="home-chart-axis-label">
+                        <text x="405" y="144" className="home-chart-axis-label">
                           Now
                         </text>
                       </svg>
