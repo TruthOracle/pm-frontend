@@ -7,6 +7,7 @@ import Portfolio from "./components/Portfolio";
 import Admin from "./components/Admin/Admin";
 import MarketDetails from "./components/MarketDetails";
 import Rewards from "./components/Rewards";
+import News from "./components/News";
 import { WalletProvider } from "./components/WalletProvider";
 import { useIsAdmin } from "@/lib/useIsAdmin";
 import Footer from "@/components/Footer";
@@ -38,6 +39,7 @@ function AppContent() {
           <Route path="/market/:id" element={<MarketDetails />} />
           <Route path="/admin" element={<AdminRoute />} />
           <Route path="/rewards" element={<Rewards />} />
+          <Route path="/news" element={<News />} />
         </Routes>
       </motion.main>
     </AnimatePresence>
