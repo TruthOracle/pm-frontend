@@ -66,6 +66,7 @@ import MarketLiquidityPanel from "./MarketLiquidityPanel";
 import MarketResolutionPanel from "./MarketResolutionPanel";
 import MarketSettlementPanel from "./MarketSettlementPanel";
 import type { MainTab, TradeSubTab, LiquiditySubTab } from "./marketTypes";
+import { getPrefetchedMarkets } from "@/utils/marketPrefetch";
 
 async function waitForPositionUpdate(
   partyId: string,
@@ -123,8 +124,11 @@ const MarketView = () => {
   const [searchParams] = useSearchParams();
   const marketIdNum = id != null && id !== "" ? Number(id) : NaN;
 
-  const [market, setMarket] = useState<PredictionMarketRecord | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [market, setMarket] = useState<PredictionMarketRecord | null>(() => {
+    const prefetched = getPrefetchedMarkets();
+    return prefetched?.find((item) => item.marketId === marketIdNum) ?? null;
+  });
+  const [loading, setLoading] = useState(() => market === null);
   const [nowSecs, setNowSecs] = useState(Math.floor(Date.now() / 1000));
   const [mainTab, setMainTab] = useState<MainTab>("trade");
   const [tradeSubTab, setTradeSubTab] = useState<TradeSubTab>("swap");
@@ -193,6 +197,7 @@ const MarketView = () => {
   const refreshMarket = useCallback(
     async (opts?: { silent?: boolean }): Promise<PredictionMarketRecord | null> => {
       if (isNaN(marketIdNum)) return null;
+      if (market && !opts?.silent) return market;
       if (!opts?.silent) setLoading(true);
       try {
         const all = await fetchAllPredictionMarkets();
@@ -203,7 +208,7 @@ const MarketView = () => {
         if (!opts?.silent) setLoading(false);
       }
     },
-    [marketIdNum]
+    [marketIdNum, market]
   );
 
   useEffect(() => {

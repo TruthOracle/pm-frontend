@@ -54,7 +54,7 @@
   }
 
   html {
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
     scrollbar-gutter: stable;
   }
 
@@ -221,7 +221,8 @@
 
 /* Product shell: compact like a trading terminal, warm enough for editorial content. */
 @layer components {
-  .site-header { @apply fixed inset-x-0 top-0 z-50 border-b border-slate-200/80; background-color: hsl(var(--page-surface)); background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px); background-size: var(--grid-size) var(--grid-size); backdrop-filter: blur(16px); }
+  .route-progress { @apply fixed left-0 top-0 z-[100] h-0.5 w-screen bg-primary shadow-[0_0_10px_rgba(19,139,97,.65)]; transform-origin: left center; transition: transform 180ms ease-out; }
+  .site-header { @apply fixed inset-x-0 top-0 z-50 border-b border-slate-200/80; background-color: transparent; background-image: none; backdrop-filter: blur(16px); }
   .brand-mark { @apply flex h-6 w-6 shrink-0 items-center justify-center rounded bg-slate-950; }
   .header-wallet button { @apply whitespace-nowrap rounded-md px-3 py-1.5 text-xs; }
   @media (max-width: 639px) {
@@ -230,10 +231,10 @@
   .product-nav-link { @apply rounded-full px-3 py-2 text-sm font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950; }
   .product-nav-link-active { @apply bg-slate-100 text-slate-950; }
   .search-trigger { @apply h-9 items-center gap-2 rounded-full bg-slate-100 px-3.5 text-sm text-slate-400 transition-colors hover:bg-slate-200; }
-  .search-trigger:focus-visible { outline: none; border-color: transparent; background: linear-gradient(#f1f5f9, #f1f5f9) padding-box, linear-gradient(100deg, #138b61, #6475e8, #13a875) border-box; box-shadow: 0 0 0 3px rgba(19, 139, 97, 0.12); }
+  .search-trigger:focus-visible { outline: none; border-color: transparent; background: linear-gradient(#f1f5f9, #f1f5f9) padding-box, linear-gradient(100deg, #138b61, #6475e8, #13a875) border-box; box-shadow: none; }
   .search-trigger kbd { @apply ml-5 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-400; }
   .search-inline { @apply h-9 w-72 items-center gap-2 rounded-full bg-slate-100 px-3.5 text-sm text-slate-700 ring-1 ring-slate-200; }
-  .search-inline:focus-within { ring: none; border: 1px solid transparent; background: linear-gradient(#fff, #fff) padding-box, linear-gradient(100deg, #138b61, #6475e8, #13a875) border-box; box-shadow: 0 0 0 3px rgba(19, 139, 97, 0.12); }
+  .search-inline:focus-within { ring: none; border: 1px solid transparent; background: linear-gradient(#fff, #fff) padding-box, linear-gradient(100deg, #138b61, #6475e8, #13a875) border-box; box-shadow: none; }
   .search-inline input { @apply min-w-0 flex-1 bg-transparent outline-none placeholder:text-slate-400; }
   .search-inline button { @apply inline-flex shrink-0 items-center justify-center; }
   .header-utility { @apply items-center gap-1.5 rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:border-primary/30 hover:text-primary; }

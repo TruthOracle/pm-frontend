@@ -45,7 +45,7 @@ export default function MarketTradePanel({ context }: { context: TradeContext })
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,.8fr)] lg:items-start">
       <MarketHistoryChart probability={probYes} />
           <div className="space-y-4">
-            <div className="flex overflow-hidden rounded-lg border border-border bg-white">
+            <div className="flex rounded-lg border border-border bg-white p-1">
               <button onClick={() => setMainTab("trade")} className={`${subTabBtn(true)} rounded-l-md`}>Trade</button>
               <button onClick={() => setMainTab("liquidity")} className={`${subTabBtn(false)} rounded-r-md`}>Liquidity</button>
             </div>

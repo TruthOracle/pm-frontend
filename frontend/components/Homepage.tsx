@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchAllPredictionMarkets, type PredictionMarketRecord } from "@/utils/activeContracts";
 import MarketCard from "./MarketCard";
-import { ArrowRight, Loader2, ShieldCheck, Sparkles, TrendingUp, Zap } from "lucide-react";
+import { ArrowRight, Loader2, Newspaper, ShieldCheck, Sparkles, TrendingUp, Zap } from "lucide-react";
+import { getPrefetchedMarkets } from "@/utils/marketPrefetch";
 
 const LATEST_NEWS = [
   "Bitcoin traders are pricing a volatile September",
@@ -31,16 +32,23 @@ const LATEST_NEWS = [
   "TruthOracle community forecasts are updating in real time",
 ];
 
+const DESK_NEWS = [
+  { tag: "Market brief", source: "TruthOracle Research", time: "6 min read", title: "The week ahead: five questions markets are watching" },
+  { tag: "Explainer", source: "Canton Network", time: "3 min read", title: "Why transparent settlement changes the way we forecast" },
+  { tag: "Learn", source: "Oracle desk", time: "4 min read", title: "Reading probability: a practical guide to Yes and No" },
+];
+
 function Homepage() {
-  const [markets, setMarkets] = useState<PredictionMarketRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [markets, setMarkets] = useState<PredictionMarketRecord[]>(() => getPrefetchedMarkets() ?? []);
+  const [loading, setLoading] = useState(() => markets.length === 0);
   const [featuredIndex, setFeaturedIndex] = useState(0);
   const [newsIndex, setNewsIndex] = useState(0);
   useEffect(() => {
+    if (markets.length > 0) return;
     fetchAllPredictionMarkets()
       .then(setMarkets)
       .finally(() => setLoading(false));
-  }, []);
+  }, [markets.length]);
   useEffect(() => {
     if (markets.length < 2) return;
     const timer = window.setInterval(
@@ -247,6 +255,31 @@ function Homepage() {
         ) : (
           <div className="empty-state">No markets yet. Check back soon.</div>
         )}
+      </section>
+      <section className="page-container mt-16">
+        <div className="section-heading-row">
+          <div>
+            <p className="eyebrow">
+              <Newspaper className="h-3.5 w-3.5" /> From the desk
+            </p>
+            <h2 className="section-title">News &amp; signals</h2>
+          </div>
+          <Link to="/news" className="quiet-link">
+            See all stories <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+        <div className="news-grid mt-5">
+          {DESK_NEWS.map((item) => (
+            <article key={item.title} className="news-card">
+              <div className="news-art"><span>{item.tag}</span><Newspaper className="h-8 w-8" /></div>
+              <div className="p-5">
+                <div className="flex items-center gap-2 text-xs text-slate-400"><span>{item.source}</span><span>·</span><span>{item.time}</span></div>
+                <h3 className="mt-3 text-lg font-bold leading-6 tracking-[-0.03em] text-slate-950">{item.title}</h3>
+                <Link to="/news" className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary">Read more <ArrowRight className="h-3.5 w-3.5" /></Link>
+              </div>
+            </article>
+          ))}
+        </div>
       </section>
       <section className="page-container mt-16">
         <div className="trust-strip">
