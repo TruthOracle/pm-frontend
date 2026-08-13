@@ -1,14 +1,8 @@
 import { useCantonWallet } from "@/wallets";
-import { Copy, LogOut } from "lucide-react";
+import { Copy, LogOut, X } from "lucide-react";
 import { useCallback, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -113,7 +107,7 @@ export function WalletSelector() {
   }, [connect, closeDialog, toast]);
 
   return connected ? (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <Button className="rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
           {account ? truncatePartyId(account.address) : "Unknown"}
@@ -178,30 +172,25 @@ export function WalletSelector() {
       </DropdownMenuContent>
     </DropdownMenu>
   ) : (
-    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-      <DialogTrigger asChild>
-        <Button className="rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
-          Connect Wallet
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-h-screen overflow-auto">
-        <DialogHeader>
-          <DialogTitle style={{ zIndex: 1 }} className="flex flex-col text-center leading-snug">
-            Connect to Cantor8 Network
-          </DialogTitle>
-        </DialogHeader>
-        <div className="flex flex-col gap-4 pt-4">
-          <p className="text-sm text-muted-foreground text-center">
-            Connect your Cantor8 wallet (e.g. Splice Wallet) to use TruthOracle.
-          </p>
-          <Button size="lg" onClick={handleConnect} className="w-full">
-            Connect Cantor8 Wallet
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <>
+      <Button onClick={() => setIsDialogOpen(true)} className="rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+        Connect Wallet
+      </Button>
+      {isDialogOpen && createPortal(
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/35 p-4 backdrop-blur-sm" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsDialogOpen(false); }}>
+          <div className="relative grid w-full max-w-lg gap-4 rounded-lg border bg-background p-6 shadow-lg" role="dialog" aria-modal="true" aria-labelledby="connect-wallet-title">
+            <button type="button" onClick={() => setIsDialogOpen(false)} className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100" aria-label="Close">
+              <X className="h-4 w-4" />
+            </button>
+            <h2 id="connect-wallet-title" className="text-center text-lg font-semibold leading-snug">Connect to Cantor8 Network</h2>
+            <div className="flex flex-col gap-4 pt-4">
+              <p className="text-center text-sm text-muted-foreground">Connect your Cantor8 wallet (e.g. Splice Wallet) to use TruthOracle.</p>
+              <Button size="lg" onClick={handleConnect} className="w-full">Connect Cantor8 Wallet</Button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
-
-
-

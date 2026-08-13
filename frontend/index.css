@@ -55,6 +55,7 @@
 
   html {
     scroll-behavior: smooth;
+    scrollbar-gutter: stable;
   }
 
   body {
@@ -291,7 +292,7 @@
   .empty-state { @apply flex min-h-48 items-center justify-center rounded-2xl border border-dashed border-slate-200 text-sm text-slate-500; }
   .market-history-card { @apply rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_14px_50px_rgba(15,23,42,.06)] sm:p-6; }
   .site-footer { @apply mt-auto bg-slate-950; }
-  .site-header, .site-footer { background-color: transparent; background-image: none; }
+  .site-footer { background-color: transparent; background-image: none; }
   .site-footer { @apply mt-auto border-t border-slate-200/80 text-slate-950; }
   .footer-label { @apply mb-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500; }
   .footer-link { @apply block py-1.5 text-sm text-slate-700 transition-colors hover:text-primary; }
@@ -300,6 +301,10 @@
   .footer-socials { @apply flex items-center gap-4 text-slate-700; }
   .footer-socials a { @apply transition-colors hover:text-primary; }
   .footer-socials span { @apply inline-flex items-center gap-1.5 text-sm; }
-  .page-transition { animation: page-enter .35s ease-out both; }
-  @keyframes page-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .page-transition { min-height: calc(100vh - 6.75rem); }
+  .rewards-page { min-height: calc(100vh - 6.75rem); }
+  .rewards-loading-card { @apply rounded-2xl border border-slate-200 bg-white p-8 shadow-[0_18px_60px_rgba(15,23,42,.06)]; min-height: 420px; display: grid; place-content: center; }
+  @media (prefers-reduced-motion: reduce) {
+    .page-transition { transition: none !important; }
+  }
 }
