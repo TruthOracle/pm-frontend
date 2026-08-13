@@ -20,7 +20,7 @@ export default function MarketHistoryChart({ probability }: { probability: numbe
           <text key={label} x="895" y={6 + index * 44} className="market-chart-axis-label">{label}%</text>
         ))}
         <text x="0" y="220" className="market-chart-axis-label">{marketChartMonth}</text>
-        <text x="836" y="220" className="market-chart-axis-label">Now</text>
+        <text x="846" y="220" className="market-chart-axis-label">Now</text>
       </svg>
       <div className="mt-5 flex items-center gap-1 rounded-xl bg-slate-50 p-1 text-xs font-bold text-slate-400"><button className="flex-1 rounded-lg bg-white py-2 text-slate-900 shadow-sm">1D</button><button className="flex-1 py-2">1W</button><button className="flex-1 py-2">1M</button><button className="flex-1 py-2">ALL</button></div>
     </section>

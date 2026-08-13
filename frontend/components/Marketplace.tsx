@@ -7,6 +7,7 @@ import {
 import MarketCard from "./MarketCard";
 import { Search, Loader2, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getPrefetchedMarkets } from "@/utils/marketPrefetch";
 
 type Tab = "active" | "resolved";
 
@@ -15,20 +16,21 @@ const isSettled = (m: PredictionMarketRecord) =>
 
 const Marketplace = () => {
   const { account } = useCantonWallet();
-  const [markets, setMarkets] = useState<PredictionMarketRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [markets, setMarkets] = useState<PredictionMarketRecord[]>(() => getPrefetchedMarkets() ?? []);
+  const [loading, setLoading] = useState(() => markets.length === 0);
   const [tab, setTab] = useState<Tab>("active");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string>("All");
 
   const fetchMarkets = useCallback(async () => {
+    if (markets.length > 0) return;
     setLoading(true);
     try {
       setMarkets(await fetchAllPredictionMarkets());
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [markets.length]);
 
   useEffect(() => {
     fetchMarkets();

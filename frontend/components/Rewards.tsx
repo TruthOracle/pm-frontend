@@ -114,17 +114,21 @@ const Rewards = () => {
 
   if (initialLoading) {
     return (
-      <Box maxW="600px" mx="auto" w="100%" p={6} textAlign="center">
-        <Spinner size="xl" color="green.500" />
-        <Text color="#334155" fontSize="xl" mt={4}>
-          Loading rewards data...
-        </Text>
-      </Box>
+      <div className="page-container rewards-page py-10 sm:py-14">
+        <Box maxW="760px" mx="auto" w="100%">
+          <Box className="rewards-loading-card" textAlign="center">
+            <Spinner size="xl" color="green.500" />
+            <Text color="#334155" fontSize="xl" mt={4}>
+              Loading rewards data...
+            </Text>
+          </Box>
+        </Box>
+      </div>
     );
   }
 
   return (
-    <div className="page-container py-10 sm:py-14">
+    <div className="page-container rewards-page py-10 sm:py-14">
       <Box maxW="760px" mx="auto" w="100%">
         <VStack spacing={5} align="stretch">
           <HStack justify="space-between" align="center">
