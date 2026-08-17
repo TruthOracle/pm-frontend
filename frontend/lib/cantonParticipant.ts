@@ -1,107 +1,31 @@
 /**
  * Canton Participant client for the JSON Ledger API.
  * Uses Bearer JWT for all requests per OpenAPI (httpAuth).
- * Tokens come from Keycloak client_credentials (VITE_KEYCLOAK_*), cached until expiry (~900s),
- * then refreshed automatically.
+ *
+ * Auth is injected SERVER-SIDE by the ledger proxy (api/proxy/ledger.mjs, and the
+ * matching dev middleware in vite.config.ts): the browser calls the proxy with no
+ * credentials, and the proxy mints + attaches the Keycloak token. The client id/secret
+ * are server-only env (KEYCLOAK_CLIENT_ID/SECRET) and never enter the browser bundle.
  */
 
 import type { PrepareExecuteParams } from "./cantonDapp";
 import {
   DEBUG_ACTIVE_CONTRACTS,
   IS_DEV,
-  KEYCLOAK_CLIENT_ID,
-  KEYCLOAK_CLIENT_SECRET,
-  KEYCLOAK_PROXY_URL,
-  KEYCLOAK_REALM,
-  KEYCLOAK_URL,
   PARTICIPANT_PROXY_URL,
 } from "@/config";
 import { normalizeCommand } from "@/utils/normalizeCommand";
 
-/** In-memory cache for OAuth2 client_credentials access token (Keycloak). */
-let keycloakTokenCache: { accessToken: string; expiresAt: number } | null = null;
-
 /** Cache synchronizerId from GET /v2/state/connected-synchronizers (per baseUrl). */
 let synchronizerIdCache: { baseUrl: string; synchronizerId: string } | null = null;
 
-/** Refresh token 60s before expiry to avoid using an expired token. */
-const TOKEN_REFRESH_MARGIN_SEC = 60;
-
-/**
- * Fetch access token from Keycloak using client_credentials.
- * Caches the token and returns it until (expires_in - margin) has passed, then fetches a new one.
- * Token endpoint: POST .../realms/{realm}/protocol/openid-connect/token
- */
-/**
- * Use same-origin proxy by default to avoid CORS.
- * VITE_KEYCLOAK_PROXY_URL is the browser-visible proxy path.
- * VITE_KEYCLOAK_URL is the upstream target used by local Vite and Vercel.
- */
-function getKeycloakBaseUrl(): string {
-  if (!KEYCLOAK_URL) return "";
-  return KEYCLOAK_PROXY_URL;
-}
-
-async function fetchKeycloakAccessToken(): Promise<string> {
-  const baseUrl = getKeycloakBaseUrl() || KEYCLOAK_URL;
-  const realm = KEYCLOAK_REALM;
-  const clientId = KEYCLOAK_CLIENT_ID;
-  const clientSecret = KEYCLOAK_CLIENT_SECRET;
-
-  if (!baseUrl || !clientId || !clientSecret) {
-    throw new Error(
-      "Keycloak auth requires VITE_KEYCLOAK_URL, VITE_KEYCLOAK_CLIENT_ID, and VITE_KEYCLOAK_CLIENT_SECRET"
-    );
-  }
-
-  const nowSec = Math.floor(Date.now() / 1000);
-  if (
-    keycloakTokenCache &&
-    keycloakTokenCache.expiresAt > nowSec + TOKEN_REFRESH_MARGIN_SEC
-  ) {
-    return keycloakTokenCache.accessToken;
-  }
-
-  const tokenUrl = `${baseUrl}/realms/${realm}/protocol/openid-connect/token`;
-  const body = new URLSearchParams({
-    grant_type: "client_credentials",
-    client_id: clientId,
-    client_secret: clientSecret,
-  });
-
-  const response = await fetch(tokenUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Keycloak token request failed (${response.status}): ${text}`);
-  }
-
-  const data = (await response.json()) as {
-    access_token?: string;
-    expires_in?: number;
-  };
-  const accessToken = data.access_token;
-  const expiresIn = typeof data.expires_in === "number" ? data.expires_in : 900;
-
-  if (!accessToken) {
-    throw new Error("Keycloak response missing access_token");
-  }
-
-  keycloakTokenCache = {
-    accessToken,
-    expiresAt: nowSec + expiresIn,
-  };
-  return accessToken;
-}
-
 export interface CantonParticipantConfig {
-  /** Base URL of the participant Ledger API (e.g. "http://localhost:5003" or "https://participant.example.com") */
+  /** Base URL of the participant Ledger API — always the same-origin proxy path. */
   baseUrl: string;
-  /** Bearer token (Keycloak client_credentials). Required for authenticated Ledger API. */
+  /**
+   * Optional Bearer token. Normally null: the ledger proxy injects the token
+   * server-side. Kept for callers that pass an end-user token explicitly.
+   */
   getToken: () => Promise<string | null>;
 }
 
@@ -139,25 +63,18 @@ export class CantonParticipantClient {
     this.config = config;
   }
 
-  /** Resolve Bearer token from Keycloak (getToken). */
-  private async resolveAuthToken(): Promise<string> {
-    const token = await this.config.getToken();
-    if (typeof token === "string" && token.trim()) return token.trim();
-    throw new Error(
-      "Ledger API requires a Bearer token (Keycloak token fetch failed or empty). Check VITE_KEYCLOAK_URL, VITE_KEYCLOAK_CLIENT_ID, and VITE_KEYCLOAK_CLIENT_SECRET."
-    );
-  }
-
   /**
-   * Build request headers with Bearer token for Ledger API.
-   * Token from Keycloak client_credentials on every Ledger request (ledger-end, active-contracts, prepare, execute).
+   * Build request headers for the Ledger API. Auth is added by the ledger proxy
+   * server-side, so a token here is optional; if `getToken` returns one (e.g. an
+   * end-user token), it's attached, otherwise the proxy injects the client token.
    */
   private async ledgerHeaders(): Promise<Record<string, string>> {
-    const token = await this.resolveAuthToken();
-    return {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    };
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const token = await this.config.getToken();
+    if (typeof token === "string" && token.trim()) {
+      headers.Authorization = `Bearer ${token.trim()}`;
+    }
+    return headers;
   }
 
   /**
@@ -442,20 +359,14 @@ function getLedgerBaseUrl(): string {
 }
 
 /**
- * Get participant config from environment or defaults.
- * Auth: Keycloak client_credentials only (cached ~900s). Required for Ledger API calls.
+ * Get participant config. Requests go to the same-origin ledger proxy, which mints
+ * and attaches the Keycloak Bearer token server-side — so no token is fetched here
+ * (the browser never holds Keycloak credentials).
  */
 export function getParticipantConfig(): CantonParticipantConfig {
   return {
     baseUrl: getLedgerBaseUrl(),
-    getToken: async () => {
-      try {
-        return await fetchKeycloakAccessToken();
-      } catch (e) {
-        console.error("Keycloak token fetch failed:", e);
-        return null;
-      }
-    },
+    getToken: async () => null,
   };
 }
 

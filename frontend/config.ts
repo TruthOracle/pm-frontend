@@ -42,13 +42,10 @@ export const PARTICIPANT_PROXY_URL = trimTrailingSlash(
 );
 export const USE_PARTICIPANT_API = readBoolean("VITE_USE_PARTICIPANT_API");
 
-export const KEYCLOAK_URL = trimTrailingSlash(readString("VITE_KEYCLOAK_URL"));
-export const KEYCLOAK_PROXY_URL = trimTrailingSlash(
-  readString("VITE_KEYCLOAK_PROXY_URL", "/__proxy/keycloak"),
-);
-export const KEYCLOAK_REALM = readString("VITE_KEYCLOAK_REALM", "master");
-export const KEYCLOAK_CLIENT_ID = readString("VITE_KEYCLOAK_CLIENT_ID");
-export const KEYCLOAK_CLIENT_SECRET = readString("VITE_KEYCLOAK_CLIENT_SECRET");
+// Keycloak client credentials are intentionally NOT read here — token minting is
+// server-side only (api/proxy/*.mjs), so the client id/secret live in server-only
+// env (KEYCLOAK_CLIENT_ID / KEYCLOAK_CLIENT_SECRET, no VITE_ prefix) and never reach
+// the browser bundle. See wallet-deploy/README.md → Authentication.
 
 export const ENTERPRISE_WALLET_PARTY_ID = readString("VITE_ENTERPRISE_WALLET_PARTY_ID");
 export const ENTERPRISE_WALLET_APP_NAME = readString(

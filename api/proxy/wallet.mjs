@@ -1,4 +1,12 @@
+import { keycloakBearer } from "./_keycloakToken.mjs";
+
 const TARGET_ENV = ["ENTERPRISE_WALLET_PROXY_TARGET_URL", "VITE_ENTERPRISE_WALLET_URL"];
+
+// The Enterprise Wallet runs with AUTH_TYPE=keycloak — every /api/v1/* call needs a
+// Bearer JWT. This proxy mints one server-side (client id/secret never reach the
+// browser) and injects it. If the caller already sent an Authorization header, it is
+// passed through untouched. Prefers dedicated server creds, then the shared ones.
+const AUTH_PREFIXES = ["WALLET_KEYCLOAK", "KEYCLOAK", "VITE_KEYCLOAK"];
 
 function absoluteTarget(value) {
   const trimmed = typeof value === "string" ? value.trim().replace(/\/$/, "") : "";
@@ -13,11 +21,15 @@ function targetFor() {
   return "";
 }
 
-function headersForUpstream(req) {
+async function headersForUpstream(req) {
   const headers = { ...req.headers };
   delete headers.host;
   delete headers.connection;
   delete headers["content-length"];
+  if (!headers.authorization) {
+    const token = await keycloakBearer(AUTH_PREFIXES);
+    if (token) headers.authorization = `Bearer ${token}`;
+  }
   return headers;
 }
 
@@ -62,7 +74,7 @@ export default async function handler(req, res) {
   const body = ["GET", "HEAD"].includes(req.method || "") ? undefined : await readBody(req);
   const upstream = await fetch(`${target}/${proxyPath(req)}${proxyQuery(req)}`, {
     method: req.method,
-    headers: headersForUpstream(req),
+    headers: await headersForUpstream(req),
     body,
     redirect: "manual",
   });

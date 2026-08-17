@@ -207,10 +207,10 @@ async function main() {
   }
 
   const bearerToken = await getKeycloakAccessToken({
-    keycloakUrl: mustEnv(viteEnv("VITE_KEYCLOAK_URL"), "VITE_KEYCLOAK_URL"),
-    realm: viteEnv("VITE_KEYCLOAK_REALM") || "master",
-    clientId: mustEnv(viteEnv("VITE_KEYCLOAK_CLIENT_ID"), "VITE_KEYCLOAK_CLIENT_ID"),
-    clientSecret: mustEnv(viteEnv("VITE_KEYCLOAK_CLIENT_SECRET"), "VITE_KEYCLOAK_CLIENT_SECRET"),
+    keycloakUrl: mustEnv(viteEnv("KEYCLOAK_URL") || viteEnv("VITE_KEYCLOAK_URL"), "KEYCLOAK_URL"),
+    realm: viteEnv("KEYCLOAK_REALM") || viteEnv("VITE_KEYCLOAK_REALM") || "master",
+    clientId: mustEnv(viteEnv("KEYCLOAK_CLIENT_ID") || viteEnv("VITE_KEYCLOAK_CLIENT_ID"), "KEYCLOAK_CLIENT_ID"),
+    clientSecret: mustEnv(viteEnv("KEYCLOAK_CLIENT_SECRET") || viteEnv("VITE_KEYCLOAK_CLIENT_SECRET"), "KEYCLOAK_CLIENT_SECRET"),
   });
   const headers = { Authorization: `Bearer ${bearerToken}`, "Content-Type": "application/json" };
 
