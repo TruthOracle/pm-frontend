@@ -13,6 +13,11 @@ import {
   ENTERPRISE_WALLET_PROXY_URL,
 } from "@/config";
 
+// The Enterprise Wallet runs with AUTH_TYPE=keycloak, but the Bearer token is minted
+// and attached SERVER-SIDE by the wallet proxy (api/proxy/wallet.mjs + the dev
+// middleware). Browser calls go through ENTERPRISE_WALLET_PROXY_URL with no
+// credentials, so no Keycloak secret is needed (or present) in the frontend.
+
 export function enterpriseWalletPartyId(): string {
   return ENTERPRISE_WALLET_PARTY_ID;
 }

@@ -4,10 +4,10 @@ Self-hosted Cantor8 Enterprise Wallet that signs admin-side TruthOracle transact
 (creating `MarketCounter`, future admin-only operations). End users keep using the
 popup `@cantor8/wallet-connect-sdk` — this deployment is for the **admin / house** party.
 
-- Image: `cantor8technologies/enterprise-wallet:v0.1.28`
+- Image: `cantor8technologies/enterprise-wallet:v0.1.30`
 - Backend: DevNet (`wallet-backend.dev.digik.cantor8.tech`)
 - Tenant (`CLIENT_ID`): `truthoracle`
-- Auth: `noop` (DevNet only — see "Production" below)
+- Auth: `keycloak` — every wallet API call needs a Bearer JWT (see "Authentication" below)
 
 ## Prerequisites
 
@@ -33,7 +33,58 @@ popup `@cantor8/wallet-connect-sdk` — this deployment is for the **admin / hou
    # then edit .env and set WALLET_MNEMONIC=...
    ```
 
-   The other defaults (`CLIENT_ID=truthoracle`, DevNet `BACKEND_URL`, `IDENTITY_SERVICE_URL`, `AUTH_TYPE=noop`, in-memory batching) are already correct for DevNet.
+   The other defaults (`CLIENT_ID=truthoracle`, DevNet `BACKEND_URL`, `IDENTITY_SERVICE_URL`, the Keycloak auth block, `SCANNER_API_BASE_URL`, in-memory batching) are already correct for DevNet.
+
+## Authentication (Keycloak)
+
+The wallet runs with `AUTH_TYPE=keycloak`: every `/api/v1/*` endpoint requires
+`Authorization: Bearer <JWT>` or it returns 401. The wallet validates the token's
+signature against the IdP's JWKS, its expiry, its algorithm (`AUTH_ALGOS`), and that
+`AUTH_AUDIENCE` is present in the token's `aud` claim. There is no issuer check.
+
+Env var names were confirmed from the actual v0.1.30 image (`application.conf` inside
+`cantor8.enterprise-wallet-v0.1.15.jar`; C8's PDF says "ask the C8 team"):
+
+| Env | Meaning | Our value |
+|---|---|---|
+| `AUTH_TYPE` | `auth0` \| `keycloak` \| `custom` \| `noop` | `keycloak` |
+| `IDP_BASE_URL` | Keycloak base URL | `https://auth.dev.digik.cantor8.tech` |
+| `AUTH_REALM` | Keycloak realm (JWKS at `{IDP_BASE_URL}/realms/{AUTH_REALM}/protocol/openid-connect/certs`) | `master` |
+| `AUTH_AUDIENCE` | must appear in the token's `aud` | `https://ledger_api.validator.dev.digik.cantor8.tech` |
+| `AUTH_ALGOS` | allowed signing algorithm (asymmetric only) | `RS256` |
+| `JWKS_URL` | only for `AUTH_TYPE=custom` | unset |
+
+### Where tokens come from (server-side only)
+
+Tokens are minted **server-side** — the Keycloak client id/secret never reach the
+browser bundle:
+
+- **UI:** the browser calls the same-origin proxies `/__proxy/wallet` and
+  `/__proxy/ledger` with no credentials. The proxies (`api/proxy/wallet.mjs`,
+  `api/proxy/ledger.mjs`, sharing `api/proxy/_keycloakToken.mjs`) mint a
+  client_credentials token and inject the `Authorization` header. Under `npm run dev`
+  the same handlers run as Vite middleware (see `vite.config.ts`), so dev behaves
+  identically. Creds come from server-only env: `KEYCLOAK_CLIENT_ID` /
+  `KEYCLOAK_CLIENT_SECRET` (the wallet proxy prefers `WALLET_KEYCLOAK_*` if present).
+- **Scripts** (`scripts/create-contract.ts`, `active-contracts.ts`, `ledger-query.ts`)
+  run in Node with `dotenv`, so they mint their own token from the same server-only
+  env — fine, since scripts are never shipped to a browser.
+
+For manual `curl`s, mint a token yourself (`KEYCLOAK_*` are in the project root `.env`):
+
+```bash
+TOKEN=$(curl -sS -X POST "https://auth.dev.digik.cantor8.tech/realms/master/protocol/openid-connect/token" \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data "grant_type=client_credentials&client_id=$KEYCLOAK_CLIENT_ID&client_secret=$KEYCLOAK_CLIENT_SECRET" \
+  | jq -r .access_token)
+```
+
+Tokens expire after ~15 minutes; re-fetch as needed.
+
+> **Security note:** the client id/secret are intentionally NOT `VITE_`-prefixed.
+> Anything `VITE_*` is compiled into the public JS bundle — a token-minting secret
+> there is world-readable. Keep these server-only, and set them on Vercel WITHOUT the
+> `VITE_` prefix.
 
 ## Run
 
@@ -60,9 +111,11 @@ The wallet doesn't auto-create an account on first start — you create one via 
 
 2. **Find your `validatorId`.** The wallet logs the validator binding on startup; if not, ask the C8 team for the DevNet `validatorId` for the `truthoracle` tenant.
 
-3. **Create the admin account** (`POST /api/v1/accounts`). DevNet — no coupon needed:
+3. **Create the admin account** (`POST /api/v1/accounts`). DevNet — no coupon needed
+   (`$TOKEN` from the "Authentication" section above):
    ```bash
    curl -sS -X POST http://localhost:8080/api/v1/accounts \
+     -H "Authorization: Bearer $TOKEN" \
      -H "Content-Type: application/json" \
      -d '{
        "desiredAccountName": "truthoracle-admin",
@@ -74,7 +127,7 @@ The wallet doesn't auto-create an account on first start — you create one via 
 
 4. **List accounts to confirm**:
    ```bash
-   curl -sS http://localhost:8080/api/v1/accounts | jq
+   curl -sS -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/accounts | jq
    ```
 
 5. Copy the `partyId` and set it in the project root `.env`:
@@ -94,6 +147,7 @@ backend's synchronizer.
 
 ```bash
 curl -sS -X POST http://localhost:8080/api/v1/external/submit \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
     "partyId": "<admin party id>",
@@ -113,20 +167,47 @@ Verify the result by querying active-contracts on the participant directly
 (`npm run ledger:query`); the wallet's `GET /api/v1/command/{partyId}/{commandId}`
 status callback is not always wired through to the participant.
 
+## Railway (current production deployment)
+
+The wallet runs publicly at `https://enterprise-wallet-production.up.railway.app`
+(image v0.1.30). To enable Keycloak auth there, set these variables in the Railway
+service (Settings → Variables) and redeploy:
+
+```env
+AUTH_TYPE=keycloak
+IDP_BASE_URL=https://auth.dev.digik.cantor8.tech
+AUTH_REALM=master
+AUTH_AUDIENCE=https://ledger_api.validator.dev.digik.cantor8.tech
+AUTH_ALGOS=RS256
+```
+
+(`SCANNER_API_BASE_URL` is already set on Railway — leave it as is.) Verify after
+deploy: an unauthenticated call must 401, an authenticated one must succeed:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://enterprise-wallet-production.up.railway.app/api/v1/accounts             # expect 401
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN" \
+  https://enterprise-wallet-production.up.railway.app/api/v1/accounts                                                    # expect 200
+```
+
 ## Production / mainnet
 
-Switch `.env` to mainnet endpoints and turn on real auth:
+Switch `.env` to mainnet endpoints and keep Keycloak auth pointed at the mainnet IdP:
 ```env
 BACKEND_URL=https://wallet-backend.main.digik.cantor8.tech/api
 IDENTITY_SERVICE_URL=https://id.main.digik.cantor8.tech
-AUTH_TYPE=keycloak  # or auth0 — ask C8 for IdP envs (issuer, audience, etc.)
+AUTH_TYPE=keycloak
+IDP_BASE_URL=https://auth.main.zkpc.cantor8.tech   # mainnet Keycloak (see ZKPC_* in root .env)
+AUTH_REALM=master
+AUTH_AUDIENCE=<aud claim of a mainnet client_credentials token — decode one to confirm>
+AUTH_ALGOS=RS256
 ```
 
 Uncomment the `AWS_*` / `CLOUDWATCH_*` block in `.env` if C8 provided log-shipping
 credentials; the compose file forwards them via the `environment:` section.
 
-Always run the wallet on a private host — `AUTH_TYPE=noop` exposes every API
-without auth.
+Never run with `AUTH_TYPE=noop` on a public host — it exposes every API (including
+signing/submit for the admin party) without auth.
 
 ## Files
 

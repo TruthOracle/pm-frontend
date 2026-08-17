@@ -1,4 +1,11 @@
+import { keycloakBearer } from "./_keycloakToken.mjs";
+
 const TARGET_ENV = ["CANTON_LEDGER_PROXY_TARGET_URL", "VITE_CANTON_PARTICIPANT_URL"];
+
+// The Ledger API requires a Bearer JWT (Keycloak client_credentials). This proxy
+// mints one server-side and injects it, so the client id/secret never reach the
+// browser bundle. A caller-supplied Authorization header is passed through untouched.
+const AUTH_PREFIXES = ["LEDGER_KEYCLOAK", "KEYCLOAK", "VITE_KEYCLOAK"];
 
 function absoluteTarget(value) {
   const trimmed = typeof value === "string" ? value.trim().replace(/\/$/, "") : "";
@@ -13,11 +20,15 @@ function targetFor() {
   return "";
 }
 
-function headersForUpstream(req) {
+async function headersForUpstream(req) {
   const headers = { ...req.headers };
   delete headers.host;
   delete headers.connection;
   delete headers["content-length"];
+  if (!headers.authorization) {
+    const token = await keycloakBearer(AUTH_PREFIXES);
+    if (token) headers.authorization = `Bearer ${token}`;
+  }
   return headers;
 }
 
@@ -62,7 +73,7 @@ export default async function handler(req, res) {
   const body = ["GET", "HEAD"].includes(req.method || "") ? undefined : await readBody(req);
   const upstream = await fetch(`${target}/${proxyPath(req)}${proxyQuery(req)}`, {
     method: req.method,
-    headers: headersForUpstream(req),
+    headers: await headersForUpstream(req),
     body,
     redirect: "manual",
   });
