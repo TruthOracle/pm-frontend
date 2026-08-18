@@ -269,6 +269,7 @@
   .chart-plot svg { @apply absolute inset-0 h-full w-full; }
   .chart-grid { stroke: #dbe4ea; stroke-dasharray: 2 5; }
   .chart-line { fill: none; stroke: #138b61; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.5; }
+  .chart-line-edge-safe { stroke-linecap: butt; }
   .chart-fill { fill: url(#chartFill); }
   .home-chart-axis-label { fill: #8a9bb0; font-size: 10px; font-weight: 600; }
   .market-chart-axis-label { fill: #718097; font-size: 13px; font-weight: 700; }

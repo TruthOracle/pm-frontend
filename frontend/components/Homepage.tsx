@@ -4,6 +4,7 @@ import { fetchAllPredictionMarkets, type PredictionMarketRecord } from "@/utils/
 import MarketCard from "./MarketCard";
 import { ArrowRight, Loader2, Newspaper, ShieldCheck, Sparkles, TrendingUp, Zap } from "lucide-react";
 import { getPrefetchedMarkets } from "@/utils/marketPrefetch";
+import { formatChartDate, probabilityHistoryPath, type ProbabilityPoint } from "@/lib/probabilityChart";
 
 const LATEST_NEWS = [
   "Bitcoin traders are pricing a volatile September",
@@ -43,12 +44,25 @@ function Homepage() {
   const [loading, setLoading] = useState(() => markets.length === 0);
   const [featuredIndex, setFeaturedIndex] = useState(0);
   const [newsIndex, setNewsIndex] = useState(0);
+  const [priceHistory, setPriceHistory] = useState<Map<number, ProbabilityPoint[]>>(new Map());
   useEffect(() => {
-    if (markets.length > 0) return;
-    fetchAllPredictionMarkets()
-      .then(setMarkets)
-      .finally(() => setLoading(false));
-  }, [markets.length]);
+    let active = true;
+    const refresh = () => {
+      fetchAllPredictionMarkets()
+        .then((nextMarkets) => {
+          if (active) setMarkets(nextMarkets);
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 15_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
   useEffect(() => {
     if (markets.length < 2) return;
     const timer = window.setInterval(
@@ -64,7 +78,22 @@ function Homepage() {
   const featured = markets.slice(0, 4);
   const lead = featured[featured.length ? featuredIndex % featured.length : 0];
   const yesPct = lead ? Math.round(lead.currentPrice * 100) : 0;
-  const chartMonth = new Date().toLocaleString(undefined, { month: "short" });
+  const nowSecs = Math.floor(Date.now() / 1000);
+  const leadHistory = lead ? priceHistory.get(lead.marketId) ?? [{ timestamp: lead.createdAt, probability: 0.5 }] : [];
+  const chartCurrentY = lead ? 4 + (1 - lead.currentPrice) * 106 : 57;
+  const chartTrendPath = probabilityHistoryPath(leadHistory, lead?.createdAt ?? nowSecs, nowSecs, 410, 110, 4);
+
+  useEffect(() => {
+    if (!lead) return;
+    setPriceHistory((previous) => {
+      const existing = previous.get(lead.marketId) ?? [{ timestamp: lead.createdAt, probability: 0.5 }];
+      const last = existing.at(-1);
+      if (last && Math.abs(last.probability - lead.currentPrice) < 0.0001) return previous;
+      const next = new Map(previous);
+      next.set(lead.marketId, [...existing, { timestamp: nowSecs, probability: lead.currentPrice }]);
+      return next;
+    });
+  }, [lead, nowSecs]);
 
   return (
     <div className="pb-20">
@@ -136,22 +165,16 @@ function Homepage() {
                           </linearGradient>
                         </defs>
                         <path d="M0 110H430 M0 83.5H430 M0 57H430 M0 30.5H430 M0 4H430" className="chart-grid" />
-                        <path
-                          className="chart-fill"
-                          d="M0 98 C25 90 30 80 48 86 S78 64 95 72 S120 54 140 64 S165 46 188 54 S220 72 238 47 S262 38 278 48 S302 30 320 40 S344 20 360 32 S390 24 410 10 V110 H0Z"
-                        />
-                        <path
-                          className="chart-line"
-                          d="M0 98 C25 90 30 80 48 86 S78 64 95 72 S120 54 140 64 S165 46 188 54 S220 72 238 47 S262 38 278 48 S302 30 320 40 S344 20 360 32 S390 24 410 10"
-                        />
-                        <circle cx="410" cy="10" r="4" fill="#138b61" />
+                        <path className="chart-fill" d={`${chartTrendPath} V110 H0Z`} />
+                        <path className="chart-line chart-line-edge-safe" d={chartTrendPath} />
+                        <circle cx="410" cy={chartCurrentY} r="4" fill="#138b61" />
                         {[100, 75, 50, 25, 0].map((label, index) => (
                           <text key={label} x="442" y={8 + index * 26.5} className="home-chart-axis-label">
                             {label}%
                           </text>
                         ))}
                         <text x="0" y="144" className="home-chart-axis-label">
-                          {chartMonth}
+                          {formatChartDate(lead?.createdAt ?? 0, true)}
                         </text>
                         <text x="405" y="144" className="home-chart-axis-label">
                           Now
