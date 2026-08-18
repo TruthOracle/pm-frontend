@@ -4,8 +4,11 @@ Self-hosted Cantor8 Enterprise Wallet that signs admin-side TruthOracle transact
 (creating `MarketCounter`, future admin-only operations). End users keep using the
 popup `@cantor8/wallet-connect-sdk` — this deployment is for the **admin / house** party.
 
-- Image: `cantor8technologies/enterprise-wallet:v0.1.30`
-- Backend: DevNet (`wallet-backend.dev.digik.cantor8.tech`)
+- Image: `cantor8technologies/enterprise-wallet:v0.1.34` (amd64 only — compose pins `platform: linux/amd64`)
+- Network: DevNet — `WALLET_NETWORK=devnet` (`devnet` | `mainnet`) is all the wallet
+  needs to resolve the validator and scanner URLs (see "Network resolution" below)
+- Identity service (`IDENTITY_SERVICE_URL`): `https://id.dev.digik.cantor8.tech` —
+  also serves account recovery (`/accounts/recovery_v3`)
 - Tenant (`CLIENT_ID`): `truthoracle`
 - Auth: `keycloak` — every wallet API call needs a Bearer JWT (see "Authentication" below)
 
@@ -33,7 +36,7 @@ popup `@cantor8/wallet-connect-sdk` — this deployment is for the **admin / hou
    # then edit .env and set WALLET_MNEMONIC=...
    ```
 
-   The other defaults (`CLIENT_ID=truthoracle`, DevNet `BACKEND_URL`, `IDENTITY_SERVICE_URL`, the Keycloak auth block, `SCANNER_API_BASE_URL`, in-memory batching) are already correct for DevNet.
+   The other defaults (`CLIENT_ID=truthoracle`, `WALLET_NETWORK=devnet`, DevNet `IDENTITY_SERVICE_URL`, the Keycloak auth block, in-memory batching) are already correct for DevNet.
 
 ## Authentication (Keycloak)
 
@@ -42,8 +45,8 @@ The wallet runs with `AUTH_TYPE=keycloak`: every `/api/v1/*` endpoint requires
 signature against the IdP's JWKS, its expiry, its algorithm (`AUTH_ALGOS`), and that
 `AUTH_AUDIENCE` is present in the token's `aud` claim. There is no issuer check.
 
-Env var names were confirmed from the actual v0.1.30 image (`application.conf` inside
-`cantor8.enterprise-wallet-v0.1.15.jar`; C8's PDF says "ask the C8 team"):
+Env var names were confirmed from the image itself (`application.conf` inside the
+app jar; C8's PDF says "ask the C8 team"):
 
 | Env | Meaning | Our value |
 |---|---|---|
@@ -51,8 +54,16 @@ Env var names were confirmed from the actual v0.1.30 image (`application.conf` i
 | `IDP_BASE_URL` | Keycloak base URL | `https://auth.dev.digik.cantor8.tech` |
 | `AUTH_REALM` | Keycloak realm (JWKS at `{IDP_BASE_URL}/realms/{AUTH_REALM}/protocol/openid-connect/certs`) | `master` |
 | `AUTH_AUDIENCE` | must appear in the token's `aud` | `https://ledger_api.validator.dev.digik.cantor8.tech` |
-| `AUTH_ALGOS` | allowed signing algorithm (asymmetric only) | `RS256` |
+| `AUTH_ALGOS` | allowed signing algorithms (asymmetric only) | `RS256,Ed25519` |
 | `JWKS_URL` | only for `AUTH_TYPE=custom` | unset |
+
+### Network resolution
+
+`WALLET_NETWORK=devnet` resolves (via the bundled wallet-sdk jar) validator
+`https://wallet-backend.dev.digik.cantor8.tech/api` and scanner
+`https://scanner-ledger-read-api.dev.digik.cantor8.tech`. Optional sparse overrides
+exist as `SDK_VALIDATOR_{0,1}_NAME/_URL/_SCANNER_API_URL/_IDENTITY_SERVICE_ID` —
+we don't set them; the network defaults are correct.
 
 ### Where tokens come from (server-side only)
 
@@ -139,7 +150,7 @@ The wallet doesn't auto-create an account on first start — you create one via 
 
 ## Frontend integration
 
-v0.1.28 supports `POST /api/v1/external/submit` for arbitrary transactions, so
+The wallet exposes `POST /api/v1/external/submit` for arbitrary transactions, so
 `scripts/create-contract.ts` and `frontend/lib/enterpriseWalletSubmit.ts` use a
 **single-call** flow: hand the wallet `{ partyId, appName, commandId, commands,
 disclosedContracts }` and the wallet prepares + signs + executes against its
@@ -158,31 +169,29 @@ curl -sS -X POST http://localhost:8080/api/v1/external/submit \
   }'
 ```
 
-The endpoint replaces the previous hybrid flow (prepare on participant +
-`/transaction/sign_and_execute`) — neither step is needed anymore. Earlier
-versions (≤ v0.1.21) typed `commands[]` as JSON-strings; that was fixed in
-v0.1.28.
-
 Verify the result by querying active-contracts on the participant directly
 (`npm run ledger:query`); the wallet's `GET /api/v1/command/{partyId}/{commandId}`
 status callback is not always wired through to the participant.
 
 ## Railway (current production deployment)
 
-The wallet runs publicly at `https://enterprise-wallet-production.up.railway.app`
-(image v0.1.30). To enable Keycloak auth there, set these variables in the Railway
-service (Settings → Variables) and redeploy:
+The wallet runs publicly at `https://enterprise-wallet-production.up.railway.app`.
+Required service variables (Settings → Variables), plus `WALLET_MNEMONIC` and
+`CLIENT_ID`:
 
 ```env
+WALLET_NETWORK=devnet
+IDENTITY_SERVICE_URL=https://id.dev.digik.cantor8.tech
 AUTH_TYPE=keycloak
 IDP_BASE_URL=https://auth.dev.digik.cantor8.tech
 AUTH_REALM=master
 AUTH_AUDIENCE=https://ledger_api.validator.dev.digik.cantor8.tech
-AUTH_ALGOS=RS256
+AUTH_ALGOS=RS256,Ed25519
 ```
 
-(`SCANNER_API_BASE_URL` is already set on Railway — leave it as is.) Verify after
-deploy: an unauthenticated call must 401, an authenticated one must succeed:
+The image on Docker Hub is private, so Railway needs registry credentials for the
+`gittysachin` account (Pro plan) to pull it. Verify after deploy: an
+unauthenticated call must 401, an authenticated one must succeed:
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' https://enterprise-wallet-production.up.railway.app/api/v1/accounts             # expect 401
@@ -192,15 +201,15 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN" \
 
 ## Production / mainnet
 
-Switch `.env` to mainnet endpoints and keep Keycloak auth pointed at the mainnet IdP:
+Switch `.env` to mainnet and rotate to a fresh mnemonic:
 ```env
-BACKEND_URL=https://wallet-backend.main.digik.cantor8.tech/api
-IDENTITY_SERVICE_URL=https://id.main.digik.cantor8.tech
+WALLET_NETWORK=mainnet
+IDENTITY_SERVICE_URL=https://id.cantor8.tech
 AUTH_TYPE=keycloak
-IDP_BASE_URL=https://auth.main.zkpc.cantor8.tech   # mainnet Keycloak (see ZKPC_* in root .env)
+IDP_BASE_URL=https://auth.main.digik.cantor8.tech
 AUTH_REALM=master
 AUTH_AUDIENCE=<aud claim of a mainnet client_credentials token — decode one to confirm>
-AUTH_ALGOS=RS256
+AUTH_ALGOS=RS256,Ed25519
 ```
 
 Uncomment the `AWS_*` / `CLOUDWATCH_*` block in `.env` if C8 provided log-shipping
@@ -214,4 +223,6 @@ signing/submit for the admin party) without auth.
 - `docker-compose-client.yml` — minimal compose, single service, port 8080.
 - `.env.example` — DevNet config; copy to `.env` and fill `WALLET_MNEMONIC`.
 - `generate-mnemonic.mjs` — produces a 24-word BIP39 phrase.
-- `.gitignore` — excludes `.env` so the mnemonic doesn't end up in git.
+- `images/` — saved image tarballs (`docker save`), e.g. `enterprise-wallet-v0.1.34.tar`.
+  Gitignored (large binaries); load offline with `docker load -i images/<file>.tar`.
+- `.gitignore` — excludes `.env` (mnemonic) and `images/`.
