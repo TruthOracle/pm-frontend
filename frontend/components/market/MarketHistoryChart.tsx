@@ -11,7 +11,7 @@ const RANGE_OPTIONS: Array<{ value: ChartRange; days?: number }> = [
 ];
 
 export default function MarketHistoryChart({ probability, createdAt }: { probability: number; createdAt: number }) {
-  const [range, setRange] = useState<ChartRange>("1D");
+  const [range, setRange] = useState<ChartRange>("1M");
   const [history, setHistory] = useState<ProbabilityPoint[]>(() => [{ timestamp: createdAt, probability: 0.5 }]);
   const currentY = probabilityY(probability, 178);
   const chartEndX = 860;
