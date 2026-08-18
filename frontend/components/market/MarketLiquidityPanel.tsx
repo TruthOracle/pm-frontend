@@ -26,7 +26,7 @@ export default function MarketLiquidityPanel({ context }: { context: LiquidityCo
   const { setMainTab, subTabBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity, liquidityValue, setLiquidityValue, liquidityQuote, busy, handleProvideLiquidity, lpPosition, market, phase, withdrawPct, setWithdrawPct, handleWithdrawLiquidity, account } = context;
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,.8fr)] lg:items-start">
-      <MarketHistoryChart probability={market.currentPrice} />
+      <MarketHistoryChart probability={market.currentPrice} createdAt={market.createdAt} />
           <div className="space-y-4 lg:col-start-2 lg:row-start-1">
             <div className="flex rounded-lg border border-border bg-white p-1">
               <button onClick={() => setMainTab("trade")} className={`${subTabBtn(false)} rounded-l-md`}>Trade</button>

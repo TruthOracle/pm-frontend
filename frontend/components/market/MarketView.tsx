@@ -197,7 +197,6 @@ const MarketView = () => {
   const refreshMarket = useCallback(
     async (opts?: { silent?: boolean }): Promise<PredictionMarketRecord | null> => {
       if (isNaN(marketIdNum)) return null;
-      if (market && !opts?.silent) return market;
       if (!opts?.silent) setLoading(true);
       try {
         const all = await fetchAllPredictionMarkets();
@@ -208,11 +207,15 @@ const MarketView = () => {
         if (!opts?.silent) setLoading(false);
       }
     },
-    [marketIdNum, market]
+    [marketIdNum]
   );
 
   useEffect(() => {
     refreshMarket();
+    const timer = window.setInterval(() => {
+      refreshMarket({ silent: true }).catch(() => {});
+    }, 15_000);
+    return () => window.clearInterval(timer);
   }, [refreshMarket]);
 
   useEffect(() => {

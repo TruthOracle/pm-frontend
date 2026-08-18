@@ -43,7 +43,7 @@ export default function MarketTradePanel({ context }: { context: TradeContext })
   const { setMainTab, subTabBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs, tradeSide, setTradeSide, selectedSide, setSelectedSide, probYes, probNo, collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage, buyQuote, sellQuote, swapQuote, account, busy, handleTradeClick, mintMode, setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge, userPosition, holdings } = context;
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,.8fr)] lg:items-start">
-      <MarketHistoryChart probability={probYes} />
+      <MarketHistoryChart probability={probYes} createdAt={market.createdAt} />
           <div className="space-y-4">
             <div className="flex rounded-lg border border-border bg-white p-1">
               <button onClick={() => setMainTab("trade")} className={`${subTabBtn(true)} rounded-l-md`}>Trade</button>
