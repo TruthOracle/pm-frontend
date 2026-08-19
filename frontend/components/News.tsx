@@ -1,24 +1,33 @@
-import { ArrowRight, Newspaper } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowRight, ExternalLink, Loader2, Newspaper, Radio, RefreshCw, X } from "lucide-react";
+import { FALLBACK_MARKET_NEWS, fetchMarketNews, type MarketNewsItem } from "@/lib/marketNews";
 
-const NEWS = [
-  { tag: "Market brief", source: "TruthOracle Research", time: "6 min read", title: "The week ahead: five questions markets are watching" },
-  { tag: "Explainer", source: "Canton Network", time: "3 min read", title: "Why transparent settlement changes the way we forecast" },
-  { tag: "Learn", source: "Oracle desk", time: "4 min read", title: "Reading probability: a practical guide to Yes and No" },
-  { tag: "Crypto", source: "TruthOracle Markets", time: "5 min read", title: "Bitcoin traders are pricing a volatile September" },
-  { tag: "Network", source: "Canton Network", time: "3 min read", title: "Canton settlement activity reaches a new weekly high" },
-  { tag: "Community", source: "TruthOracle Research", time: "4 min read", title: "Community conviction is moving into technology markets" },
-];
+function NewsDetail({ item, onClose }: { item: MarketNewsItem; onClose: () => void }) {
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="news-detail-title" onClick={onClose}>
+    <article className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+      <div className="flex items-start justify-between gap-4"><div><p className="eyebrow">{item.tag}</p><h2 id="news-detail-title" className="mt-2 text-2xl font-bold leading-tight text-slate-950">{item.title}</h2></div><button type="button" onClick={onClose} className="rounded-full p-2 text-slate-500 hover:bg-slate-100" aria-label="Close news details"><X className="h-5 w-5" /></button></div>
+      <div className="mt-5 flex items-center gap-2 text-sm text-slate-500"><span>{item.source}</span><span>·</span><span>{item.time}</span></div>
+      <p className="mt-6 text-base leading-7 text-slate-600">This is the latest live market coverage. Open the source below to read the complete story, analysis, and publisher context.</p>
+      {item.url ? <a href={item.url} target="_blank" rel="noreferrer" className="primary-button mt-6 inline-flex items-center gap-2">Read full article <ExternalLink className="h-4 w-4" /></a> : <p className="mt-6 text-sm text-slate-500">Live article link is not available for this fallback story.</p>}
+    </article>
+  </div>;
+}
 
 export default function News() {
+  const [news, setNews] = useState<MarketNewsItem[]>(FALLBACK_MARKET_NEWS);
+  const [loading, setLoading] = useState(true);
+  const [live, setLive] = useState(false);
+  const [selected, setSelected] = useState<MarketNewsItem | null>(null);
+  const loadNews = async () => {
+    setLoading(true);
+    try { const liveNews = await fetchMarketNews(); if (liveNews.length) { setNews(liveNews); setLive(true); } }
+    catch { setLive(false); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { void loadNews(); }, []);
   return <section className="page-container pb-20 pt-12 sm:pt-16">
-    <div className="section-heading-row">
-      <div><p className="eyebrow"><Newspaper className="h-3.5 w-3.5" /> From the desk</p><h1 className="section-title">News &amp; signals</h1></div>
-    </div>
-    <div className="news-grid mt-5">
-      {NEWS.map((item) => <article key={item.title} className="news-card">
-        <div className="news-art"><span>{item.tag}</span><Newspaper className="h-8 w-8" /></div>
-        <div className="p-5"><div className="flex items-center gap-2 text-xs text-slate-400"><span>{item.source}</span><span>·</span><span>{item.time}</span></div><h2 className="mt-3 text-lg font-bold leading-6 tracking-[-0.03em] text-slate-950">{item.title}</h2><button type="button" className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary">Read more <ArrowRight className="h-3.5 w-3.5" /></button></div>
-      </article>)}
-    </div>
+    <div className="section-heading-row"><div><p className="eyebrow"><Newspaper className="h-3.5 w-3.5" /> From the desk</p><h1 className="section-title">News &amp; signals</h1><div className="mt-2 flex items-center gap-2 text-xs"><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-semibold ${live ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{live && <Radio className="h-3 w-3" />}{live ? "LIVE FROM WEB" : "FALLBACK DATA"}</span><span className="text-slate-500">Hacker News market feed</span></div></div><button type="button" onClick={() => void loadNews()} disabled={loading} className="quiet-link inline-flex items-center gap-2 disabled:opacity-50">{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}{live ? "Refresh live news" : "Try live news"}</button></div>
+    <div className="news-grid mt-5">{news.map((item) => <article key={`${item.title}-${item.url}`} className="news-card"><div className="news-art"><span>{item.tag}</span><Newspaper className="h-8 w-8" /></div><div className="p-5"><div className="flex items-center gap-2 text-xs text-slate-400"><span>{item.source}</span><span>·</span><span>{item.time}</span></div><h2 className="mt-3 text-lg font-bold leading-6 tracking-[-0.03em] text-slate-950">{item.title}</h2><button type="button" onClick={() => setSelected(item)} className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary">Read more <ArrowRight className="h-3.5 w-3.5" /></button></div></article>)}</div>
+    {selected && <NewsDetail item={selected} onClose={() => setSelected(null)} />}
   </section>;
 }

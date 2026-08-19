@@ -5,6 +5,7 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 import ledgerHandler from "./api/proxy/ledger.mjs";
 import walletHandler from "./api/proxy/wallet.mjs";
+import newsHandler from "./api/news.mjs";
 import { proxyMiddleware } from "./api/proxy/_devProxy.mjs";
 
 export default defineConfig(({ mode }) => {
@@ -29,6 +30,7 @@ export default defineConfig(({ mode }) => {
     configureServer(server) {
       server.middlewares.use(proxyMiddleware("/__proxy/ledger", ledgerHandler));
       server.middlewares.use(proxyMiddleware("/__proxy/wallet", walletHandler));
+      server.middlewares.use(proxyMiddleware("/api/news", newsHandler));
     },
   };
 

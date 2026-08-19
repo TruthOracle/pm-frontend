@@ -2,48 +2,19 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchAllPredictionMarkets, type PredictionMarketRecord } from "@/utils/activeContracts";
 import MarketCard from "./MarketCard";
-import { ArrowRight, Loader2, Newspaper, ShieldCheck, Sparkles, TrendingUp, Zap } from "lucide-react";
+import { ArrowRight, Clock3, Loader2, Newspaper, Radio, ShieldCheck, Sparkles, TrendingUp, Zap } from "lucide-react";
 import { getPrefetchedMarkets } from "@/utils/marketPrefetch";
 import { formatChartDate, probabilityHistoryPath, type ProbabilityPoint } from "@/lib/probabilityChart";
-
-const LATEST_NEWS = [
-  "Bitcoin traders are pricing a volatile September",
-  "Canton settlement activity reaches a new weekly high",
-  "Community conviction is moving into technology markets",
-  "New Yes/No markets are now open for trading",
-  "Prediction markets see a sharp rise in global participation",
-  "Traders are watching the next major crypto catalyst",
-  "Sports markets are gaining momentum ahead of the weekend",
-  "Transparent settlement is drawing more first-time traders",
-  "The oracle desk flags stronger conviction in tech markets",
-  "Yes shares climb as the community updates its forecast",
-  "New political questions are entering the public market",
-  "Canton liquidity remains steady across active markets",
-  "Market volume is building around the latest macro signals",
-  "Traders are comparing crowd probability with expert forecasts",
-  "Community intelligence shifts toward near-term outcomes",
-  "A fresh wave of markets is moving into price discovery",
-  "Real-time odds react to the latest global headlines",
-  "The most active markets are showing tighter spreads today",
-  "Forecast confidence rises as more participants join the debate",
-  "New culture and science markets are now trending",
-  "On-chain activity remains fully auditable on Canton",
-  "Oracle signals point to a busy week for market makers",
-  "No shares gain attention as traders hedge near-term risk",
-  "TruthOracle community forecasts are updating in real time",
-];
-
-const DESK_NEWS = [
-  { tag: "Market brief", source: "TruthOracle Research", time: "6 min read", title: "The week ahead: five questions markets are watching" },
-  { tag: "Explainer", source: "Canton Network", time: "3 min read", title: "Why transparent settlement changes the way we forecast" },
-  { tag: "Learn", source: "Oracle desk", time: "4 min read", title: "Reading probability: a practical guide to Yes and No" },
-];
+import { FALLBACK_MARKET_NEWS, fetchMarketNews, type MarketNewsItem } from "@/lib/marketNews";
 
 function Homepage() {
   const [markets, setMarkets] = useState<PredictionMarketRecord[]>(() => getPrefetchedMarkets() ?? []);
   const [loading, setLoading] = useState(() => markets.length === 0);
   const [featuredIndex, setFeaturedIndex] = useState(0);
   const [newsIndex, setNewsIndex] = useState(0);
+  const [news, setNews] = useState<MarketNewsItem[]>(FALLBACK_MARKET_NEWS);
+  const [newsIsLive, setNewsIsLive] = useState(false);
+  const [newsUpdatedAt, setNewsUpdatedAt] = useState<Date | null>(null);
   const [priceHistory, setPriceHistory] = useState<Map<number, ProbabilityPoint[]>>(new Map());
   useEffect(() => {
     let active = true;
@@ -72,9 +43,17 @@ function Homepage() {
     return () => window.clearInterval(timer);
   }, [markets.length]);
   useEffect(() => {
-    const timer = window.setInterval(() => setNewsIndex((index) => (index + 1) % LATEST_NEWS.length), 4200);
-    return () => window.clearInterval(timer);
-  }, []);
+    let active = true;
+    void fetchMarketNews().then((liveNews) => {
+      if (active && liveNews.length) { setNews(liveNews); setNewsIsLive(true); setNewsUpdatedAt(new Date()); }
+    }).catch(() => { if (active) setNewsIsLive(false); });
+    const timer = window.setInterval(() => setNewsIndex((index) => (index + 1) % Math.max(news.length, 1)), 4200);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [news.length]);
+  const latestHeadlines = news.map((item) => item.title);
+  useEffect(() => {
+    if (newsIndex >= latestHeadlines.length) setNewsIndex(0);
+  }, [latestHeadlines.length, newsIndex]);
   const featured = markets.slice(0, 4);
   const lead = featured[featured.length ? featuredIndex % featured.length : 0];
   const yesPct = lead ? Math.round(lead.currentPrice * 100) : 0;
@@ -237,7 +216,7 @@ function Homepage() {
               </div>
               <div className="news-ticker-window">
                 <div className="news-ticker-track" style={{ transform: `translate3d(0, -${newsIndex * 40}px, 0)` }}>
-                  {LATEST_NEWS.map((headline) => (
+                  {latestHeadlines.map((headline) => (
                     <div key={headline} className="news-ticker-item">
                       <span className="news-item-dot" />
                       {headline}
@@ -286,19 +265,26 @@ function Homepage() {
               <Newspaper className="h-3.5 w-3.5" /> From the desk
             </p>
             <h2 className="section-title">News &amp; signals</h2>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-semibold ${newsIsLive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                {newsIsLive ? <Radio className="h-3 w-3" /> : <Clock3 className="h-3 w-3" />}
+                {newsIsLive ? "LIVE FROM WEB" : "FALLBACK DATA"}
+              </span>
+              {newsUpdatedAt && <span>Updated {newsUpdatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
+            </div>
           </div>
           <Link to="/news" className="quiet-link">
             See all stories <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>
         <div className="news-grid mt-5">
-          {DESK_NEWS.map((item) => (
+          {news.slice(0, 3).map((item) => (
             <article key={item.title} className="news-card">
               <div className="news-art"><span>{item.tag}</span><Newspaper className="h-8 w-8" /></div>
               <div className="p-5">
                 <div className="flex items-center gap-2 text-xs text-slate-400"><span>{item.source}</span><span>·</span><span>{item.time}</span></div>
                 <h3 className="mt-3 text-lg font-bold leading-6 tracking-[-0.03em] text-slate-950">{item.title}</h3>
-                <Link to="/news" className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary">Read more <ArrowRight className="h-3.5 w-3.5" /></Link>
+                <a href={item.url || "/news"} target={item.url ? "_blank" : undefined} rel={item.url ? "noreferrer" : undefined} className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary">Read more <ArrowRight className="h-3.5 w-3.5" /></a>
               </div>
             </article>
           ))}
