@@ -5,13 +5,14 @@ import MarketCard from "./MarketCard";
 import { ArrowRight, Clock3, Loader2, Newspaper, Radio, ShieldCheck, Sparkles, TrendingUp, Zap } from "lucide-react";
 import { getPrefetchedMarkets } from "@/utils/marketPrefetch";
 import { formatChartDate, probabilityHistoryPath, type ProbabilityPoint } from "@/lib/probabilityChart";
-import { FALLBACK_MARKET_NEWS, fetchMarketNews, type MarketNewsItem } from "@/lib/marketNews";
+import { FALLBACK_MARKET_NEWS, fetchMarketNews, getNewsThumbnail, type MarketNewsItem } from "@/lib/marketNews";
 
 function Homepage() {
   const [markets, setMarkets] = useState<PredictionMarketRecord[]>(() => getPrefetchedMarkets() ?? []);
   const [loading, setLoading] = useState(() => markets.length === 0);
   const [featuredIndex, setFeaturedIndex] = useState(0);
   const [newsIndex, setNewsIndex] = useState(0);
+  const [newsCardsIndex, setNewsCardsIndex] = useState(0);
   const [news, setNews] = useState<MarketNewsItem[]>(FALLBACK_MARKET_NEWS);
   const [newsIsLive, setNewsIsLive] = useState(false);
   const [newsUpdatedAt, setNewsUpdatedAt] = useState<Date | null>(null);
@@ -50,7 +51,13 @@ function Homepage() {
     const timer = window.setInterval(() => setNewsIndex((index) => (index + 1) % Math.max(news.length, 1)), 4200);
     return () => { active = false; window.clearInterval(timer); };
   }, [news.length]);
+  useEffect(() => {
+    if (news.length <= 3) return;
+    const timer = window.setInterval(() => setNewsCardsIndex((index) => (index + 1) % news.length), 6500);
+    return () => window.clearInterval(timer);
+  }, [news.length]);
   const latestHeadlines = news.map((item) => item.title);
+  const homeNews = Array.from({ length: Math.min(3, news.length) }, (_, index) => news[(newsCardsIndex + index) % news.length]);
   useEffect(() => {
     if (newsIndex >= latestHeadlines.length) setNewsIndex(0);
   }, [latestHeadlines.length, newsIndex]);
@@ -278,9 +285,9 @@ function Homepage() {
           </Link>
         </div>
         <div className="news-grid mt-5">
-          {news.slice(0, 3).map((item) => (
-            <article key={item.title} className="news-card">
-              <div className="news-art"><span>{item.tag}</span><Newspaper className="h-8 w-8" /></div>
+          {homeNews.map((item) => (
+            <article key={`${newsCardsIndex}-${item.title}`} className="news-card">
+              <div className="news-art relative overflow-hidden bg-slate-900"><img src={getNewsThumbnail(item)} alt="" className="absolute inset-0 h-full w-full object-cover" loading="lazy" onError={(event) => { event.currentTarget.src = getNewsThumbnail({ ...item, image: undefined }); }} /><div className="absolute inset-0 bg-slate-950/25" /><span className="relative z-10">{item.tag}</span><Newspaper className="relative z-10 h-8 w-8" /></div>
               <div className="p-5">
                 <div className="flex items-center gap-2 text-xs text-slate-400"><span>{item.source}</span><span>·</span><span>{item.time}</span></div>
                 <h3 className="mt-3 text-lg font-bold leading-6 tracking-[-0.03em] text-slate-950">{item.title}</h3>
