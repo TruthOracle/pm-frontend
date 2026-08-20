@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { Link } from "react-router-dom";
 import { fetchAllPredictionMarkets, type PredictionMarketRecord } from "@/utils/activeContracts";
 import MarketCard from "./MarketCard";
 import { ArrowRight, Loader2, Newspaper, ShieldCheck, Sparkles, TrendingUp, Zap } from "lucide-react";
 import { getPrefetchedMarkets } from "@/utils/marketPrefetch";
-import { formatChartDate, probabilityHistoryPath, type ProbabilityPoint } from "@/lib/probabilityChart";
+import { formatChartDate, pointOnProbabilityPath, probabilityHistoryPath, type ProbabilityPoint } from "@/lib/probabilityChart";
 
 const LATEST_NEWS = [
   "Bitcoin traders are pricing a volatile September",
@@ -82,6 +82,17 @@ function Homepage() {
   const leadHistory = lead ? priceHistory.get(lead.marketId) ?? [{ timestamp: lead.createdAt, probability: 0.5 }] : [];
   const chartCurrentY = lead ? 4 + (1 - lead.currentPrice) * 106 : 57;
   const chartTrendPath = probabilityHistoryPath(leadHistory, lead?.createdAt ?? nowSecs, nowSecs, 410, 110, 4);
+  const homeChartPathRef = useRef<SVGPathElement>(null);
+  const [hoveredHomePoint, setHoveredHomePoint] = useState<(ProbabilityPoint & { x: number; y: number }) | null>(null);
+  const [hoveredHomeX, setHoveredHomeX] = useState<number | null>(null);
+
+  const handleHomePointerMove = (event: PointerEvent<SVGSVGElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const chartX = ((event.clientX - bounds.left) / bounds.width) * 480;
+    const exactX = Math.max(0, Math.min(410, chartX));
+    setHoveredHomeX(exactX);
+    if (homeChartPathRef.current) setHoveredHomePoint(pointOnProbabilityPath(homeChartPathRef.current, exactX, 410, lead?.createdAt ?? nowSecs, nowSecs, 110, 4));
+  };
 
   useEffect(() => {
     if (!lead) return;
@@ -157,6 +168,8 @@ function Homepage() {
                         preserveAspectRatio="none"
                         role="img"
                         aria-label="Live probability trend"
+                        onPointerMove={handleHomePointerMove}
+                        onPointerLeave={() => { setHoveredHomePoint(null); setHoveredHomeX(null); }}
                       >
                         <defs>
                           <linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1">
@@ -166,8 +179,12 @@ function Homepage() {
                         </defs>
                         <path d="M0 110H430 M0 83.5H430 M0 57H430 M0 30.5H430 M0 4H430" className="chart-grid" />
                         <path className="chart-fill" d={`${chartTrendPath} V110 H0Z`} />
-                        <path className="chart-line chart-line-edge-safe" d={chartTrendPath} />
+                        <path ref={homeChartPathRef} className="chart-line chart-line-edge-safe" d={chartTrendPath} />
                         <circle cx="410" cy={chartCurrentY} r="4" fill="#138b61" />
+                        {hoveredHomePoint && <>
+                          <line x1={hoveredHomeX ?? hoveredHomePoint.x} x2={hoveredHomeX ?? hoveredHomePoint.x} y1="4" y2="110" className="chart-crosshair" />
+                          <circle cx={hoveredHomePoint.x} cy={hoveredHomePoint.y} r="4" className="chart-hover-dot" />
+                        </>}
                         {[100, 75, 50, 25, 0].map((label, index) => (
                           <text key={label} x="442" y={8 + index * 26.5} className="home-chart-axis-label">
                             {label}%
@@ -180,6 +197,11 @@ function Homepage() {
                           Now
                         </text>
                       </svg>
+                      {hoveredHomePoint && <div className="chart-tooltip chart-tooltip-home" style={{ left: `${Math.min(80, Math.max(8, ((hoveredHomeX ?? hoveredHomePoint.x) / 410) * 100))}%`, transform: (hoveredHomeX ?? hoveredHomePoint.x) < 410 * .28 ? "translateX(0)" : (hoveredHomeX ?? hoveredHomePoint.x) > 410 * .72 ? "translateX(-100%)" : "translateX(-50%)" }}>
+                        <strong>{(hoveredHomePoint.probability * 100).toFixed(2)}% Yes</strong>
+                        <span>{new Date(hoveredHomePoint.timestamp * 1000).toLocaleDateString(undefined, { day: "2-digit", month: "short" }).toUpperCase()}</span>
+                        <span>{new Date(hoveredHomePoint.timestamp * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: false })}</span>
+                      </div>}
                     </div>
                   </div>
                 </div>
