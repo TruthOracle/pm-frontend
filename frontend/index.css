@@ -48,6 +48,19 @@
   }
 }
 
+/* Interactive chart affordances */
+@layer components {
+  .market-chart-wrap { position: relative; }
+  .market-chart-wrap svg, .chart-plot svg { cursor: crosshair; }
+  .chart-crosshair { stroke: #242424; stroke-width: 1; stroke-dasharray: 3 4; opacity: .72; pointer-events: none; }
+  .chart-hover-dot { fill: #fff; stroke: #138b61; stroke-width: 3; pointer-events: none; }
+  .chart-tooltip { position: absolute; top: 1.15rem; z-index: 4; display: flex; transform: translateX(-50%); flex-direction: column; gap: .05rem; color: #222; font-family: "DM Mono", "JetBrains Mono", monospace; font-size: .68rem; line-height: 1.25; text-shadow: 0 1px 2px rgba(255,255,255,.9); pointer-events: none; }
+  .chart-tooltip strong { color: #138b61; font-size: .8rem; white-space: nowrap; }
+  .chart-tooltip span { color: #555; white-space: nowrap; }
+  .chart-tooltip-home { top: .35rem; font-size: .58rem; }
+  .chart-tooltip-home strong { font-size: .7rem; }
+}
+
 @layer base {
   * {
     @apply border-border;
