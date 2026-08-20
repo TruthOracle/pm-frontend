@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { formatChartDate, probabilityHistoryPath, probabilityY, type ProbabilityPoint } from "@/lib/probabilityChart";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { formatChartDate, pointOnProbabilityPath, probabilityHistoryPath, probabilityY, type ProbabilityPoint } from "@/lib/probabilityChart";
 
 type ChartRange = "1D" | "1W" | "1M" | "ALL";
 
@@ -21,6 +21,17 @@ export default function MarketHistoryChart({ probability, createdAt }: { probabi
     ? Math.max(createdAt, nowSecs - selectedRange.days * 24 * 60 * 60)
     : createdAt;
   const chartTrendPath = probabilityHistoryPath(history, rangeStart, nowSecs, chartEndX, 178);
+  const chartPathRef = useRef<SVGPathElement>(null);
+  const [hoveredPoint, setHoveredPoint] = useState<(ProbabilityPoint & { x: number; y: number }) | null>(null);
+  const [hoveredX, setHoveredX] = useState<number | null>(null);
+
+  const handlePointerMove = (event: PointerEvent<SVGSVGElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const chartX = ((event.clientX - bounds.left) / bounds.width) * 940;
+    const exactX = Math.max(0, Math.min(chartEndX, chartX));
+    setHoveredX(exactX);
+    if (chartPathRef.current) setHoveredPoint(pointOnProbabilityPath(chartPathRef.current, exactX, chartEndX, rangeStart, nowSecs, 178));
+  };
 
   useEffect(() => {
     setHistory((previous) => {
@@ -39,18 +50,29 @@ export default function MarketHistoryChart({ probability, createdAt }: { probabi
         </div>
         <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">Live market</span>
       </div>
-      <svg viewBox="0 0 940 230" className="mt-2 h-56 w-full" role="img" aria-label="Market probability history">
+      <div className="market-chart-wrap">
+      <svg viewBox="0 0 940 230" className="mt-2 h-56 w-full" role="img" aria-label="Market probability history" onPointerMove={handlePointerMove} onPointerLeave={() => { setHoveredPoint(null); setHoveredX(null); }}>
         <defs><linearGradient id="marketFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#138b61" stopOpacity=".18" /><stop offset="1" stopColor="#138b61" stopOpacity="0" /></linearGradient></defs>
         <path d="M0 178H880 M0 134H880 M0 90H880 M0 46H880 M0 2H880" className="chart-grid" />
         <path d={`${chartTrendPath} V178 H0Z`} fill="url(#marketFill)" />
-        <path d={chartTrendPath} className="chart-line chart-line-edge-safe" />
+        <path ref={chartPathRef} d={chartTrendPath} className="chart-line chart-line-edge-safe" />
         <circle cx={chartEndX} cy={currentY} r="5" fill="#138b61" />
+        {hoveredPoint && <>
+          <line x1={hoveredX ?? hoveredPoint.x} x2={hoveredX ?? hoveredPoint.x} y1="2" y2="178" className="chart-crosshair" />
+          <circle cx={hoveredPoint.x} cy={hoveredPoint.y} r="5" className="chart-hover-dot" />
+        </>}
         {[100, 75, 50, 25, 0].map((label, index) => (
           <text key={label} x="895" y={6 + index * 44} className="market-chart-axis-label">{label}%</text>
         ))}
         <text x="0" y="220" className="market-chart-axis-label">{formatChartDate(rangeStart, true)}</text>
         <text x="820" y="220" className="market-chart-axis-label">Now</text>
       </svg>
+      {hoveredPoint && <div className="chart-tooltip" style={{ left: `${Math.min(86, Math.max(8, ((hoveredX ?? hoveredPoint.x) / chartEndX) * 100))}%` }}>
+        <strong>{(hoveredPoint.probability * 100).toFixed(2)}% Yes</strong>
+        <span>{new Date(hoveredPoint.timestamp * 1000).toLocaleDateString(undefined, { day: "2-digit", month: "short" }).toUpperCase()}</span>
+        <span>{new Date(hoveredPoint.timestamp * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: false })}</span>
+      </div>}
+      </div>
       <div className="mt-5 flex items-center gap-1 rounded-xl bg-slate-50 p-1 text-xs font-bold text-slate-400" role="tablist" aria-label="Chart time range">
         {RANGE_OPTIONS.map((option) => (
           <button
