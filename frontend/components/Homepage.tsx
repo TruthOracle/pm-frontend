@@ -11,8 +11,6 @@ function Homepage() {
   const [markets, setMarkets] = useState<PredictionMarketRecord[]>(() => getPrefetchedMarkets() ?? []);
   const [loading, setLoading] = useState(() => markets.length === 0);
   const [featuredIndex, setFeaturedIndex] = useState(0);
-  const [newsIndex, setNewsIndex] = useState(0);
-  const [newsCardsIndex, setNewsCardsIndex] = useState(0);
   const [news, setNews] = useState<MarketNewsItem[]>(FALLBACK_MARKET_NEWS);
   const [newsIsLive, setNewsIsLive] = useState(false);
   const [newsUpdatedAt, setNewsUpdatedAt] = useState<Date | null>(null);
@@ -48,19 +46,10 @@ function Homepage() {
     void fetchMarketNews().then((liveNews) => {
       if (active && liveNews.length) { setNews(liveNews); setNewsIsLive(true); setNewsUpdatedAt(new Date()); }
     }).catch(() => { if (active) setNewsIsLive(false); });
-    const timer = window.setInterval(() => setNewsIndex((index) => (index + 1) % Math.max(news.length, 1)), 4200);
-    return () => { active = false; window.clearInterval(timer); };
-  }, [news.length]);
-  useEffect(() => {
-    if (news.length <= 3) return;
-    const timer = window.setInterval(() => setNewsCardsIndex((index) => (index + 1) % news.length), 6500);
-    return () => window.clearInterval(timer);
+    return () => { active = false; };
   }, [news.length]);
   const latestHeadlines = news.map((item) => item.title);
-  const homeNews = Array.from({ length: Math.min(3, news.length) }, (_, index) => news[(newsCardsIndex + index) % news.length]);
-  useEffect(() => {
-    if (newsIndex >= latestHeadlines.length) setNewsIndex(0);
-  }, [latestHeadlines.length, newsIndex]);
+  const tickerHeadlines = [...latestHeadlines, ...latestHeadlines];
   const featured = markets.slice(0, 4);
   const lead = featured[featured.length ? featuredIndex % featured.length : 0];
   const yesPct = lead ? Math.round(lead.currentPrice * 100) : 0;
@@ -218,13 +207,13 @@ function Homepage() {
             </div>
             <div className="latest-news">
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Latest news</span>
+                <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-primary">Latest news</span>
                 <span className="live-dot" />
               </div>
               <div className="news-ticker-window">
-                <div className="news-ticker-track" style={{ transform: `translate3d(0, -${newsIndex * 40}px, 0)` }}>
-                  {latestHeadlines.map((headline) => (
-                    <div key={headline} className="news-ticker-item">
+                <div className="news-ticker-track" style={{ animationDuration: `${Math.max(latestHeadlines.length, 1) * 4.2}s` }}>
+                  {tickerHeadlines.map((headline, index) => (
+                    <div key={`${headline}-${index}`} className="news-ticker-item">
                       <span className="news-item-dot" />
                       {headline}
                     </div>
@@ -285,8 +274,8 @@ function Homepage() {
           </Link>
         </div>
         <div className="news-grid mt-5">
-          {homeNews.map((item) => (
-            <article key={`${newsCardsIndex}-${item.title}`} className="news-card">
+          {news.slice(0, 3).map((item) => (
+            <article key={item.title} className="news-card">
               <div className="news-art relative overflow-hidden bg-slate-900"><img src={getNewsThumbnail(item)} alt="" className="absolute inset-0 h-full w-full object-cover" loading="lazy" onError={(event) => { event.currentTarget.src = getNewsThumbnail({ ...item, image: undefined }); }} /><div className="absolute inset-0 bg-slate-950/25" /><span className="relative z-10">{item.tag}</span><Newspaper className="relative z-10 h-8 w-8" /></div>
               <div className="p-5">
                 <div className="flex items-center gap-2 text-xs text-slate-400"><span>{item.source}</span><span>·</span><span>{item.time}</span></div>

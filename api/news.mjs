@@ -44,7 +44,12 @@ async function fetchHackerNews() {
     if (!item.title || !key || seen.has(key) || !isMarketStory(item)) return false;
     seen.add(key);
     return true;
-  }).sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()).slice(0, 12);
+  }).map((item) => {
+    const ageHours = Math.max(0, (Date.now() - new Date(item.created_at || 0).getTime()) / 3_600_000);
+    const engagement = (item.points || 0) * 3 + (item.num_comments || 0) * 2;
+    const recency = Math.max(0, 168 - ageHours);
+    return { ...item, importanceScore: engagement + recency };
+  }).sort((a, b) => b.importanceScore - a.importanceScore).slice(0, 12);
   const articles = hits.map((item) => ({
       title: item.title,
       url: item.url || item.story_url,
