@@ -14,6 +14,7 @@ import Footer from "@/components/Footer";
 import { useEffect, useLayoutEffect, useState } from "react";
 import { fetchAllPredictionMarkets } from "@/utils/activeContracts";
 import { setPrefetchedMarkets } from "@/utils/marketPrefetch";
+import { fetchMarketNews } from "@/lib/marketNews";
 
 function AdminRoute() {
   return useIsAdmin() ? <Admin /> : <Navigate to="/" replace />;
@@ -73,6 +74,8 @@ function AppContent() {
     try {
       if (waitsForMarketData) {
         setPrefetchedMarkets(await fetchAllPredictionMarkets());
+      } else if (targetPath === "/news") {
+        await fetchMarketNews();
       } else {
         await new Promise((resolve) => window.setTimeout(resolve, 180));
       }
