@@ -5,13 +5,14 @@ import MarketCard from "./MarketCard";
 import { ArrowRight, Clock3, Loader2, Newspaper, Radio, ShieldCheck, Sparkles, TrendingUp, Zap } from "lucide-react";
 import { getPrefetchedMarkets } from "@/utils/marketPrefetch";
 import { formatChartDate, probabilityHistoryPath, type ProbabilityPoint } from "@/lib/probabilityChart";
-import { FALLBACK_MARKET_NEWS, fetchMarketNews, getNewsThumbnail, type MarketNewsItem } from "@/lib/marketNews";
+import { fetchMarketNews, getNewsThumbnail, getTickerHeadline, NEWS_REFRESH_INTERVAL_MS, type MarketNewsItem } from "@/lib/marketNews";
 
 function Homepage() {
   const [markets, setMarkets] = useState<PredictionMarketRecord[]>(() => getPrefetchedMarkets() ?? []);
   const [loading, setLoading] = useState(() => markets.length === 0);
   const [featuredIndex, setFeaturedIndex] = useState(0);
-  const [news, setNews] = useState<MarketNewsItem[]>(FALLBACK_MARKET_NEWS);
+  const [news, setNews] = useState<MarketNewsItem[]>([]);
+  const [newsLoading, setNewsLoading] = useState(true);
   const [newsIsLive, setNewsIsLive] = useState(false);
   const [newsUpdatedAt, setNewsUpdatedAt] = useState<Date | null>(null);
   const [priceHistory, setPriceHistory] = useState<Map<number, ProbabilityPoint[]>>(new Map());
@@ -43,12 +44,19 @@ function Homepage() {
   }, [markets.length]);
   useEffect(() => {
     let active = true;
-    void fetchMarketNews().then((liveNews) => {
-      if (active && liveNews.length) { setNews(liveNews); setNewsIsLive(true); setNewsUpdatedAt(new Date()); }
-    }).catch(() => { if (active) setNewsIsLive(false); });
-    return () => { active = false; };
-  }, [news.length]);
-  const latestHeadlines = news.map((item) => item.title);
+    const refreshNews = () => {
+      setNewsLoading(true);
+      void fetchMarketNews().then((liveNews) => {
+        if (active && liveNews.length) { setNews(liveNews); setNewsIsLive(true); setNewsUpdatedAt(new Date()); }
+      }).catch(() => { if (active) setNewsIsLive(false); }).finally(() => { if (active) setNewsLoading(false); });
+    };
+    refreshNews();
+    const refreshTimer = window.setInterval(() => {
+      refreshNews();
+    }, NEWS_REFRESH_INTERVAL_MS);
+    return () => { active = false; window.clearInterval(refreshTimer); };
+  }, []);
+  const latestHeadlines = news.map((item) => getTickerHeadline(item.title));
   const tickerHeadlines = [...latestHeadlines, ...latestHeadlines];
   const featured = markets.slice(0, 4);
   const lead = featured[featured.length ? featuredIndex % featured.length : 0];
@@ -215,7 +223,7 @@ function Homepage() {
                   {tickerHeadlines.map((headline, index) => (
                     <div key={`${headline}-${index}`} className="news-ticker-item">
                       <span className="news-item-dot" />
-                      {headline}
+                      <span className="news-ticker-headline">{headline}</span>
                     </div>
                   ))}
                 </div>
@@ -274,7 +282,7 @@ function Homepage() {
           </Link>
         </div>
         <div className="news-grid mt-5">
-          {news.slice(0, 3).map((item) => (
+          {newsLoading || news.length === 0 ? <div className="col-span-full flex min-h-48 items-center justify-center rounded-2xl border border-slate-200 bg-white"><Loader2 className="h-7 w-7 animate-spin text-primary" /><span className="ml-3 text-sm text-slate-500">Waiting for live market news…</span></div> : news.slice(0, 3).map((item) => (
             <article key={item.title} className="news-card">
               <div className="news-art relative overflow-hidden bg-slate-900"><img src={getNewsThumbnail(item)} alt="" className="absolute inset-0 h-full w-full object-cover" loading="lazy" onError={(event) => { event.currentTarget.src = getNewsThumbnail({ ...item, image: undefined }); }} /><div className="absolute inset-0 bg-slate-950/25" /><span className="relative z-10">{item.tag}</span><Newspaper className="relative z-10 h-8 w-8" /></div>
               <div className="p-5">

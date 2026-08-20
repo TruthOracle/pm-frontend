@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ArrowRight, ExternalLink, Loader2, Newspaper, Radio, RefreshCw, X } from "lucide-react";
-import { FALLBACK_MARKET_NEWS, fetchMarketNews, getNewsThumbnail, type MarketNewsItem } from "@/lib/marketNews";
+import { fetchMarketNews, getNewsThumbnail, NEWS_REFRESH_INTERVAL_MS, type MarketNewsItem } from "@/lib/marketNews";
 
 function NewsDetail({ item, onClose }: { item: MarketNewsItem; onClose: () => void }) {
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="news-detail-title" onClick={onClose}>
@@ -14,20 +14,25 @@ function NewsDetail({ item, onClose }: { item: MarketNewsItem; onClose: () => vo
 }
 
 export default function News() {
-  const [news, setNews] = useState<MarketNewsItem[]>(FALLBACK_MARKET_NEWS);
+  const [news, setNews] = useState<MarketNewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [live, setLive] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [selected, setSelected] = useState<MarketNewsItem | null>(null);
   const loadNews = async () => {
     setLoading(true);
-    try { const liveNews = await fetchMarketNews(); if (liveNews.length) { setNews(liveNews); setLive(true); } }
+    try { const liveNews = await fetchMarketNews(); setNews(liveNews); setLive(liveNews.length > 0); setLastUpdatedAt(new Date()); }
     catch { setLive(false); }
     finally { setLoading(false); }
   };
-  useEffect(() => { void loadNews(); }, []);
+  useEffect(() => {
+    void loadNews();
+    const refreshTimer = window.setInterval(() => void loadNews(), NEWS_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(refreshTimer);
+  }, []);
   return <section className="page-container pb-20 pt-12 sm:pt-16">
-    <div className="section-heading-row"><div><p className="eyebrow"><Newspaper className="h-3.5 w-3.5" /> From the desk</p><h1 className="section-title">News &amp; signals</h1><div className="mt-2 flex items-center gap-2 text-xs"><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-semibold ${live ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{live && <Radio className="h-3 w-3" />}{live ? "LIVE FROM WEB" : "FALLBACK DATA"}</span><span className="text-slate-500">Live market coverage</span></div></div><button type="button" onClick={() => void loadNews()} disabled={loading} className="quiet-link inline-flex items-center gap-2 disabled:opacity-50">{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}{live ? "Refresh live news" : "Try live news"}</button></div>
-    <div className="news-grid mt-5">{news.map((item) => <article key={`${item.title}-${item.url}`} className="news-card"><div className="news-art relative overflow-hidden bg-slate-900"><img src={getNewsThumbnail(item)} alt="" className="absolute inset-0 h-full w-full object-cover" loading="lazy" onError={(event) => { event.currentTarget.src = getNewsThumbnail({ ...item, image: undefined }); }} /><div className="absolute inset-0 bg-slate-950/25" /><span className="relative z-10">{item.tag}</span><Newspaper className="relative z-10 h-8 w-8" /></div><div className="p-5"><div className="flex items-center gap-2 text-xs text-slate-400"><span>{item.source}</span><span>·</span><span>{item.time}</span></div><h2 className="mt-3 text-lg font-bold leading-6 tracking-[-0.03em] text-slate-950">{item.title}</h2><button type="button" onClick={() => setSelected(item)} className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary">Read more <ArrowRight className="h-3.5 w-3.5" /></button></div></article>)}</div>
+    <div className="section-heading-row"><div><p className="eyebrow"><Newspaper className="h-3.5 w-3.5" /> From the desk</p><h1 className="section-title">News &amp; signals</h1><div className="mt-2 flex flex-wrap items-center gap-2 text-xs"><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-semibold ${live ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{live && <Radio className="h-3 w-3" />}{live ? "LIVE FROM WEB" : "WAITING FOR LIVE DATA"}</span><span className="text-slate-500">Google News market coverage</span>{lastUpdatedAt && <span className="text-slate-400">Updated {lastUpdatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}</div></div><button type="button" onClick={() => void loadNews()} disabled={loading} className="quiet-link inline-flex items-center gap-2 disabled:opacity-50">{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}{loading ? "Fetching live news…" : "Refresh live news"}</button></div>
+    <div className="news-grid mt-5">{loading || news.length === 0 ? <div className="col-span-full flex min-h-64 items-center justify-center rounded-2xl border border-slate-200 bg-white"><Loader2 className="h-8 w-8 animate-spin text-primary" /><span className="ml-3 text-sm text-slate-500">Waiting for live market news…</span></div> : news.map((item) => <article key={`${item.title}-${item.url}`} className="news-card"><div className="news-art relative overflow-hidden bg-slate-900"><img src={getNewsThumbnail(item)} alt="" className="absolute inset-0 h-full w-full object-cover" loading="lazy" onError={(event) => { event.currentTarget.src = getNewsThumbnail({ ...item, image: undefined }); }} /><div className="absolute inset-0 bg-slate-950/25" /><span className="relative z-10">{item.tag}</span><Newspaper className="relative z-10 h-8 w-8" /></div><div className="p-5"><div className="flex items-center gap-2 text-xs text-slate-400"><span>{item.source}</span><span>·</span><span>{item.time}</span></div><h2 className="mt-3 text-lg font-bold leading-6 tracking-[-0.03em] text-slate-950">{item.title}</h2><button type="button" onClick={() => setSelected(item)} className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary">Read more <ArrowRight className="h-3.5 w-3.5" /></button></div></article>)}</div>
     {selected && <NewsDetail item={selected} onClose={() => setSelected(null)} />}
   </section>;
 }
