@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "mobile:sync": "npm run build && npx cap sync ios",
+    "mobile:open": "npx cap open ios",
+    "mobile:run": "npm run mobile:sync && npx cap run ios",
     "deploy": "vercel",
     "hooks:install": "git config core.hooksPath .githooks",
     "lint": "eslint frontend --ext ts,tsx --report-unused-disable-directives",
@@ -25,6 +28,8 @@
     "@canton-network/core-wallet-ui-components": "^0.23.0",
     "@canton-network/wallet-sdk": "^0.20.0",
     "@cantor8/wallet-connect-sdk": "^0.3.0-alpha.2",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/ios": "^8.5.0",
     "@chakra-ui/icons": "^2.2.4",
     "@chakra-ui/react": "^2.8.2",
     "@emotion/react": "^11.13.3",
@@ -52,6 +57,7 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
     "@types/node": "^20.14.1",
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",

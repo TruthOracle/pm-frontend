@@ -69,6 +69,7 @@
   html {
     scroll-behavior: auto;
     scrollbar-gutter: stable;
+    background: hsl(var(--page-surface));
   }
 
   body {
@@ -79,6 +80,9 @@
       system-ui,
       -apple-system,
       sans-serif;
+    min-height: 100vh;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
   }
 
   body::selection {
