@@ -34,6 +34,34 @@ The platform can be seen at - [truthoracle-omega.vercel.app](https://truthoracle
    npm run deploy
    ```
 
+## iOS Mobile App
+
+The iOS app is packaged with Capacitor so the existing responsive React UI can be
+used inside a native iOS shell. The native project is in `ios/` and is generated
+from the production Vite build.
+
+### Run in the iOS Simulator
+
+1. Open Xcode once and install an iOS Simulator runtime from **Xcode → Settings → Components**.
+2. Build the web app and sync it into the native project:
+   ```bash
+   npm run mobile:sync
+   ```
+3. Open the iOS project:
+   ```bash
+   npm run mobile:open
+   ```
+4. Select an iPhone simulator in Xcode and press **Run**.
+
+The shortcut `npm run mobile:run` performs the sync and attempts to run directly
+from the command line.
+
+The existing Cantor8 wallet flow currently uses browser popup/message behavior.
+It must be tested in the iOS WebView before enabling mobile deposits/trades. The
+embedded-wallet deposit, balance, trade, and withdrawal flow depends on the
+updated DAML contract interfaces and should be wired after those contracts are
+finalized.
+
 ## DAML Contracts (Canton Network)
 
 TruthOracle uses DAML contracts on the Canton Network in the `daml/` directory:
