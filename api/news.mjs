@@ -1,4 +1,4 @@
-const GOOGLE_NEWS_RSS = "https://news.google.com/rss/search";
+const GOOGLE_NEWS_RSS = "https://news.google.com/rss";
 
 async function fetchWithTimeout(url, timeoutMs = 8000) {
   const controller = new AbortController();
@@ -24,9 +24,8 @@ function isPlatformPage(item) {
   return value.includes("polymarket.com") || value.includes("kalshi.com");
 }
 
-async function fetchNewsQuery(query, topic) {
+async function fetchNewsFeed() {
   const url = new URL(GOOGLE_NEWS_RSS);
-  url.searchParams.set("q", query);
   url.searchParams.set("hl", "en-US");
   url.searchParams.set("gl", "US");
   url.searchParams.set("ceid", "US:en");
@@ -38,43 +37,20 @@ async function fetchNewsQuery(query, topic) {
     url: readTag(item, "link"),
     source: readTag(item, "source") || "Google News",
     seendate: readTag(item, "pubDate"),
-    topic,
   })).filter((item) => item.title && item.url);
 }
 
 async function fetchMarketNews() {
-  const queries = [
-    { query: '"Canton Network"', topic: "DAML / Canton" },
-    { query: '"DAML" blockchain', topic: "DAML / Canton" },
-    { query: '"Cantor8" OR "Cantor 8"', topic: "Cantor8" },
-    { query: '"prediction markets"', topic: "Prediction markets" },
-    { query: "Kalshi prediction market", topic: "Prediction markets" },
-    { query: "Polymarket prediction market", topic: "Prediction markets" },
-    { query: "bitcoin market", topic: "Crypto markets" },
-    { query: "cryptocurrency market", topic: "Crypto markets" },
-    { query: "financial market regulation", topic: "Regulation" },
-  ];
-  const results = await Promise.all(queries.map(({ query, topic }) => fetchNewsQuery(query, topic).catch(() => [])));
+  const results = await fetchNewsFeed().catch(() => []);
   const seen = new Set();
-  const unique = results.flat().filter((item) => {
+  const unique = results.filter((item) => {
     if (isPlatformPage(item)) return false;
     const key = item.url || item.title;
     if (!key || seen.has(key)) return false;
     seen.add(key);
     return true;
   }).sort((a, b) => new Date(b.seendate).getTime() - new Date(a.seendate).getTime());
-  const selectedTopics = new Set();
-  const topicFirst = [];
-  const remaining = [];
-  for (const item of unique) {
-    if (selectedTopics.size < 5 && !selectedTopics.has(item.topic)) {
-      selectedTopics.add(item.topic);
-      topicFirst.push(item);
-    } else {
-      remaining.push(item);
-    }
-  }
-  return [...topicFirst, ...remaining].slice(0, 12);
+  return unique;
 }
 
 export default async function handler(req, res) {
