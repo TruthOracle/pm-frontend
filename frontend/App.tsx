@@ -102,6 +102,7 @@ function AppContent() {
         aria-hidden="true"
       />
     )}
+    <div className="site-header-mask" aria-hidden="true" />
     <Header />
     <main className="page-transition flex-1 pt-[6.75rem]">
       <Routes location={location}>
