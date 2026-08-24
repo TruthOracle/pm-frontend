@@ -239,7 +239,9 @@
 /* Product shell: compact like a trading terminal, warm enough for editorial content. */
 @layer components {
   .route-progress { @apply fixed left-0 top-0 z-[100] h-0.5 w-screen bg-primary shadow-[0_0_10px_rgba(19,139,97,.65)]; transform-origin: left center; transition: transform 180ms ease-out; }
-  .site-header { @apply fixed inset-x-0 top-0 z-50 border-b border-slate-200/80; background-color: transparent; background-image: none; backdrop-filter: blur(16px); }
+  .site-header-mask { display: none; }
+  .site-header { @apply fixed inset-x-0 top-0 z-[1001] border-b border-slate-200/80; background: rgba(255, 255, 255, 0.42); background-image: none; backdrop-filter: blur(18px) saturate(1.2); -webkit-backdrop-filter: blur(18px) saturate(1.2); box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08); isolation: isolate; }
+  html.native-ios-app .site-header-mask { display: block; position: fixed; inset: 0 0 auto; z-index: 1000; height: max(env(safe-area-inset-top), 3.7rem); background: #ffffff; pointer-events: none; }
   .brand-mark { @apply flex h-6 w-6 shrink-0 items-center justify-center rounded bg-slate-950; }
   .header-wallet button { @apply whitespace-nowrap rounded-md px-3 py-1.5 text-xs; }
   @media (max-width: 639px) {
