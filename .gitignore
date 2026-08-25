@@ -15,6 +15,7 @@ node_modules
 */node_modules
 dist
 build
+.build/
 dist-ssr
 *.local
 package-lock.json
