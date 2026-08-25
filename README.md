@@ -56,6 +56,29 @@ from the production Vite build.
 The shortcut `npm run mobile:run` performs the sync and attempts to run directly
 from the command line.
 
+### Run against a hosted deployment
+
+The bundled app cannot use the Vite development proxy for routes such as
+`/__proxy/ledger`. Set `CAPACITOR_SERVER_URL` in `.env` to load a deployed app
+and its server-side proxy:
+
+```bash
+# Use beta
+CAPACITOR_SERVER_URL=https://beta.truthoracle.xyz
+
+# Or use production
+# CAPACITOR_SERVER_URL=https://truthoracle.xyz
+
+npm run mobile:run
+```
+
+To switch environments, change only `CAPACITOR_SERVER_URL` in `.env`, then run
+`npm run mobile:run` again. Capacitor regenerates its native configuration with
+the selected URL. This does not require `npm run mobile:dev:server`.
+
+The selected deployment must have its Vercel environment variables, Canton
+proxy routes, wallet configuration, and API routes configured.
+
 The existing Cantor8 wallet flow currently uses browser popup/message behavior.
 It must be tested in the iOS WebView before enabling mobile deposits/trades. The
 embedded-wallet deposit, balance, trade, and withdrawal flow depends on the
