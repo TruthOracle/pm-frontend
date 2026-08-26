@@ -32,6 +32,11 @@ import {
 } from "@/lib/enterpriseWalletSubmit";
 import { runAdminAutoPayout } from "@/lib/adminAutoPayout";
 
+/** "10" not "10.00", "10.5" not "10.50" — wallet memos read better without forced decimals. */
+function formatCC(amount: number): string {
+  return amount.toFixed(2).replace(/\.?0+$/, "");
+}
+
 export interface DepositArgs {
   userParty: string;
   amountCC: number;
@@ -62,7 +67,7 @@ export async function depositToInAppWallet(args: DepositArgs): Promise<UserWalle
   const { txId } = await args.transferCC({
     to: admin,
     amount: args.amountCC,
-    memo: `truthoracle: deposit ${args.amountCC.toFixed(2)} CC to in-app wallet`,
+    memo: `TruthOracle: deposit ${formatCC(args.amountCC)} CC to in-app wallet`,
     metadata: { kind: "truthoracle_deposit", amount_cc: String(args.amountCC) },
   });
 
