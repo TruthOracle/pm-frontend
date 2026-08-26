@@ -36,54 +36,26 @@ The platform can be seen at - [truthoracle-omega.vercel.app](https://truthoracle
 
 ## iOS Mobile App
 
-The iOS app is packaged with Capacitor so the existing responsive React UI can be
-used inside a native iOS shell. The native project is in `ios/` and is generated
-from the production Vite build.
+The iOS app is a native Swift/SwiftUI target. It does not load the React/Vite
+frontend in a WebView. The native project is in `ios/` and owns the iOS
+navigation, news, markets, and portfolio surfaces.
 
 ### Run in the iOS Simulator
 
 1. Open Xcode once and install an iOS Simulator runtime from **Xcode → Settings → Components**.
-2. Build the web app and sync it into the native project:
+2. Build the native iOS target:
    ```bash
-   npm run mobile:sync
+   npm run ios:build
    ```
 3. Open the iOS project:
    ```bash
-   npm run mobile:open
+   npm run ios:open
    ```
 4. Select an iPhone simulator in Xcode and press **Run**.
 
-The shortcut `npm run mobile:run` performs the sync and attempts to run directly
-from the command line.
-
-### Run against a hosted deployment
-
-The bundled app cannot use the Vite development proxy for routes such as
-`/__proxy/ledger`. Set `CAPACITOR_SERVER_URL` in `.env` to load a deployed app
-and its server-side proxy:
-
-```bash
-# Use beta
-CAPACITOR_SERVER_URL=https://beta.truthoracle.xyz
-
-# Or use production
-# CAPACITOR_SERVER_URL=https://truthoracle.xyz
-
-npm run mobile:run
-```
-
-To switch environments, change only `CAPACITOR_SERVER_URL` in `.env`, then run
-`npm run mobile:run` again. Capacitor regenerates its native configuration with
-the selected URL. This does not require `npm run mobile:dev:server`.
-
-The selected deployment must have its Vercel environment variables, Canton
-proxy routes, wallet configuration, and API routes configured.
-
-The existing Cantor8 wallet flow currently uses browser popup/message behavior.
-It must be tested in the iOS WebView before enabling mobile deposits/trades. The
-embedded-wallet deposit, balance, trade, and withdrawal flow depends on the
-updated DAML contract interfaces and should be wired after those contracts are
-finalized.
+The current native shell uses local preview data for the first SwiftUI surfaces.
+The next integration step is to connect `URLSession` services for live news,
+Canton markets, and the native wallet flow without introducing a WebView.
 
 ## DAML Contracts (Canton Network)
 
