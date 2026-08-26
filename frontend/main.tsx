@@ -9,11 +9,6 @@ import { ChakraProvider } from '@chakra-ui/react'
 import App from "@/App.tsx";
 import { Toaster } from "@/components/ui/toaster.tsx";
 import { WalletProvider } from "@/components/WalletProvider.tsx";
-import { Capacitor } from "@capacitor/core";
-
-if (Capacitor.isNativePlatform()) {
-  document.documentElement.classList.add("native-ios-app");
-}
 
 const queryClient = new QueryClient();
 
