@@ -19,7 +19,8 @@
  *
  * Usage:
  *   npm run create:contract
- *   npm run create:contract -- market-counter   # explicit (only kind for now)
+ *   npm run create:contract -- market-counter
+ *   npm run create:contract -- user-wallet <ownerPartyId> [initialCC] [txRef]
  */
 
 import dotenv from "dotenv";
@@ -175,6 +176,66 @@ async function createMarketCounter() {
   );
 }
 
+/**
+ * Create a UserWallet for `owner` (in-app balance, custodied by the admin).
+ * With initialCC > 0 the wallet is seeded as an already-credited deposit —
+ * equivalent to create(balance 0) + Deposit, since the admin is sole signatory.
+ * Run this AFTER the owner's real CC transfer landed in the treasury; txRef
+ * records that transfer for audit.
+ */
+async function createUserWallet(owner: string, initialCC: number, txRef: string) {
+  const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
+  const repoRoot = path.join(scriptsDir, "..");
+  const rootEnv = path.join(repoRoot, ".env");
+  if (fs.existsSync(rootEnv)) dotenv.config({ path: rootEnv });
+
+  const WALLET_URL = stripTrailingSlash(viteEnv("VITE_ENTERPRISE_WALLET_URL") || "http://localhost:8080");
+  const PACKAGE_ID = mustEnv(viteEnv("VITE_TRUTHORACLE_PACKAGE_ID"), "VITE_TRUTHORACLE_PACKAGE_ID");
+  const APP_NAME = viteEnv("VITE_ENTERPRISE_WALLET_APP_NAME") || "truthoracle";
+  const admin = mustEnv(viteEnv("VITE_ENTERPRISE_WALLET_PARTY_ID"), "VITE_ENTERPRISE_WALLET_PARTY_ID");
+  if (!owner) throw new Error("user-wallet requires <ownerPartyId>: npm run create:contract -- user-wallet <ownerPartyId> [initialCC] [txRef]");
+  if (!(initialCC >= 0)) throw new Error(`initialCC must be a non-negative number, got: ${initialCC}`);
+
+  const TEMPLATE_ID = `${PACKAGE_ID}:Truthoracle:UserWallet`;
+  const commandId = `cmd-${Date.now()}-${randomUUID()}`;
+  const bearer = await fetchWalletBearerToken();
+  const amount = initialCC.toFixed(10); // Daml Decimal as string
+
+  console.log("=== TruthOracle: create UserWallet (via wallet /api/v1/external/submit) ===");
+  console.log(`WALLET=${WALLET_URL}`);
+  console.log(`TEMPLATE_ID=${TEMPLATE_ID}`);
+  console.log(`owner=${owner}`);
+  console.log(`initialCC=${amount}${txRef ? ` (txRef=${txRef})` : ""}`);
+
+  const submitBody: Json = {
+    partyId: admin,
+    appName: APP_NAME,
+    commandId,
+    commands: [
+      {
+        CreateCommand: {
+          templateId: TEMPLATE_ID,
+          createArguments: {
+            admin,
+            owner,
+            balanceCC: amount,
+            depositedCC: amount,
+            withdrawnCC: "0.0000000000",
+          },
+        },
+      },
+    ],
+    disclosedContracts: [],
+  };
+  const submit = await fetchJsonLogged(
+    "POST wallet /api/v1/external/submit",
+    `${WALLET_URL}/api/v1/external/submit`,
+    { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${bearer}` }, body: JSON.stringify(submitBody) }
+  );
+  if (!submit.ok) throw new Error(`wallet external/submit failed (${submit.status})`);
+  console.log(`\nDone. UserWallet for ${owner} submitted (balance ${amount} CC).`);
+}
+
 export async function main() {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     console.log([
@@ -183,6 +244,7 @@ export async function main() {
       "Usage:",
       "  npm run create:contract",
       "  npm run create:contract -- market-counter",
+      "  npm run create:contract -- user-wallet <ownerPartyId> [initialCC] [txRef]",
       "",
       "Required .env:",
       "  VITE_TRUTHORACLE_PACKAGE_ID — DAR package id",
@@ -202,7 +264,11 @@ export async function main() {
     await createMarketCounter();
     return;
   }
-  throw new Error(`Unknown contract kind "${kind}". Use: market-counter (or run with --help)`);
+  if (kind === "user-wallet") {
+    await createUserWallet(positional[1] ?? "", Number(positional[2] ?? "0"), positional[3] ?? "");
+    return;
+  }
+  throw new Error(`Unknown contract kind "${kind}". Use: market-counter | user-wallet (or run with --help)`);
 }
 
 const thisFile = path.resolve(fileURLToPath(import.meta.url));

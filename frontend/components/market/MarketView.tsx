@@ -1,17 +1,5 @@
-import {
-  AlertDialog,
-  AlertDialogBody,
-  AlertDialogContent,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogOverlay,
-  Button,
-  Skeleton,
-  Text,
-  useDisclosure,
-  useToast,
-} from "@chakra-ui/react";
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { Skeleton, Text, useToast } from "@chakra-ui/react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useCantonWallet } from "@/wallets";
 import { useIsAdmin } from "@/lib/useIsAdmin";
@@ -38,16 +26,16 @@ import {
   fetchAllPredictionMarkets,
   fetchUserPosition,
   fetchUserLpPosition,
-  fetchPendingPayouts,
+  fetchUserWallet,
   fetchAttestations,
   type PredictionMarketRecord,
   type UserMarketPosition,
   type LiquidityPositionRecord,
-  type PendingPayoutRecord,
+  type UserWalletRecord,
   type OutcomeAttestationRecord,
 } from "@/utils/activeContracts";
 import { getCantonCoinHoldings, type AmuletHoldings } from "@/view-functions/getAccountBalance";
-import { runAdminAutoPayout } from "@/lib/adminAutoPayout";
+import InAppWalletCard from "@/components/InAppWalletCard";
 import {
   enterpriseWalletPartyId,
   submitAdminTransaction,
@@ -79,30 +67,6 @@ async function waitForPositionUpdate(
   while (Date.now() < deadline) {
     const pos = await fetchUserPosition(partyId, marketId);
     if (check(pos)) return pos;
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
-  return null;
-}
-
-/**
- * After Sell / Merge / Redeem / Withdraw creates a PendingPayout, poll until we
- * see it for this user + market. Returns the new payout if found, null on
- * timeout (caller should leave it queued for manual admin processing).
- */
-async function waitForNewPendingPayout(
-  partyId: string,
-  marketId: number,
-  beforeCids: Set<string>,
-  timeoutMs = 15_000,
-  intervalMs = 1000,
-): Promise<PendingPayoutRecord | null> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const list = await fetchPendingPayouts(partyId);
-    const fresh = list.find(
-      (p) => p.user === partyId && p.marketId === marketId && !beforeCids.has(p.contractId),
-    );
-    if (fresh) return fresh;
     await new Promise((r) => setTimeout(r, intervalMs));
   }
   return null;
@@ -140,6 +104,7 @@ const MarketView = () => {
   const [slippage, setSlippage] = useState<number>(0.01);
   const [userPosition, setUserPosition] = useState<UserMarketPosition | null>(null);
   const [lpPosition, setLpPosition] = useState<LiquidityPositionRecord | null>(null);
+  const [wallet, setWallet] = useState<UserWalletRecord | null>(null);
   const [holdings, setHoldings] = useState<AmuletHoldings | null>(null);
   const [splitMergeAmount, setSplitMergeAmount] = useState<number>(0);
   const [mintMode, setMintMode] = useState<"mint" | "merge">("mint");
@@ -149,7 +114,7 @@ const MarketView = () => {
   const [resolveSource, setResolveSource] = useState<string>("");
   const [attestations, setAttestations] = useState<OutcomeAttestationRecord[]>([]);
   const [busy, setBusy] = useState<string | null>(null); // which action is running
-  const { account, signAndSubmitTransaction, transferCC } = useCantonWallet();
+  const { account, signAndSubmitTransaction } = useCantonWallet();
   const adminPartyForCC = enterpriseWalletPartyId();
   const isAdmin = useIsAdmin();
   const toast = useToast();
@@ -159,40 +124,6 @@ const MarketView = () => {
     const t = setInterval(() => setNowSecs(Math.floor(Date.now() / 1000)), 1000);
     return () => clearInterval(t);
   }, []);
-
-  // Step-2 confirm dialog: after the CC transfer (popup #1) succeeds, we can't
-  // chain a second popup automatically — browsers block sequential window.open
-  // calls without a fresh user gesture. So we open this dialog instead, and the
-  // user explicitly clicks Confirm which provides the gesture for popup #2.
-  const stepTwoDialog = useDisclosure();
-  const stepTwoCancelRef = React.useRef<HTMLButtonElement>(null);
-  const [pendingStepTwo, setPendingStepTwo] = useState<{
-    description: string;
-    run: () => Promise<void>;
-  } | null>(null);
-
-  const openStepTwo = (description: string, run: () => Promise<void>) => {
-    setPendingStepTwo({ description, run });
-    stepTwoDialog.onOpen();
-  };
-  const confirmStepTwo = async () => {
-    const pending = pendingStepTwo;
-    if (!pending) return;
-    stepTwoDialog.onClose();
-    setPendingStepTwo(null);
-    await pending.run();
-  };
-  const cancelStepTwo = () => {
-    stepTwoDialog.onClose();
-    setPendingStepTwo(null);
-    toast({
-      title: "Step 2 canceled — action not recorded",
-      description: "Your CC transfer is final; the on-ledger step was skipped. Contact admin for a refund.",
-      status: "warning",
-      duration: 10000,
-      isClosable: true,
-    });
-  };
 
   const refreshMarket = useCallback(
     async (opts?: { silent?: boolean }): Promise<PredictionMarketRecord | null> => {
@@ -227,16 +158,19 @@ const MarketView = () => {
     if (!account?.address || isNaN(marketIdNum)) {
       setUserPosition(null);
       setLpPosition(null);
+      setWallet(null);
       setHoldings(null);
       return;
     }
-    const [pos, lp, h] = await Promise.all([
+    const [pos, lp, w, h] = await Promise.all([
       fetchUserPosition(account.address, marketIdNum),
       fetchUserLpPosition(account.address, marketIdNum),
+      fetchUserWallet(account.address),
       getCantonCoinHoldings(),
     ]);
     setUserPosition(pos);
     setLpPosition(lp);
+    setWallet(w);
     setHoldings(h);
   }, [account?.address, marketIdNum]);
 
@@ -324,47 +258,34 @@ const MarketView = () => {
     }
   };
 
-  /** Settle a fresh PendingPayout via the admin Enterprise Wallet. */
-  const settleFreshPayout = async (beforeCids: Set<string>, reason: string) => {
-    if (!account) return;
-    try {
-      const fresh = await waitForNewPendingPayout(account.address, marketIdNum, beforeCids);
-      if (fresh) {
-        toast({
-          title: "Settling payout…",
-          description: `Admin sending ${fmtCC(fresh.amountCC)} CC to your wallet.`,
-          status: "info",
-          duration: 4000,
-          isClosable: true,
-        });
-        await runAdminAutoPayout({
-          toUser: account.address,
-          amountCC: fresh.amountCC,
-          pendingPayoutCid: fresh.contractId,
-          reason,
-          signAndSubmitTransaction,
-        });
-      }
-    } catch (e) {
-      console.warn(`[${reason} auto-payout failed]`, e);
+  /** Guard: every money choice spends from / pays into the in-app wallet. */
+  const requireWallet = (needCC?: number): UserWalletRecord | null => {
+    if (!wallet) {
       toast({
-        title: "Recorded — payout pending",
-        description: "Admin couldn't auto-settle the payout. It's queued; refresh shortly or admin can settle from the Payout Queue.",
-        status: "warning",
-        duration: 8000,
+        title: "Deposit to your in-app wallet first",
+        description: "One deposit funds every trade — use the In-app balance card above.",
+        status: "info",
+        duration: 6000,
         isClosable: true,
       });
+      return null;
     }
-  };
-
-  const snapshotPayoutCids = async (): Promise<Set<string>> => {
-    if (!account) return new Set();
-    const list = await fetchPendingPayouts(account.address);
-    return new Set(list.filter((p) => p.user === account.address).map((p) => p.contractId));
+    if (needCC != null && wallet.balanceCC < needCC) {
+      toast({
+        title: "Insufficient in-app balance",
+        description: `Need ${fmtCC(needCC)} CC but the in-app balance is ${fmtCC(wallet.balanceCC)} CC. Top up via Deposit.`,
+        status: "warning",
+        duration: 6000,
+        isClosable: true,
+      });
+      return null;
+    }
+    return wallet;
   };
 
   // -------------------------------------------------------------------------
-  // Trade (Buy: two-popup CC-first; Sell: single popup + auto payout)
+  // Trade (single wallet signature per action — the market choice debits or
+  // credits the in-app UserWallet atomically)
   // -------------------------------------------------------------------------
 
   const handleTradeClick = async () => {
@@ -381,103 +302,47 @@ const MarketView = () => {
         toast({ title: "Enter CC amount to spend", status: "info", duration: 3000, isClosable: true });
         return;
       }
-      if (holdings && holdings.balance < collateralIn) {
-        toast({
-          title: "Insufficient CC balance",
-          description: `Need ${fmtCC(collateralIn)} CC but wallet has ${holdings.balance.toFixed(2)} CC.`,
-          status: "warning",
-          duration: 5000,
-          isClosable: true,
-        });
-        return;
-      }
+      const spendWallet = requireWallet(collateralIn);
+      if (!spendWallet) return;
       const minSharesOut = buyQuote.sharesOut * (1 - slippage);
+      const prevSideShares = selectedSide === "yes" ? (userPosition?.yesShares ?? 0) : (userPosition?.noShares ?? 0);
       setBusy("trade");
-      const t = toast({
-        title: "Sending CC to market…",
-        description: `Confirm the ${fmtCC(collateralIn)} CC transfer in the wallet popup.`,
-        status: "info",
-        duration: null,
-        isClosable: false,
-      });
       try {
-        if (!adminPartyForCC) throw new Error("VITE_ENTERPRISE_WALLET_PARTY_ID is not set — can't address the market admin.");
-        await transferCC({
-          to: adminPartyForCC,
-          amount: collateralIn,
-          memo: `truthoracle: buy ${sideArg} with ${fmtCC(collateralIn)} CC on market #${marketIdNum}`,
-          metadata: {
-            kind: "truthoracle_buy",
-            market_id: String(marketIdNum),
-            side: selectedSide,
-            collateral_cc: String(collateralIn),
+        const ok = await runUserChoice(
+          "Buy",
+          buildBuyParams(
+            account.address,
+            market.contractId,
+            sideArg,
+            collateralIn,
+            minSharesOut,
+            userPosition?.contractId ?? null,
+            spendWallet.contractId,
+            disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+          ),
+        );
+        if (!ok) return;
+        const verified = await waitForPositionUpdate(
+          account.address,
+          marketIdNum,
+          (pos) => {
+            const cur = selectedSide === "yes" ? (pos?.yesShares ?? 0) : (pos?.noShares ?? 0);
+            return cur >= prevSideShares + minSharesOut * 0.99;
           },
-        });
-      } catch (e) {
-        if (t !== undefined) toast.close(t);
-        setBusy(null);
+        );
+        await refreshAllViews();
         toast({
-          title: "CC transfer failed — buy aborted",
-          description: e instanceof Error ? e.message : String(e),
-          status: "error",
-          duration: 6000,
+          title: verified ? "Position updated" : "Trade submitted — confirmation pending",
+          description: verified
+            ? `Now holding ${fmtCC(verified.yesShares, 2)} YES / ${fmtCC(verified.noShares, 2)} NO.`
+            : "Wallet accepted the transaction but the participant hasn't shown the new position yet.",
+          status: verified ? "success" : "warning",
+          duration: 8000,
           isClosable: true,
         });
-        return;
+      } finally {
+        setBusy(null);
       }
-      if (t !== undefined) toast.close(t);
-      setBusy(null);
-      const prevSideShares = selectedSide === "yes" ? (userPosition?.yesShares ?? 0) : (userPosition?.noShares ?? 0);
-      openStepTwo(
-        `${fmtCC(collateralIn)} CC sent to the market. Click Confirm to execute the pm-AMM buy — est. ${fmtCC(buyQuote.sharesOut, 2)} ${sideArg.toUpperCase()} shares (min ${fmtCC(minSharesOut, 2)}).`,
-        async () => {
-          setBusy("trade");
-          try {
-            const ok = await runUserChoice(
-              "Buy",
-              buildBuyParams(
-                account.address,
-                market.contractId,
-                sideArg,
-                collateralIn,
-                minSharesOut,
-                userPosition?.contractId ?? null,
-                disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
-              ),
-            );
-            if (!ok) {
-              toast({
-                title: "Share-record failed — CC was already sent",
-                description: "The pm-AMM rejected the buy (slippage or expiry). Contact admin for reconciliation.",
-                status: "error",
-                duration: 9000,
-                isClosable: true,
-              });
-              return;
-            }
-            const verified = await waitForPositionUpdate(
-              account.address,
-              marketIdNum,
-              (pos) => {
-                const cur = selectedSide === "yes" ? (pos?.yesShares ?? 0) : (pos?.noShares ?? 0);
-                return cur >= prevSideShares + minSharesOut * 0.99;
-              },
-            );
-            await refreshAllViews();
-            toast({
-              title: verified ? "Position updated" : "Trade submitted — confirmation pending",
-              description: verified
-                ? `Now holding ${fmtCC(verified.yesShares, 2)} YES / ${fmtCC(verified.noShares, 2)} NO.`
-                : "Wallet accepted the transaction but the participant hasn't shown the new position yet.",
-              status: verified ? "success" : "warning",
-              duration: 8000,
-              isClosable: true,
-            });
-          } finally {
-            setBusy(null);
-          }
-        },
-      );
       return;
     }
 
@@ -552,8 +417,9 @@ const MarketView = () => {
       });
       return;
     }
+    const proceedsWallet = requireWallet();
+    if (!proceedsWallet) return;
     const minProceeds = sellQuote.netProceeds * (1 - slippage);
-    const beforeCids = await snapshotPayoutCids();
     setBusy("trade");
     try {
       const ok = await runUserChoice(
@@ -565,15 +431,15 @@ const MarketView = () => {
           sharesIn,
           minProceeds,
           userPosition.contractId,
+          proceedsWallet.contractId,
           disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
         ),
       );
       if (!ok) return;
-      await settleFreshPayout(beforeCids, "sell");
       await refreshAllViews();
       toast({
         title: "Shares sold",
-        description: `Sold ${fmtCC(sharesIn, 2)} ${sideArg} for ~${fmtCC(sellQuote.netProceeds)} CC (after ${(market.feeBps / 100).toFixed(2)}% fee).`,
+        description: `Sold ${fmtCC(sharesIn, 2)} ${sideArg} for ~${fmtCC(sellQuote.netProceeds)} CC (after ${(market.feeBps / 100).toFixed(2)}% fee) — credited to your in-app balance.`,
         status: "success",
         duration: 7000,
         isClosable: true,
@@ -598,16 +464,6 @@ const MarketView = () => {
       toast({ title: "Enter an amount", status: "info", duration: 3000, isClosable: true });
       return;
     }
-    if (action === "split" && holdings && holdings.balance < amt) {
-      toast({
-        title: "Insufficient CC balance",
-        description: `Need ${fmtCC(amt)} CC to mint ${fmtCC(amt, 2)} complete sets.`,
-        status: "warning",
-        duration: 5000,
-        isClosable: true,
-      });
-      return;
-    }
     if (action === "merge") {
       if (!userPosition || userPosition.yesShares < amt || userPosition.noShares < amt) {
         toast({
@@ -620,66 +476,30 @@ const MarketView = () => {
         return;
       }
     }
+    const setWallet = requireWallet(action === "split" ? amt : undefined);
+    if (!setWallet) return;
 
-    const beforeCids = action === "merge" ? await snapshotPayoutCids() : new Set<string>();
-
-    const runChoice = async () => {
-      setBusy("splitmerge");
-      try {
-        const disclosed = disclosedForMarket();
-        const params = action === "split"
-          ? buildSplitParams(account.address, market.contractId, amt, userPosition?.contractId ?? null, disclosed.length > 0 ? disclosed : undefined)
-          : buildMergeParams(account.address, market.contractId, amt, userPosition!.contractId, disclosed.length > 0 ? disclosed : undefined);
-        const ok = await runUserChoice(action === "split" ? "Mint set" : "Merge", params);
-        if (!ok) return;
-        if (action === "merge") await settleFreshPayout(beforeCids, "merge");
-        await refreshAllViews();
-        toast({
-          title: action === "split" ? "Complete sets minted" : "Merge requested",
-          description: action === "split"
-            ? `Minted ${fmtCC(amt, 2)} Yes + ${fmtCC(amt, 2)} No for ${fmtCC(amt)} CC.`
-            : `Burned ${fmtCC(amt, 2)} pairs — payout of ${fmtCC(amt)} CC from admin.`,
-          status: "success",
-          duration: 6000,
-          isClosable: true,
-        });
-      } finally {
-        setBusy(null);
-      }
-    };
-
-    if (action === "merge") {
-      await runChoice();
-      return;
-    }
-
-    // Mint: popup #1 = CC transfer, popup #2 (gated by dialog) = Split choice.
     setBusy("splitmerge");
     try {
-      if (!adminPartyForCC) throw new Error("VITE_ENTERPRISE_WALLET_PARTY_ID is not set.");
-      await transferCC({
-        to: adminPartyForCC,
-        amount: amt,
-        memo: `truthoracle: mint ${fmtCC(amt, 2)} complete sets on market #${marketIdNum}`,
-        metadata: { kind: "truthoracle_split", market_id: String(marketIdNum), pairs: String(amt) },
-      });
-    } catch (e) {
-      console.error(e);
-      setBusy(null);
+      const disclosed = disclosedForMarket();
+      const params = action === "split"
+        ? buildSplitParams(account.address, market.contractId, amt, userPosition?.contractId ?? null, setWallet.contractId, disclosed.length > 0 ? disclosed : undefined)
+        : buildMergeParams(account.address, market.contractId, amt, userPosition!.contractId, setWallet.contractId, disclosed.length > 0 ? disclosed : undefined);
+      const ok = await runUserChoice(action === "split" ? "Mint set" : "Merge", params);
+      if (!ok) return;
+      await refreshAllViews();
       toast({
-        title: "Mint CC transfer failed",
-        description: e instanceof Error ? e.message : String(e),
-        status: "error",
+        title: action === "split" ? "Complete sets minted" : "Pairs merged",
+        description: action === "split"
+          ? `Minted ${fmtCC(amt, 2)} Yes + ${fmtCC(amt, 2)} No for ${fmtCC(amt)} CC from your in-app balance.`
+          : `Burned ${fmtCC(amt, 2)} pairs — ${fmtCC(amt)} CC credited to your in-app balance.`,
+        status: "success",
         duration: 6000,
         isClosable: true,
       });
-      return;
+    } finally {
+      setBusy(null);
     }
-    setBusy(null);
-    openStepTwo(
-      `${fmtCC(amt)} CC sent to the market. Click Confirm to mint ${fmtCC(amt, 2)} Yes + ${fmtCC(amt, 2)} No on-ledger.`,
-      runChoice,
-    );
   };
 
   // -------------------------------------------------------------------------
@@ -694,62 +514,35 @@ const MarketView = () => {
     }
     const cost = liquidityQuote.costCC;
     const maxCost = cost * (1 + slippage);
-    if (holdings && holdings.balance < cost) {
-      toast({
-        title: "Insufficient CC balance",
-        description: `Providing ${fmtCC(liquidityValue)} CC of pool value costs ${fmtCC(cost)} CC.`,
-        status: "warning",
-        duration: 5000,
-        isClosable: true,
-      });
-      return;
-    }
+    const lpWallet = requireWallet(maxCost);
+    if (!lpWallet) return;
     setBusy("liquidity");
     try {
-      if (!adminPartyForCC) throw new Error("VITE_ENTERPRISE_WALLET_PARTY_ID is not set.");
-      await transferCC({
-        to: adminPartyForCC,
-        amount: cost,
-        memo: `truthoracle: provide ${fmtCC(liquidityValue)} CC liquidity on market #${marketIdNum}`,
-        metadata: { kind: "truthoracle_liquidity", market_id: String(marketIdNum), value_cc: String(liquidityValue) },
-      });
-    } catch (e) {
+      const ok = await runUserChoice(
+        "Provide liquidity",
+        buildProvideLiquidityParams(
+          account.address,
+          market.contractId,
+          liquidityValue,
+          maxCost,
+          lpPosition?.contractId ?? null,
+          lpWallet.contractId,
+          disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+        ),
+      );
+      if (ok) {
+        await refreshAllViews();
+        toast({
+          title: "Liquidity added",
+          description: `${fmtCC(cost)} CC debited from your in-app balance (≈${fmtCC(liquidityQuote.lpMinted, 4)} LP tokens).`,
+          status: "success",
+          duration: 5000,
+          isClosable: true,
+        });
+      }
+    } finally {
       setBusy(null);
-      toast({
-        title: "CC transfer failed — liquidity aborted",
-        description: e instanceof Error ? e.message : String(e),
-        status: "error",
-        duration: 6000,
-        isClosable: true,
-      });
-      return;
     }
-    setBusy(null);
-    openStepTwo(
-      `${fmtCC(cost)} CC sent. Click Confirm to add ${fmtCC(liquidityValue)} CC of pool value (≈${fmtCC(liquidityQuote.lpMinted, 4)} LP tokens).`,
-      async () => {
-        setBusy("liquidity");
-        try {
-          const ok = await runUserChoice(
-            "Provide liquidity",
-            buildProvideLiquidityParams(
-              account.address,
-              market.contractId,
-              liquidityValue,
-              maxCost,
-              lpPosition?.contractId ?? null,
-              disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
-            ),
-          );
-          if (ok) {
-            await refreshAllViews();
-            toast({ title: "Liquidity added", status: "success", duration: 5000, isClosable: true });
-          }
-        } finally {
-          setBusy(null);
-        }
-      },
-    );
   };
 
   const handleWithdrawLiquidity = async () => {
@@ -766,7 +559,8 @@ const MarketView = () => {
       });
       return;
     }
-    const beforeCids = await snapshotPayoutCids();
+    const lpWallet = requireWallet();
+    if (!lpWallet) return;
     setBusy("withdraw");
     try {
       const ok = await runUserChoice(
@@ -777,13 +571,19 @@ const MarketView = () => {
           burn,
           lpPosition.contractId,
           userPosition?.contractId ?? null,
+          lpWallet.contractId,
           disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
         ),
       );
       if (!ok) return;
-      await settleFreshPayout(beforeCids, "liquidity");
       await refreshAllViews();
-      toast({ title: "Liquidity withdrawn", status: "success", duration: 5000, isClosable: true });
+      toast({
+        title: "Liquidity withdrawn",
+        description: "CC proceeds were credited to your in-app balance.",
+        status: "success",
+        duration: 5000,
+        isClosable: true,
+      });
     } finally {
       setBusy(null);
     }
@@ -870,92 +670,52 @@ const MarketView = () => {
   const handlePropose = async (outcome: OutcomeArg) => {
     if (!market || !account) return;
     const bond = market.policy.bondCC;
-    const doPropose = async () => {
-      setBusy("propose");
-      try {
-        const ok = await runUserChoice(
-          "Propose outcome",
-          buildProposeOutcomeParams(account.address, market.contractId, outcome, disclosedForMarket().length > 0 ? disclosedForMarket() : undefined),
-        );
-        if (ok) {
-          await refreshAllViews();
-          toast({
-            title: `Proposed ${outcome}`,
-            description: `Challenge window: ${fmtCountdown(nowSecs + market.policy.challengeSecs, nowSecs)}.`,
-            status: "success",
-            duration: 6000,
-            isClosable: true,
-          });
-        }
-      } finally {
-        setBusy(null);
-      }
-    };
-    if (bond > 0) {
-      setBusy("propose");
-      try {
-        if (!adminPartyForCC) throw new Error("VITE_ENTERPRISE_WALLET_PARTY_ID is not set.");
-        await transferCC({
-          to: adminPartyForCC,
-          amount: bond,
-          memo: `truthoracle: T3 proposal bond on market #${marketIdNum}`,
-          metadata: { kind: "truthoracle_bond", market_id: String(marketIdNum), role: "proposer" },
+    const bondWallet = requireWallet(bond > 0 ? bond : undefined);
+    if (!bondWallet) return;
+    setBusy("propose");
+    try {
+      const ok = await runUserChoice(
+        "Propose outcome",
+        buildProposeOutcomeParams(account.address, market.contractId, outcome, bondWallet.contractId, disclosedForMarket().length > 0 ? disclosedForMarket() : undefined),
+      );
+      if (ok) {
+        await refreshAllViews();
+        toast({
+          title: `Proposed ${outcome}`,
+          description: `${bond > 0 ? `${fmtCC(bond)} CC bond debited from your in-app balance. ` : ""}Challenge window: ${fmtCountdown(nowSecs + market.policy.challengeSecs, nowSecs)}.`,
+          status: "success",
+          duration: 6000,
+          isClosable: true,
         });
-      } catch (e) {
-        setBusy(null);
-        toast({ title: "Bond transfer failed", description: e instanceof Error ? e.message : String(e), status: "error", duration: 6000, isClosable: true });
-        return;
       }
+    } finally {
       setBusy(null);
-      openStepTwo(`${fmtCC(bond)} CC bond posted. Click Confirm to propose ${outcome} on-ledger.`, doPropose);
-    } else {
-      await doPropose();
     }
   };
 
   const handleChallenge = async (outcome: OutcomeArg) => {
     if (!market || !account) return;
     const bond = market.policy.bondCC;
-    const doChallenge = async () => {
-      setBusy("challenge");
-      try {
-        const ok = await runUserChoice(
-          "Challenge",
-          buildChallengeOutcomeParams(account.address, market.contractId, outcome, disclosedForMarket().length > 0 ? disclosedForMarket() : undefined),
-        );
-        if (ok) {
-          await refreshAllViews();
-          toast({
-            title: `Challenged with ${outcome}`,
-            description: "Escalates objectively to the reporter quorum / signed source — never a vote.",
-            status: "success",
-            duration: 7000,
-            isClosable: true,
-          });
-        }
-      } finally {
-        setBusy(null);
-      }
-    };
-    if (bond > 0) {
-      setBusy("challenge");
-      try {
-        if (!adminPartyForCC) throw new Error("VITE_ENTERPRISE_WALLET_PARTY_ID is not set.");
-        await transferCC({
-          to: adminPartyForCC,
-          amount: bond,
-          memo: `truthoracle: T3 challenge bond on market #${marketIdNum}`,
-          metadata: { kind: "truthoracle_bond", market_id: String(marketIdNum), role: "challenger" },
+    const bondWallet = requireWallet(bond > 0 ? bond : undefined);
+    if (!bondWallet) return;
+    setBusy("challenge");
+    try {
+      const ok = await runUserChoice(
+        "Challenge",
+        buildChallengeOutcomeParams(account.address, market.contractId, outcome, bondWallet.contractId, disclosedForMarket().length > 0 ? disclosedForMarket() : undefined),
+      );
+      if (ok) {
+        await refreshAllViews();
+        toast({
+          title: `Challenged with ${outcome}`,
+          description: `${bond > 0 ? `${fmtCC(bond)} CC bond debited from your in-app balance. ` : ""}Escalates objectively to the reporter quorum / signed source — never a vote.`,
+          status: "success",
+          duration: 7000,
+          isClosable: true,
         });
-      } catch (e) {
-        setBusy(null);
-        toast({ title: "Bond transfer failed", description: e instanceof Error ? e.message : String(e), status: "error", duration: 6000, isClosable: true });
-        return;
       }
+    } finally {
       setBusy(null);
-      openStepTwo(`${fmtCC(bond)} CC bond posted. Click Confirm to challenge with ${outcome}.`, doChallenge);
-    } else {
-      await doChallenge();
     }
   };
 
@@ -978,7 +738,8 @@ const MarketView = () => {
 
   const handleRedeem = async () => {
     if (!market || !account || !userPosition) return;
-    const beforeCids = await snapshotPayoutCids();
+    const redeemWallet = requireWallet();
+    if (!redeemWallet) return;
     setBusy("redeem");
     try {
       const ok = await runUserChoice(
@@ -987,13 +748,19 @@ const MarketView = () => {
           account.address,
           market.contractId,
           userPosition.contractId,
+          redeemWallet.contractId,
           disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
         ),
       );
       if (!ok) return;
-      await settleFreshPayout(beforeCids, market.status === "Voided" ? "void-refund" : "resolve");
       await refreshAllViews();
-      toast({ title: "Position redeemed", status: "success", duration: 6000, isClosable: true });
+      toast({
+        title: "Position redeemed",
+        description: "The payout was credited to your in-app balance.",
+        status: "success",
+        duration: 6000,
+        isClosable: true,
+      });
     } finally {
       setBusy(null);
     }
@@ -1058,7 +825,7 @@ const MarketView = () => {
     collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage,
     buyQuote, sellQuote, swapQuote, account, busy, handleTradeClick, mintMode,
     setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge,
-    userPosition, holdings,
+    userPosition, holdings, wallet,
   };
   const liquidityContext = {
     setMainTab, subTabBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity,
@@ -1144,6 +911,9 @@ const MarketView = () => {
         </div>
       )}
 
+      {/* ---------------- In-app wallet (deposit once, trade with one signature) ---------------- */}
+      {account && <InAppWalletCard wallet={wallet} onChanged={refreshAllViews} />}
+
       {/* ================= TRADE TAB ================= */}
       {mainTab === "trade" && (
         <MarketTradePanel context={tradeContext} />
@@ -1171,41 +941,6 @@ const MarketView = () => {
         </p>
       </div>
 
-      <AlertDialog
-        isOpen={stepTwoDialog.isOpen}
-        leastDestructiveRef={stepTwoCancelRef}
-        onClose={cancelStepTwo}
-        closeOnOverlayClick={false}
-      >
-        <AlertDialogOverlay>
-          <AlertDialogContent bg="#141419" color="white" borderColor="hsl(240 4% 16%)" borderWidth="1px" borderRadius="xl">
-            <AlertDialogHeader fontSize="lg" fontWeight="bold" color="hsl(235 89% 64%)">
-              Step 2 of 2 — Confirm on-ledger
-            </AlertDialogHeader>
-            <AlertDialogBody>
-              {pendingStepTwo?.description ?? ""}
-              <Text fontSize="xs" color="gray.400" mt={3}>
-                Your browser blocks back-to-back wallet popups. Click Confirm to open the second popup — only this click counts as a fresh user gesture.
-              </Text>
-            </AlertDialogBody>
-            <AlertDialogFooter>
-              <Button
-                ref={stepTwoCancelRef}
-                onClick={cancelStepTwo}
-                variant="outline"
-                borderColor="red.400"
-                color="red.200"
-                _hover={{ bg: "red.900", color: "white" }}
-              >
-                Cancel (CC stays with admin)
-              </Button>
-              <Button colorScheme="green" onClick={confirmStepTwo} ml={3}>
-                Confirm
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialogOverlay>
-      </AlertDialog>
     </div>
   );
 };
