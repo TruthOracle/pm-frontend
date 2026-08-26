@@ -56,7 +56,10 @@ private struct HomeView: View {
 
     private var topBar: some View {
         HStack(spacing: 9) {
-            ZStack { Circle().fill(oracleGreen); Image(systemName: "eye.fill").font(.caption.bold()).foregroundColor(.white) }.frame(width: 30, height: 30)
+            ZStack {
+                RoundedRectangle(cornerRadius: 7, style: .continuous).fill(oracleInk)
+                Image("TruthOracleLogo").resizable().scaledToFit().padding(2)
+            }.frame(width: 30, height: 30)
             VStack(alignment: .leading, spacing: 0) {
                 Text("Truth").font(.headline.bold()) + Text("Oracle").font(.headline.bold()).foregroundColor(oracleGreen)
                 Text("PREDICTION MARKETS").font(.system(size: 7, weight: .bold)).tracking(1).foregroundColor(.secondary)
