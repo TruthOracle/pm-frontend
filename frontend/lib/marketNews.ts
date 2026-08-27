@@ -48,9 +48,9 @@ export async function fetchMarketNews(): Promise<MarketNewsItem[]> {
   const response = await fetch(`/api/news?refresh=${Date.now()}`, { cache: "no-store" });
   if (!response.ok) throw new Error("Live news is temporarily unavailable");
   const data = (await response.json()) as { articles?: NewsApiArticle[] };
-  const mapped = (data.articles ?? []).filter((item) => item.title && item.url).slice(0, 12).map((item) => ({
+  const mapped = (data.articles ?? []).filter((item) => item.title && item.url).map((item) => ({
     tag: getNewsTag(item.title as string, item.domain || item.source || "", item.topic), source: item.domain || item.source || "Google News", time: formatDate(item.seendate),
     title: item.title as string, url: item.url as string, image: item.image,
   }));
-  return mapped.slice(0, 6);
+  return mapped;
 }
