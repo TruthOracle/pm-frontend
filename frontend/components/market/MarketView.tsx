@@ -844,6 +844,11 @@ const MarketView = () => {
     holdings, probYes, probNo,
   };
 
+  // Rendered inside the panels' right column, next to the trade actions it funds.
+  const walletSlot = account ? (
+    <InAppWalletCard wallet={wallet} onChanged={refreshAllViews} variant="compact" />
+  ) : null;
+
   return (
     <div className="space-y-6">
       {/* ---------------- Market header ---------------- */}
@@ -911,15 +916,12 @@ const MarketView = () => {
         </div>
       )}
 
-      {/* ---------------- In-app wallet (deposit once, trade with one signature) ---------------- */}
-      {account && <InAppWalletCard wallet={wallet} onChanged={refreshAllViews} />}
-
       {/* ================= TRADE TAB ================= */}
       {mainTab === "trade" && (
-        <MarketTradePanel context={tradeContext} />
+        <MarketTradePanel context={tradeContext} walletSlot={walletSlot} />
       )}
       {mainTab === "liquidity" && (
-        <MarketLiquidityPanel context={liquidityContext} />
+        <MarketLiquidityPanel context={liquidityContext} walletSlot={walletSlot} />
       )}
       {/* ================= RESOLVE TAB ================= */}
       {mainTab === "resolve" && showResolveTab && (
@@ -935,7 +937,7 @@ const MarketView = () => {
       <div className="rounded-xl border border-border bg-card/50 p-5">
         <h2 className="mb-2 text-sm font-semibold text-foreground">About pm-AMM pricing</h2>
         <p className="text-sm text-muted-foreground">
-          This market runs Paradigm's prediction-market AMM: the YES price is the normal CDF
+          This market runs on Paradigm's prediction-market AMM design: the YES price is the normal CDF
           Φ((y−x)/L) of the pool's reserve imbalance, so quotes are calibrated probabilities that
           always stay between 0 and 1. {market.isDynamic && "Liquidity decays as L·√(T−t) toward expiry, holding LP loss-versus-rebalancing uniform over the market's life."}
         </p>

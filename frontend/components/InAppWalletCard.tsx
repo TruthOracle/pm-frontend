@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useToast } from "@chakra-ui/react";
 import { ArrowDownToLine, ArrowUpFromLine, Wallet } from "lucide-react";
 import { useCantonWallet } from "@/wallets";
+import { WALLET_DISPLAY_NAME } from "@/config";
 import { fetchUserWallet, type UserWalletRecord } from "@/utils/activeContracts";
 import { depositToInAppWallet, withdrawFromInAppWallet } from "@/lib/inAppWallet";
 import { fmtCC } from "./market/marketHelpers";
@@ -16,16 +17,21 @@ import { fmtCC } from "./market/marketHelpers";
 export function InAppWalletCard({
   wallet: walletProp,
   onChanged,
+  variant = "row",
 }: {
   /** Pass the wallet record to control it from a parent; omit to self-fetch. */
   wallet?: UserWalletRecord | null;
   onChanged?: () => void | Promise<void>;
+  /** "row" spans wide layouts (Portfolio); "compact" stacks for narrow sidebars (market page). */
+  variant?: "row" | "compact";
 }) {
   const { account, transferCC, signAndSubmitTransaction } = useCantonWallet();
   const toast = useToast();
   const [selfWallet, setSelfWallet] = useState<UserWalletRecord | null>(null);
   const [amount, setAmount] = useState<string>("");
   const [busy, setBusy] = useState<"deposit" | "withdraw" | null>(null);
+  // Compact variant: which action's amount form is open (collapsed by default).
+  const [panel, setPanel] = useState<"deposit" | "withdraw" | null>(null);
 
   const managed = walletProp !== undefined;
   const wallet = managed ? walletProp : selfWallet;
@@ -59,7 +65,7 @@ export function InAppWalletCard({
     setBusy("deposit");
     const t = toast({
       title: "Depositing…",
-      description: `Confirm the ${fmtCC(amt)} CC transfer in the wallet popup — the in-app balance credits automatically.`,
+      description: `Confirm the ${fmtCC(amt)} CC transfer in the ${WALLET_DISPLAY_NAME} popup — the in-app wallet credits automatically.`,
       status: "info",
       duration: null,
       isClosable: false,
@@ -112,7 +118,7 @@ export function InAppWalletCard({
     setBusy("withdraw");
     const t = toast({
       title: "Withdrawing…",
-      description: "Confirm the withdrawal in the wallet popup — CC is then sent to your wallet.",
+      description: `Confirm the withdrawal in the ${WALLET_DISPLAY_NAME} popup — CC is then sent to your ${WALLET_DISPLAY_NAME} wallet.`,
       status: "info",
       duration: null,
       isClosable: false,
@@ -129,7 +135,7 @@ export function InAppWalletCard({
       toast({
         title: settled ? "Withdrawal sent" : "Withdrawal queued",
         description: settled
-          ? `${fmtCC(amt)} CC sent to your wallet.`
+          ? `${fmtCC(amt)} CC sent to your ${WALLET_DISPLAY_NAME} wallet.`
           : "Recorded on-ledger; the admin will settle the payout shortly.",
         status: settled ? "success" : "warning",
         duration: 7000,
@@ -149,24 +155,89 @@ export function InAppWalletCard({
     }
   };
 
+  const compact = variant === "compact";
+
+  const subLine = wallet
+    ? `deposited ${fmtCC(wallet.depositedCC)} · withdrawn ${fmtCC(wallet.withdrawnCC)}`
+    : "Deposit CC once, then every trade is a single signature.";
+
+  if (compact) {
+    // Both states keep a 1px border so toggling never changes the button's size.
+    const togglePill = (active: boolean) =>
+      `rounded-md border px-2 py-1 text-xs font-semibold transition-colors ${
+        active
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-border text-foreground hover:bg-secondary disabled:opacity-50"
+      }`;
+    return (
+      <div className="rounded-xl border border-border bg-card px-3 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+          <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <Wallet className="h-3.5 w-3.5" /> In-app wallet
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="mr-1 text-sm font-bold text-foreground">{fmtCC(balance)} CC</span>
+            <button
+              onClick={() => setPanel(panel === "deposit" ? null : "deposit")}
+              className={togglePill(panel === "deposit")}
+            >
+              Deposit
+            </button>
+            <button
+              onClick={() => setPanel(panel === "withdraw" ? null : "withdraw")}
+              disabled={!wallet || balance <= 0}
+              className={togglePill(panel === "withdraw")}
+            >
+              Withdraw
+            </button>
+          </div>
+        </div>
+        {panel !== null && (
+          <>
+            <div className="mt-2.5 flex items-center gap-2">
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="Amount (CC)"
+                className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+              />
+              <button
+                onClick={panel === "deposit" ? handleDeposit : handleWithdraw}
+                disabled={busy !== null}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-opacity disabled:opacity-50"
+              >
+                {panel === "deposit" ? (
+                  <>
+                    <ArrowDownToLine className="h-3.5 w-3.5" />
+                    {busy === "deposit" ? "Depositing…" : "Deposit"}
+                  </>
+                ) : (
+                  <>
+                    <ArrowUpFromLine className="h-3.5 w-3.5" />
+                    {busy === "withdraw" ? "Withdrawing…" : "Withdraw"}
+                  </>
+                )}
+              </button>
+            </div>
+            <div className="mt-1.5 text-[11px] text-muted-foreground">{subLine}</div>
+          </>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-xl border border-border bg-card px-4 py-3">
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
         <div className="min-w-[10rem]">
           <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            <Wallet className="h-3.5 w-3.5" /> In-app balance
+            <Wallet className="h-3.5 w-3.5" /> In-app wallet
           </div>
           <div className="mt-1 text-xl font-bold text-foreground">{fmtCC(balance)} CC</div>
-          {wallet && (
-            <div className="text-[11px] text-muted-foreground">
-              deposited {fmtCC(wallet.depositedCC)} · withdrawn {fmtCC(wallet.withdrawnCC)}
-            </div>
-          )}
-          {!wallet && (
-            <div className="text-[11px] text-muted-foreground">
-              Deposit CC once, then every trade is a single signature.
-            </div>
-          )}
+          <div className="text-[11px] text-muted-foreground">{subLine}</div>
         </div>
         <div className="flex flex-1 items-center gap-2">
           <input

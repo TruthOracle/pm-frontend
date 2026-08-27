@@ -24,6 +24,13 @@ export const WALLET_TYPE =
     ? "canton"
     : "cantor8";
 
+/**
+ * Display name of the connected EXTERNAL wallet. Balances live in two places —
+ * this wallet and the on-ledger in-app wallet — so every balance in the UI is
+ * labeled with one or the other.
+ */
+export const WALLET_DISPLAY_NAME = WALLET_TYPE === "canton" ? "Canton" : "Cantor8";
+
 export const TRUTHORACLE_PACKAGE_ID = readString(
   "VITE_TRUTHORACLE_PACKAGE_ID",
   "0a786ef1027354cb70a1cd78331680bf34054a642520dc0eb94c9ac4f775b837",
