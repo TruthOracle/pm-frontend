@@ -1,54 +1,39 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { Link } from "react-router-dom";
 import { fetchAllPredictionMarkets, type PredictionMarketRecord } from "@/utils/activeContracts";
 import MarketCard from "./MarketCard";
-import { ArrowRight, Loader2, Newspaper, ShieldCheck, Sparkles, TrendingUp, Zap } from "lucide-react";
+import { ArrowRight, Clock3, Loader2, Newspaper, Radio, ShieldCheck, Sparkles, TrendingUp, Zap } from "lucide-react";
 import { getPrefetchedMarkets } from "@/utils/marketPrefetch";
-
-const LATEST_NEWS = [
-  "Bitcoin traders are pricing a volatile September",
-  "Canton settlement activity reaches a new weekly high",
-  "Community conviction is moving into technology markets",
-  "New Yes/No markets are now open for trading",
-  "Prediction markets see a sharp rise in global participation",
-  "Traders are watching the next major crypto catalyst",
-  "Sports markets are gaining momentum ahead of the weekend",
-  "Transparent settlement is drawing more first-time traders",
-  "The oracle desk flags stronger conviction in tech markets",
-  "Yes shares climb as the community updates its forecast",
-  "New political questions are entering the public market",
-  "Canton liquidity remains steady across active markets",
-  "Market volume is building around the latest macro signals",
-  "Traders are comparing crowd probability with expert forecasts",
-  "Community intelligence shifts toward near-term outcomes",
-  "A fresh wave of markets is moving into price discovery",
-  "Real-time odds react to the latest global headlines",
-  "The most active markets are showing tighter spreads today",
-  "Forecast confidence rises as more participants join the debate",
-  "New culture and science markets are now trending",
-  "On-chain activity remains fully auditable on Canton",
-  "Oracle signals point to a busy week for market makers",
-  "No shares gain attention as traders hedge near-term risk",
-  "TruthOracle community forecasts are updating in real time",
-];
-
-const DESK_NEWS = [
-  { tag: "Market brief", source: "TruthOracle Research", time: "6 min read", title: "The week ahead: five questions markets are watching" },
-  { tag: "Explainer", source: "Canton Network", time: "3 min read", title: "Why transparent settlement changes the way we forecast" },
-  { tag: "Learn", source: "Oracle desk", time: "4 min read", title: "Reading probability: a practical guide to Yes and No" },
-];
+import { formatChartDate, pointOnProbabilityPath, probabilityHistoryPath, type ProbabilityPoint } from "@/lib/probabilityChart";
+import { fetchMarketNews, getNewsThumbnail, getTickerHeadline, NEWS_REFRESH_INTERVAL_MS, type MarketNewsItem } from "@/lib/marketNews";
 
 function Homepage() {
   const [markets, setMarkets] = useState<PredictionMarketRecord[]>(() => getPrefetchedMarkets() ?? []);
   const [loading, setLoading] = useState(() => markets.length === 0);
   const [featuredIndex, setFeaturedIndex] = useState(0);
-  const [newsIndex, setNewsIndex] = useState(0);
+  const [news, setNews] = useState<MarketNewsItem[]>([]);
+  const [newsLoading, setNewsLoading] = useState(true);
+  const [newsIsLive, setNewsIsLive] = useState(false);
+  const [newsUpdatedAt, setNewsUpdatedAt] = useState<Date | null>(null);
+  const [priceHistory, setPriceHistory] = useState<Map<number, ProbabilityPoint[]>>(new Map());
   useEffect(() => {
-    if (markets.length > 0) return;
-    fetchAllPredictionMarkets()
-      .then(setMarkets)
-      .finally(() => setLoading(false));
-  }, [markets.length]);
+    let active = true;
+    const refresh = () => {
+      fetchAllPredictionMarkets()
+        .then((nextMarkets) => {
+          if (active) setMarkets(nextMarkets);
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 15_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
   useEffect(() => {
     if (markets.length < 2) return;
     const timer = window.setInterval(
@@ -58,13 +43,51 @@ function Homepage() {
     return () => window.clearInterval(timer);
   }, [markets.length]);
   useEffect(() => {
-    const timer = window.setInterval(() => setNewsIndex((index) => (index + 1) % LATEST_NEWS.length), 4200);
-    return () => window.clearInterval(timer);
+    let active = true;
+    const refreshNews = () => {
+      setNewsLoading(true);
+      void fetchMarketNews().then((liveNews) => {
+        if (active && liveNews.length) { setNews(liveNews); setNewsIsLive(true); setNewsUpdatedAt(new Date()); }
+      }).catch(() => { if (active) setNewsIsLive(false); }).finally(() => { if (active) setNewsLoading(false); });
+    };
+    refreshNews();
+    const refreshTimer = window.setInterval(() => {
+      refreshNews();
+    }, NEWS_REFRESH_INTERVAL_MS);
+    return () => { active = false; window.clearInterval(refreshTimer); };
   }, []);
+  const latestHeadlines = news.map((item) => getTickerHeadline(item.title));
+  const tickerHeadlines = [...latestHeadlines, ...latestHeadlines];
   const featured = markets.slice(0, 4);
   const lead = featured[featured.length ? featuredIndex % featured.length : 0];
   const yesPct = lead ? Math.round(lead.currentPrice * 100) : 0;
-  const chartMonth = new Date().toLocaleString(undefined, { month: "short" });
+  const nowSecs = Math.floor(Date.now() / 1000);
+  const leadHistory = lead ? priceHistory.get(lead.marketId) ?? [{ timestamp: lead.createdAt, probability: 0.5 }] : [];
+  const chartCurrentY = lead ? 4 + (1 - lead.currentPrice) * 106 : 57;
+  const chartTrendPath = probabilityHistoryPath(leadHistory, lead?.createdAt ?? nowSecs, nowSecs, 410, 110, 4);
+  const homeChartPathRef = useRef<SVGPathElement>(null);
+  const [hoveredHomePoint, setHoveredHomePoint] = useState<(ProbabilityPoint & { x: number; y: number }) | null>(null);
+  const [hoveredHomeX, setHoveredHomeX] = useState<number | null>(null);
+
+  const handleHomePointerMove = (event: PointerEvent<SVGSVGElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const chartX = ((event.clientX - bounds.left) / bounds.width) * 480;
+    const exactX = Math.max(0, Math.min(410, chartX));
+    setHoveredHomeX(exactX);
+    if (homeChartPathRef.current) setHoveredHomePoint(pointOnProbabilityPath(homeChartPathRef.current, exactX, 410, lead?.createdAt ?? nowSecs, nowSecs, 110, 4));
+  };
+
+  useEffect(() => {
+    if (!lead) return;
+    setPriceHistory((previous) => {
+      const existing = previous.get(lead.marketId) ?? [{ timestamp: lead.createdAt, probability: 0.5 }];
+      const last = existing.at(-1);
+      if (last && Math.abs(last.probability - lead.currentPrice) < 0.0001) return previous;
+      const next = new Map(previous);
+      next.set(lead.marketId, [...existing, { timestamp: nowSecs, probability: lead.currentPrice }]);
+      return next;
+    });
+  }, [lead, nowSecs]);
 
   return (
     <div className="pb-20">
@@ -128,6 +151,8 @@ function Homepage() {
                         preserveAspectRatio="none"
                         role="img"
                         aria-label="Live probability trend"
+                        onPointerMove={handleHomePointerMove}
+                        onPointerLeave={() => { setHoveredHomePoint(null); setHoveredHomeX(null); }}
                       >
                         <defs>
                           <linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1">
@@ -136,27 +161,30 @@ function Homepage() {
                           </linearGradient>
                         </defs>
                         <path d="M0 110H430 M0 83.5H430 M0 57H430 M0 30.5H430 M0 4H430" className="chart-grid" />
-                        <path
-                          className="chart-fill"
-                          d="M0 98 C25 90 30 80 48 86 S78 64 95 72 S120 54 140 64 S165 46 188 54 S220 72 238 47 S262 38 278 48 S302 30 320 40 S344 20 360 32 S390 24 410 10 V110 H0Z"
-                        />
-                        <path
-                          className="chart-line"
-                          d="M0 98 C25 90 30 80 48 86 S78 64 95 72 S120 54 140 64 S165 46 188 54 S220 72 238 47 S262 38 278 48 S302 30 320 40 S344 20 360 32 S390 24 410 10"
-                        />
-                        <circle cx="410" cy="10" r="4" fill="#138b61" />
+                        <path className="chart-fill" d={`${chartTrendPath} V110 H0Z`} />
+                        <path ref={homeChartPathRef} className="chart-line chart-line-edge-safe" d={chartTrendPath} />
+                        <circle cx="410" cy={chartCurrentY} r="4" fill="#138b61" />
+                        {hoveredHomePoint && <>
+                          <line x1={hoveredHomeX ?? hoveredHomePoint.x} x2={hoveredHomeX ?? hoveredHomePoint.x} y1="4" y2="110" className="chart-crosshair" />
+                          <circle cx={hoveredHomePoint.x} cy={hoveredHomePoint.y} r="4" className="chart-hover-dot" />
+                        </>}
                         {[100, 75, 50, 25, 0].map((label, index) => (
                           <text key={label} x="442" y={8 + index * 26.5} className="home-chart-axis-label">
                             {label}%
                           </text>
                         ))}
                         <text x="0" y="144" className="home-chart-axis-label">
-                          {chartMonth}
+                          {formatChartDate(lead?.createdAt ?? 0, true)}
                         </text>
                         <text x="405" y="144" className="home-chart-axis-label">
                           Now
                         </text>
                       </svg>
+                      {hoveredHomePoint && <div className="chart-tooltip chart-tooltip-home" style={{ left: `${Math.min(80, Math.max(8, ((hoveredHomeX ?? hoveredHomePoint.x) / 410) * 100))}%`, transform: (hoveredHomeX ?? hoveredHomePoint.x) < 410 * .28 ? "translateX(0)" : (hoveredHomeX ?? hoveredHomePoint.x) > 410 * .72 ? "translateX(-100%)" : "translateX(-50%)" }}>
+                        <strong>{(hoveredHomePoint.probability * 100).toFixed(2)}% Yes</strong>
+                        <span>{new Date(hoveredHomePoint.timestamp * 1000).toLocaleDateString(undefined, { day: "2-digit", month: "short" }).toUpperCase()}</span>
+                        <span>{new Date(hoveredHomePoint.timestamp * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: false })}</span>
+                      </div>}
                     </div>
                   </div>
                 </div>
@@ -209,15 +237,15 @@ function Homepage() {
             </div>
             <div className="latest-news">
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Latest news</span>
+                <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-primary">Latest news</span>
                 <span className="live-dot" />
               </div>
               <div className="news-ticker-window">
-                <div className="news-ticker-track" style={{ transform: `translate3d(0, -${newsIndex * 40}px, 0)` }}>
-                  {LATEST_NEWS.map((headline) => (
-                    <div key={headline} className="news-ticker-item">
+                <div className="news-ticker-track" style={{ animationDuration: `${Math.max(latestHeadlines.length, 1) * 4.2}s` }}>
+                  {tickerHeadlines.map((headline, index) => (
+                    <div key={`${headline}-${index}`} className="news-ticker-item">
                       <span className="news-item-dot" />
-                      {headline}
+                      <span className="news-ticker-headline">{headline}</span>
                     </div>
                   ))}
                 </div>
@@ -263,19 +291,26 @@ function Homepage() {
               <Newspaper className="h-3.5 w-3.5" /> From the desk
             </p>
             <h2 className="section-title">News &amp; signals</h2>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-semibold ${newsIsLive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                {newsIsLive ? <Radio className="h-3 w-3" /> : <Clock3 className="h-3 w-3" />}
+                {newsIsLive ? "LIVE FROM WEB" : "FALLBACK DATA"}
+              </span>
+              {newsUpdatedAt && <span>Updated {newsUpdatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
+            </div>
           </div>
           <Link to="/news" className="quiet-link">
             See all stories <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>
         <div className="news-grid mt-5">
-          {DESK_NEWS.map((item) => (
+          {newsLoading || news.length === 0 ? <div className="col-span-full flex min-h-48 items-center justify-center rounded-2xl border border-slate-200 bg-white"><Loader2 className="h-7 w-7 animate-spin text-primary" /><span className="ml-3 text-sm text-slate-500">Waiting for live market news…</span></div> : news.slice(0, 3).map((item) => (
             <article key={item.title} className="news-card">
-              <div className="news-art"><span>{item.tag}</span><Newspaper className="h-8 w-8" /></div>
+              <div className="news-art relative overflow-hidden bg-slate-900"><img src={getNewsThumbnail(item)} alt="" className="absolute inset-0 h-full w-full object-cover" loading="lazy" onError={(event) => { event.currentTarget.src = getNewsThumbnail({ ...item, image: undefined }); }} /><div className="absolute inset-0 bg-slate-950/25" /><span className="relative z-10">{item.tag}</span><Newspaper className="relative z-10 h-8 w-8" /></div>
               <div className="p-5">
                 <div className="flex items-center gap-2 text-xs text-slate-400"><span>{item.source}</span><span>·</span><span>{item.time}</span></div>
                 <h3 className="mt-3 text-lg font-bold leading-6 tracking-[-0.03em] text-slate-950">{item.title}</h3>
-                <Link to="/news" className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary">Read more <ArrowRight className="h-3.5 w-3.5" /></Link>
+                <a href={item.url || "/news"} target={item.url ? "_blank" : undefined} rel={item.url ? "noreferrer" : undefined} className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary">Read more <ArrowRight className="h-3.5 w-3.5" /></a>
               </div>
             </article>
           ))}

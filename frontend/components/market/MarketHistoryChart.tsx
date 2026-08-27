@@ -1,5 +1,45 @@
-export default function MarketHistoryChart({ probability }: { probability: number }) {
-  const marketChartMonth = new Date().toLocaleString(undefined, { month: "short" });
+import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { formatChartDate, pointOnProbabilityPath, probabilityHistoryPath, probabilityY, type ProbabilityPoint } from "@/lib/probabilityChart";
+
+type ChartRange = "1D" | "1W" | "1M" | "ALL";
+
+const RANGE_OPTIONS: Array<{ value: ChartRange; days?: number }> = [
+  { value: "1D", days: 1 },
+  { value: "1W", days: 7 },
+  { value: "1M", days: 30 },
+  { value: "ALL" },
+];
+
+export default function MarketHistoryChart({ probability, createdAt }: { probability: number; createdAt: number }) {
+  const [range, setRange] = useState<ChartRange>("1M");
+  const [history, setHistory] = useState<ProbabilityPoint[]>(() => [{ timestamp: createdAt, probability: 0.5 }]);
+  const currentY = probabilityY(probability, 178);
+  const chartEndX = 860;
+  const nowSecs = Math.floor(Date.now() / 1000);
+  const selectedRange = RANGE_OPTIONS.find((option) => option.value === range);
+  const rangeStart = selectedRange?.days
+    ? Math.max(createdAt, nowSecs - selectedRange.days * 24 * 60 * 60)
+    : createdAt;
+  const chartTrendPath = probabilityHistoryPath(history, rangeStart, nowSecs, chartEndX, 178);
+  const chartPathRef = useRef<SVGPathElement>(null);
+  const [hoveredPoint, setHoveredPoint] = useState<(ProbabilityPoint & { x: number; y: number }) | null>(null);
+  const [hoveredX, setHoveredX] = useState<number | null>(null);
+
+  const handlePointerMove = (event: PointerEvent<SVGSVGElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const chartX = ((event.clientX - bounds.left) / bounds.width) * 940;
+    const exactX = Math.max(0, Math.min(chartEndX, chartX));
+    setHoveredX(exactX);
+    if (chartPathRef.current) setHoveredPoint(pointOnProbabilityPath(chartPathRef.current, exactX, chartEndX, rangeStart, nowSecs, 178));
+  };
+
+  useEffect(() => {
+    setHistory((previous) => {
+      const last = previous.at(-1);
+      if (last && Math.abs(last.probability - probability) < 0.0001) return previous;
+      return [...previous, { timestamp: nowSecs, probability }];
+    });
+  }, [nowSecs, probability]);
 
   return (
     <section className="market-history-card">
@@ -10,19 +50,43 @@ export default function MarketHistoryChart({ probability }: { probability: numbe
         </div>
         <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">Live market</span>
       </div>
-      <svg viewBox="0 0 940 230" className="mt-2 h-56 w-full" role="img" aria-label="Market probability history">
+      <div className="market-chart-wrap">
+      <svg viewBox="0 0 940 230" className="mt-2 h-56 w-full" role="img" aria-label="Market probability history" onPointerMove={handlePointerMove} onPointerLeave={() => { setHoveredPoint(null); setHoveredX(null); }}>
         <defs><linearGradient id="marketFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#138b61" stopOpacity=".18" /><stop offset="1" stopColor="#138b61" stopOpacity="0" /></linearGradient></defs>
         <path d="M0 178H880 M0 134H880 M0 90H880 M0 46H880 M0 2H880" className="chart-grid" />
-        <path d="M0 158 C35 138 50 154 80 140 S125 125 150 134 S200 104 230 120 S275 92 305 106 S345 126 380 98 S425 82 455 92 S500 64 530 79 S575 60 605 72 S650 50 680 64 S730 80 755 58 S810 46 845 54 S865 36 880 30 V178 H0Z" fill="url(#marketFill)" />
-        <path d="M0 158 C35 138 50 154 80 140 S125 125 150 134 S200 104 230 120 S275 92 305 106 S345 126 380 98 S425 82 455 92 S500 64 530 79 S575 60 605 72 S650 50 680 64 S730 80 755 58 S810 46 845 54 S865 36 880 30" className="chart-line" />
-        <circle cx="880" cy="30" r="5" fill="#138b61" />
+        <path d={`${chartTrendPath} V178 H0Z`} fill="url(#marketFill)" />
+        <path ref={chartPathRef} d={chartTrendPath} className="chart-line chart-line-edge-safe" />
+        <circle cx={chartEndX} cy={currentY} r="5" fill="#138b61" />
+        {hoveredPoint && <>
+          <line x1={hoveredX ?? hoveredPoint.x} x2={hoveredX ?? hoveredPoint.x} y1="2" y2="178" className="chart-crosshair" />
+          <circle cx={hoveredPoint.x} cy={hoveredPoint.y} r="5" className="chart-hover-dot" />
+        </>}
         {[100, 75, 50, 25, 0].map((label, index) => (
           <text key={label} x="895" y={6 + index * 44} className="market-chart-axis-label">{label}%</text>
         ))}
-        <text x="0" y="220" className="market-chart-axis-label">{marketChartMonth}</text>
-        <text x="846" y="220" className="market-chart-axis-label">Now</text>
+        <text x="0" y="220" className="market-chart-axis-label">{formatChartDate(rangeStart, true)}</text>
+        <text x="820" y="220" className="market-chart-axis-label">Now</text>
       </svg>
-      <div className="mt-5 flex items-center gap-1 rounded-xl bg-slate-50 p-1 text-xs font-bold text-slate-400"><button className="flex-1 rounded-lg bg-white py-2 text-slate-900 shadow-sm">1D</button><button className="flex-1 py-2">1W</button><button className="flex-1 py-2">1M</button><button className="flex-1 py-2">ALL</button></div>
+      {hoveredPoint && <div className="chart-tooltip" style={{ left: `${Math.min(86, Math.max(8, ((hoveredX ?? hoveredPoint.x) / chartEndX) * 100))}%` }}>
+        <strong>{(hoveredPoint.probability * 100).toFixed(2)}% Yes</strong>
+        <span>{new Date(hoveredPoint.timestamp * 1000).toLocaleDateString(undefined, { day: "2-digit", month: "short" }).toUpperCase()}</span>
+        <span>{new Date(hoveredPoint.timestamp * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: false })}</span>
+      </div>}
+      </div>
+      <div className="mt-5 flex items-center gap-1 rounded-xl bg-slate-50 p-1 text-xs font-bold text-slate-400" role="tablist" aria-label="Chart time range">
+        {RANGE_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="tab"
+            aria-selected={range === option.value}
+            onClick={() => setRange(option.value)}
+            className={`flex-1 rounded-lg py-2 transition-colors ${range === option.value ? "bg-white text-slate-900 shadow-sm" : "hover:text-slate-700"}`}
+          >
+            {option.value}
+          </button>
+        ))}
+      </div>
     </section>
   );
 }

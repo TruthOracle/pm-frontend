@@ -34,6 +34,29 @@ The platform can be seen at - [truthoracle-omega.vercel.app](https://truthoracle
    npm run deploy
    ```
 
+## iOS Mobile App
+
+The iOS app is a native Swift/SwiftUI target. It does not load the React/Vite
+frontend in a WebView. The native project is in `ios/` and owns the iOS
+navigation, news, markets, and portfolio surfaces.
+
+### Run in the iOS Simulator
+
+1. Open Xcode once and install an iOS Simulator runtime from **Xcode → Settings → Components**.
+2. Build the native iOS target:
+   ```bash
+   npm run ios:build
+   ```
+3. Open the iOS project:
+   ```bash
+   npm run ios:open
+   ```
+4. Select an iPhone simulator in Xcode and press **Run**.
+
+The current native shell uses local preview data for the first SwiftUI surfaces.
+The next integration step is to connect `URLSession` services for live news,
+Canton markets, and the native wallet flow without introducing a WebView.
+
 ## DAML Contracts (Canton Network)
 
 TruthOracle uses DAML contracts on the Canton Network in the `daml/` directory:

@@ -30,7 +30,7 @@ function walletBaseUrl(): string {
   return ENTERPRISE_WALLET_PROXY_URL;
 }
 
-export function useEnterpriseWalletForAdmin(): boolean {
+export function isEnterpriseWalletForAdmin(): boolean {
   const party = enterpriseWalletPartyId();
   if (!party) return false;
   return Boolean(ENTERPRISE_WALLET_PROXY_URL);
@@ -44,7 +44,7 @@ export async function submitAdminTransaction(
   params: PrepareExecuteParams,
   signAndSubmitTransaction: (p: PrepareExecuteParams) => Promise<{ hash: string }>
 ): Promise<{ hash: string }> {
-  if (useEnterpriseWalletForAdmin()) {
+  if (isEnterpriseWalletForAdmin()) {
     return submitViaEnterpriseWallet(params);
   }
   return signAndSubmitTransaction(params);
