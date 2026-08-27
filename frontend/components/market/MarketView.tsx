@@ -1,4 +1,5 @@
 import { Skeleton, Text, useToast } from "@chakra-ui/react";
+import { Gavel } from "lucide-react";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useCantonWallet } from "@/wallets";
@@ -849,6 +850,27 @@ const MarketView = () => {
     <InAppWalletCard wallet={wallet} onChanged={refreshAllViews} variant="compact" />
   ) : null;
 
+  const resolutionSlot = market.resolutionDescription ? (
+    <div className="rounded-xl border border-primary/20 border-l-4 border-l-primary bg-card p-5 shadow-sm">
+      <div className="mb-2 flex items-center gap-2">
+        <Gavel className="h-4 w-4 text-primary" />
+        <h2 className="text-sm font-semibold text-foreground">Resolution criteria</h2>
+      </div>
+      <p className="text-sm text-foreground/80">{market.resolutionDescription}</p>
+      {tiers.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3 text-xs">
+          <span className="font-semibold text-foreground">Policy</span>
+          {tiers.map((t) => (
+            <span key={t} className="rounded-full bg-primary/10 px-2.5 py-0.5 font-medium text-primary">{t}</span>
+          ))}
+          {market.policy.sources.length > 0 && (
+            <span className="text-muted-foreground">Sources: {market.policy.sources.join(", ")}</span>
+          )}
+        </div>
+      )}
+    </div>
+  ) : null;
+
   return (
     <div className="space-y-6">
       {/* ---------------- Market header ---------------- */}
@@ -887,20 +909,6 @@ const MarketView = () => {
         />
       </div>
 
-      {market.resolutionDescription && (
-        <p className="rounded-lg border border-border bg-secondary/50 px-4 py-3 text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">Resolution criteria: </span>
-          {market.resolutionDescription}
-          {tiers.length > 0 && (
-            <span className="block pt-1 text-xs">
-              <span className="font-medium text-foreground">Policy: </span>
-              {tiers.join(" · ")}
-              {market.policy.sources.length > 0 && ` · Sources: ${market.policy.sources.join(", ")}`}
-            </span>
-          )}
-        </p>
-      )}
-
       {/* ---------------- Secondary tabs ---------------- */}
       {tabs.some((t) => t.visible && t.key !== "trade" && t.key !== "liquidity") && (
         <div className="flex gap-1 rounded-full bg-secondary p-1">
@@ -932,6 +940,8 @@ const MarketView = () => {
       {mainTab === "settle" && showSettleTab && (
         <MarketSettlementPanel context={settlementContext} />
       )}
+
+      {resolutionSlot}
 
       {/* About pm-AMM */}
       <div className="rounded-xl border border-border bg-card/50 p-5">

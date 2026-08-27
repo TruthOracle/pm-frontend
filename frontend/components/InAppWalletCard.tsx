@@ -35,14 +35,20 @@ export function InAppWalletCard({
 
   const managed = walletProp !== undefined;
   const wallet = managed ? walletProp : selfWallet;
+  const [selfLoaded, setSelfLoaded] = useState(false);
 
   useEffect(() => {
     if (managed) return;
     if (!account?.address) {
       setSelfWallet(null);
+      setSelfLoaded(false);
       return;
     }
-    fetchUserWallet(account.address).then(setSelfWallet).catch(() => {});
+    setSelfLoaded(false);
+    fetchUserWallet(account.address)
+      .then(setSelfWallet)
+      .catch(() => {})
+      .finally(() => setSelfLoaded(true));
   }, [managed, account?.address]);
 
   const reload = useCallback(async () => {
@@ -157,9 +163,15 @@ export function InAppWalletCard({
 
   const compact = variant === "compact";
 
-  const subLine = wallet
-    ? `deposited ${fmtCC(wallet.depositedCC)} · withdrawn ${fmtCC(wallet.withdrawnCC)}`
-    : "Deposit CC once, then every trade is a single signature.";
+  // While the self-fetch is in flight, keep the text short and the balance a dash —
+  // the long no-wallet hint would widen the layout and shift the controls on load.
+  const loading = !managed && !selfLoaded;
+  const balanceText = loading ? "—" : `${fmtCC(balance)} CC`;
+  const subLine = loading
+    ? "loading balance…"
+    : wallet
+      ? `deposited ${fmtCC(wallet.depositedCC)} · withdrawn ${fmtCC(wallet.withdrawnCC)}`
+      : "Deposit CC once, then every trade is a single signature.";
 
   if (compact) {
     // Both states keep a 1px border so toggling never changes the button's size.
@@ -176,7 +188,7 @@ export function InAppWalletCard({
             <Wallet className="h-3.5 w-3.5" /> In-app wallet
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="mr-1 text-sm font-bold text-foreground">{fmtCC(balance)} CC</span>
+            <span className="mr-1 text-sm font-bold text-foreground">{balanceText}</span>
             <button
               onClick={() => setPanel(panel === "deposit" ? null : "deposit")}
               className={togglePill(panel === "deposit")}
@@ -236,7 +248,7 @@ export function InAppWalletCard({
           <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             <Wallet className="h-3.5 w-3.5" /> In-app wallet
           </div>
-          <div className="mt-1 text-xl font-bold text-foreground">{fmtCC(balance)} CC</div>
+          <div className="mt-1 text-xl font-bold text-foreground">{balanceText}</div>
           <div className="text-[11px] text-muted-foreground">{subLine}</div>
         </div>
         <div className="flex flex-1 items-center gap-2">
