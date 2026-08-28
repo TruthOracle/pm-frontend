@@ -10,6 +10,13 @@
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
 		504EC3191FED79650016851F /* TruthOracleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC31A1FED79650016851F /* TruthOracleApp.swift */; };
 		504EC31B1FED79650016851F /* NativeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC31C1FED79650016851F /* NativeModels.swift */; };
+		A10000000000000000000001 /* OracleDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* OracleDesignSystem.swift */; };
+		A10000000000000000000002 /* DiscoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* DiscoverView.swift */; };
+		A10000000000000000000003 /* MarketsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* MarketsView.swift */; };
+		A10000000000000000000004 /* SignalsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* SignalsView.swift */; };
+		A10000000000000000000005 /* PortfolioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* PortfolioView.swift */; };
+		A10000000000000000000006 /* MarketDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* MarketDetailView.swift */; };
+		A10000000000000000000007 /* AppSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* AppSheets.swift */; };
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
@@ -20,6 +27,13 @@
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		504EC31A1FED79650016851F /* TruthOracleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TruthOracleApp.swift; sourceTree = "<group>"; };
 		504EC31C1FED79650016851F /* NativeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeModels.swift; sourceTree = "<group>"; };
+		A20000000000000000000001 /* OracleDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OracleDesignSystem.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* DiscoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverView.swift; sourceTree = "<group>"; };
+		A20000000000000000000003 /* MarketsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketsView.swift; sourceTree = "<group>"; };
+		A20000000000000000000004 /* SignalsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalsView.swift; sourceTree = "<group>"; };
+		A20000000000000000000005 /* PortfolioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioView.swift; sourceTree = "<group>"; };
+		A20000000000000000000006 /* MarketDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketDetailView.swift; sourceTree = "<group>"; };
+		A20000000000000000000007 /* AppSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSheets.swift; sourceTree = "<group>"; };
 		504EC30E1FED79650016851F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -62,11 +76,34 @@
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				504EC31A1FED79650016851F /* TruthOracleApp.swift */,
 				504EC31C1FED79650016851F /* NativeModels.swift */,
+				A30000000000000000000001 /* Features */,
+				A30000000000000000000002 /* Shared */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
 				504EC3131FED79650016851F /* Info.plist */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		A30000000000000000000001 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000002 /* DiscoverView.swift */,
+				A20000000000000000000003 /* MarketsView.swift */,
+				A20000000000000000000004 /* SignalsView.swift */,
+				A20000000000000000000005 /* PortfolioView.swift */,
+				A20000000000000000000006 /* MarketDetailView.swift */,
+				A20000000000000000000007 /* AppSheets.swift */,
+			);
+			name = Features;
+			sourceTree = "<group>";
+		};
+		A30000000000000000000002 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000001 /* OracleDesignSystem.swift */,
+			);
+			name = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -148,6 +185,13 @@
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				504EC3191FED79650016851F /* TruthOracleApp.swift in Sources */,
 				504EC31B1FED79650016851F /* NativeModels.swift in Sources */,
+				A10000000000000000000001 /* OracleDesignSystem.swift in Sources */,
+				A10000000000000000000002 /* DiscoverView.swift in Sources */,
+				A10000000000000000000003 /* MarketsView.swift in Sources */,
+				A10000000000000000000004 /* SignalsView.swift in Sources */,
+				A10000000000000000000005 /* PortfolioView.swift in Sources */,
+				A10000000000000000000006 /* MarketDetailView.swift in Sources */,
+				A10000000000000000000007 /* AppSheets.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
