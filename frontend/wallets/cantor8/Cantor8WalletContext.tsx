@@ -1,9 +1,9 @@
 /**
  * Cantor8 Wallet – C8WalletProvider implementation.
- * Uses @cantor8/wallet-connect-sdk (>=0.3.0) for the Cantor8 wallet.
+ * Uses @cantor8/wallet-connect-sdk (>=0.5.0) for the Cantor8 wallet.
  *
  * Transaction submission: the connected C8 party is an external / self-custody party — the
- * wallet's participant prepares, signs, and executes via the new `signAndExecute({ note,
+ * wallet's participant prepares, signs, and executes via the `signAndExecute({ note,
  * partyId, commandId, commandsJson, disclosedContracts })` API. Resolution flows through
  * events (`txInitiated` / `txChanged`).
  */
@@ -26,13 +26,21 @@ const Cantor8WalletContext = createContext<CantonWalletContextValue | null>(null
 const APP_NAME = "TruthOracle";
 
 type C8Network = "devnet" | "mainnet" | "local";
-type C8SdkNetwork = "devnet" | "mainnet";
+type C8SdkNetwork = "devnet" | "testmainnet" | "mainnet";
 
 /** Resolve the C8 network from env, falling back to devnet for unsupported values. */
 function resolveNetwork(): C8Network {
   const raw = APP_NETWORK.toLowerCase().trim();
   if (raw === "mainnet" || raw === "local") return raw;
   return "devnet";
+}
+
+/**
+ * App network → SDK network. SDK 0.5.0 dropped "local" and throws on unknown
+ * values, so local dev talks to the devnet wallet.
+ */
+function sdkNetworkFor(network: C8Network): C8SdkNetwork {
+  return network === "mainnet" ? "mainnet" : "devnet";
 }
 
 /**
@@ -46,8 +54,11 @@ function popupOriginFor(network: C8Network): string {
   return "https://wallet.dev.digik.cantor8.tech";
 }
 
-function partyIdFromAccounts(accounts?: AccountInfoPayload[] | null): string {
-  return accounts?.[0]?.partyId ?? "";
+function accountFromPayload(accounts?: AccountInfoPayload[] | null): CantonAccount | null {
+  const first = accounts?.[0];
+  if (!first?.partyId) return null;
+  // 0.5.0 exposes publicKey (and validator info) on the account payload.
+  return { address: first.partyId, partyId: first.partyId, publicKey: first.publicKey };
 }
 
 export function Cantor8WalletProvider({ children }: { children: React.ReactNode }) {
@@ -61,17 +72,13 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     const wallet = new C8WalletProvider({
       dappName: APP_NAME,
       dappUrl: window.location.href,
-      network: network.networkId as unknown as C8SdkNetwork,
+      network: sdkNetworkFor(network.networkId as C8Network),
     });
-
-    const applyPartyId = (partyId: string) => {
-      setAccount(partyId ? { address: partyId, partyId } : null);
-    };
 
     const refreshAccount = async () => {
       try {
         const { accounts } = await wallet.getAccounts();
-        applyPartyId(partyIdFromAccounts(accounts));
+        setAccount(accountFromPayload(accounts));
       } catch (e) {
         console.warn("[Cantor8] getAccounts failed:", e);
       }
@@ -89,7 +96,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     };
     window.addEventListener("message", onRawPopupMessage);
 
-    // The "connected" event in 0.2.x carries no accounts payload — fetch them explicitly.
+    // The "connected" event carries no accounts payload — fetch them explicitly.
     wallet.on("connected", (e) => {
       console.log("[Cantor8] event=connected:", e);
       void refreshAccount();
@@ -100,10 +107,10 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
       setAccount(null);
     });
 
-    // 0.2.x: accountChanged delivers the updated account list directly.
+    // accountChanged delivers the updated account list directly.
     wallet.on("accountChanged", (e) => {
       console.log("[Cantor8] event=accountChanged:", e);
-      applyPartyId(partyIdFromAccounts(e.accounts));
+      setAccount(accountFromPayload(e.accounts));
     });
 
     wallet.on("themeChanged", (e) => {
@@ -135,9 +142,9 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     // Fetch account after connect (in case the "connected" event hasn't landed yet).
     try {
       const { accounts } = await wallet.getAccounts();
-      const partyId = partyIdFromAccounts(accounts);
-      if (partyId) {
-        setAccount({ address: partyId, partyId });
+      const connected = accountFromPayload(accounts);
+      if (connected) {
+        setAccount(connected);
       }
     } catch (e) {
       console.warn("[Cantor8] getAccounts after connect failed:", e);
@@ -158,7 +165,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
       const partyId = account?.partyId ?? params.actAs?.[0] ?? "";
       if (!partyId) throw new Error("Cantor8 wallet not connected (no partyId)");
 
-      // 0.3.0 signAndExecute({ note, partyId, commandId, commandsJson, disclosedContracts }):
+      // signAndExecute({ note, partyId, commandId, commandsJson, disclosedContracts }):
       // the SDK auto-opens the wallet popup; the wallet's participant prepares + signs +
       // executes. The returned Promise<void> doesn't carry the txId — resolution flows via:
       //   - txInitiated → wallet submitted; resolve with txId
@@ -203,9 +210,9 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
           }),
         );
 
-        // SDK 0.3 .d.ts types `disclosedContracts` as `string`; per Vasiliy this
-        // should be a JSON-stringified array — same shape as `commandsJson` —
-        // not a raw array. Stringify the DisclosedContract[] from the dApp.
+        // `disclosedContracts` is typed as `string`: a JSON-stringified array —
+        // same shape as `commandsJson` — not a raw array. Stringify the
+        // DisclosedContract[] from the dApp.
         const signAndExecuteInput = {
           note: "TruthOracle transaction",
           partyId: params.actAs?.[0] ?? partyId,
@@ -216,7 +223,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
         console.log(
           "[Cantor8] signAndExecute payload:\n" + JSON.stringify(signAndExecuteInput, null, 2),
         );
-        (wallet as unknown as { signAndExecute(input: typeof signAndExecuteInput): Promise<unknown> })
+        wallet
           .signAndExecute(signAndExecuteInput)
           .then((result) => {
             console.log("[Cantor8] signAndExecute resolved:", result);

@@ -195,7 +195,7 @@ async function main() {
   const PARTY = partyOverride
     || mustEnv(viteEnv("VITE_ENTERPRISE_WALLET_PARTY_ID"), "VITE_ENTERPRISE_WALLET_PARTY_ID");
   // The active-contracts template filter takes a package-*name* reference
-  // ("#truthoracle-v12:Module:Entity"), never a package id.
+  // ("#truthoracle-v13:Module:Entity"), never a package id.
   const PACKAGE_NAME = viteEnv("VITE_TRUTHORACLE_PACKAGE_NAME") || "truthoracle";
 
   const onlyEntity = positional[0];

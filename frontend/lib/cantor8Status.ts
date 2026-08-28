@@ -28,7 +28,7 @@ function getWalletBackendUrl(): string {
 
 /**
  * The Cantor8 SDK persists the bearer token to localStorage under "c8-session" as
- * `{ authToken, partyIds }` (see SessionManager in @cantor8/wallet-connect-sdk).
+ * `{ authToken, accounts, expireAt }` (see SessionManager in @cantor8/wallet-connect-sdk).
  * Reading it here is intentionally coupled to that key.
  */
 function getCantor8BearerToken(): string | null {

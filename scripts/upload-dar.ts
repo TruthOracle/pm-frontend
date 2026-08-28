@@ -57,20 +57,17 @@ async function main() {
       "Upload a DAR to a Canton participant via the JSON Ledger API (POST /v2/packages).",
       "",
       "Usage:",
-      "  npm run dars:upload                       # uploads daml/.daml/dist/truthoracle-v12-1.0.0.dar",
-      "  npm run dars:upload -- path/to/file.dar   # uploads a specific DAR",
+      "  npm run dars:upload                             # zkpc (MainNet), daml/.daml/dist/truthoracle-v13-1.0.0.dar",
+      "  npm run dars:upload -- --network devnet         # DevNet participant (VITE_CANTON_PARTICIPANT_URL)",
+      "  npm run dars:upload -- path/to/file.dar         # uploads a specific DAR",
       "",
       "Config (root `.env`):",
-      "  ZKPC_LEDGER_API_URL          e.g. https://api.validator.main.zkpc.cantor8.tech/api/ledger",
-      "                                fallback: VITE_CANTON_PARTICIPANT_URL",
-      "  ZKPC_KEYCLOAK_URL            e.g. https://auth.main.zkpc.cantor8.tech",
-      "                                fallback: VITE_KEYCLOAK_URL",
-      "  ZKPC_KEYCLOAK_REALM          default: master",
-      "                                fallback: VITE_KEYCLOAK_REALM",
-      "  ZKPC_KEYCLOAK_CLIENT_ID      (admin client id from Cantor8)",
-      "                                fallback: VITE_KEYCLOAK_CLIENT_ID",
-      "  ZKPC_KEYCLOAK_CLIENT_SECRET  (admin client secret from Cantor8)",
-      "                                fallback: VITE_KEYCLOAK_CLIENT_SECRET",
+      "  --network zkpc (default):",
+      "    ZKPC_LEDGER_API_URL / ZKPC_KEYCLOAK_URL / ZKPC_KEYCLOAK_REALM",
+      "    ZKPC_KEYCLOAK_CLIENT_ID / ZKPC_KEYCLOAK_CLIENT_SECRET",
+      "  --network devnet:",
+      "    VITE_CANTON_PARTICIPANT_URL / VITE_KEYCLOAK_URL / VITE_KEYCLOAK_REALM",
+      "    KEYCLOAK_CLIENT_ID / KEYCLOAK_CLIENT_SECRET (server-only, no VITE_ prefix)",
     ].join("\n"));
     return;
   }
@@ -80,25 +77,41 @@ async function main() {
   const rootEnv = path.join(repoRoot, ".env");
   if (fs.existsSync(rootEnv)) dotenv.config({ path: rootEnv });
 
-  const positional = process.argv.slice(2).filter((a) => !a.startsWith("-"));
+  const args = process.argv.slice(2);
+  const networkIdx = args.indexOf("--network");
+  const network = networkIdx >= 0 ? (args[networkIdx + 1] ?? "") : "zkpc";
+  if (network !== "zkpc" && network !== "devnet") {
+    throw new Error(`Unknown --network "${network}". Use: zkpc | devnet`);
+  }
+  const positional = args.filter((a, i) => !a.startsWith("-") && i !== networkIdx + 1);
   const darPath = path.resolve(
     repoRoot,
-    positional[0] || "daml/.daml/dist/truthoracle-v12-1.0.0.dar",
+    positional[0] || "daml/.daml/dist/truthoracle-v13-1.0.0.dar",
   );
   if (!fs.existsSync(darPath)) {
     throw new Error(`DAR not found: ${darPath}\nBuild it first: cd daml && dpm build`);
   }
 
   const LEDGER_API = stripTrailingSlash(mustEnv(
-    firstEnv("ZKPC_LEDGER_API_URL", "VITE_CANTON_PARTICIPANT_URL"),
-    "ZKPC_LEDGER_API_URL or VITE_CANTON_PARTICIPANT_URL",
+    network === "devnet"
+      ? firstEnv("VITE_CANTON_PARTICIPANT_URL")
+      : firstEnv("ZKPC_LEDGER_API_URL", "VITE_CANTON_PARTICIPANT_URL"),
+    network === "devnet" ? "VITE_CANTON_PARTICIPANT_URL" : "ZKPC_LEDGER_API_URL or VITE_CANTON_PARTICIPANT_URL",
   ));
-  const bearerToken = await getKeycloakAccessToken({
-    keycloakUrl: mustEnv(firstEnv("ZKPC_KEYCLOAK_URL", "VITE_KEYCLOAK_URL"), "ZKPC_KEYCLOAK_URL or VITE_KEYCLOAK_URL"),
-    realm: firstEnv("ZKPC_KEYCLOAK_REALM", "VITE_KEYCLOAK_REALM") || "master",
-    clientId: mustEnv(firstEnv("ZKPC_KEYCLOAK_CLIENT_ID", "VITE_KEYCLOAK_CLIENT_ID"), "ZKPC_KEYCLOAK_CLIENT_ID or VITE_KEYCLOAK_CLIENT_ID"),
-    clientSecret: mustEnv(firstEnv("ZKPC_KEYCLOAK_CLIENT_SECRET", "VITE_KEYCLOAK_CLIENT_SECRET"), "ZKPC_KEYCLOAK_CLIENT_SECRET or VITE_KEYCLOAK_CLIENT_SECRET"),
-  });
+  console.log(`Target network: ${network} (${LEDGER_API})`);
+  const bearerToken = network === "devnet"
+    ? await getKeycloakAccessToken({
+        keycloakUrl: mustEnv(firstEnv("VITE_KEYCLOAK_URL"), "VITE_KEYCLOAK_URL"),
+        realm: firstEnv("VITE_KEYCLOAK_REALM") || "master",
+        clientId: mustEnv(firstEnv("KEYCLOAK_CLIENT_ID", "VITE_KEYCLOAK_CLIENT_ID"), "KEYCLOAK_CLIENT_ID"),
+        clientSecret: mustEnv(firstEnv("KEYCLOAK_CLIENT_SECRET", "VITE_KEYCLOAK_CLIENT_SECRET"), "KEYCLOAK_CLIENT_SECRET"),
+      })
+    : await getKeycloakAccessToken({
+        keycloakUrl: mustEnv(firstEnv("ZKPC_KEYCLOAK_URL", "VITE_KEYCLOAK_URL"), "ZKPC_KEYCLOAK_URL or VITE_KEYCLOAK_URL"),
+        realm: firstEnv("ZKPC_KEYCLOAK_REALM", "VITE_KEYCLOAK_REALM") || "master",
+        clientId: mustEnv(firstEnv("ZKPC_KEYCLOAK_CLIENT_ID", "VITE_KEYCLOAK_CLIENT_ID"), "ZKPC_KEYCLOAK_CLIENT_ID or VITE_KEYCLOAK_CLIENT_ID"),
+        clientSecret: mustEnv(firstEnv("ZKPC_KEYCLOAK_CLIENT_SECRET", "VITE_KEYCLOAK_CLIENT_SECRET"), "ZKPC_KEYCLOAK_CLIENT_SECRET or VITE_KEYCLOAK_CLIENT_SECRET"),
+      });
 
   const darBytes = fs.readFileSync(darPath);
   const sizeKb = (darBytes.byteLength / 1024).toFixed(1);

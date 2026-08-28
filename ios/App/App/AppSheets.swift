@@ -4,6 +4,8 @@ struct WalletSheet: View {
     @EnvironmentObject private var session: AppSession
     @Environment(\.dismiss) private var dismiss
     @State private var connecting = false
+    @State private var connectRequest = 0
+    @State private var bridgeError: String?
 
     var body: some View {
         NavigationView {
@@ -20,7 +22,13 @@ struct WalletSheet: View {
                 WalletFeature(icon: "checkmark.seal.fill", title: "Auditable settlement", detail: "Verified on Canton")
                 WalletFeature(icon: "bolt.fill", title: "Fast execution", detail: "Built for live markets")
                 Spacer()
+                if let bridgeError {
+                    Text(bridgeError)
+                        .font(.system(size: 12)).foregroundColor(Theme.red).multilineTextAlignment(.center)
+                }
                 connectButton
+                Cantor8WalletBridge(isConnected: $session.walletConnected, connectRequest: $connectRequest, errorMessage: $bridgeError)
+                    .frame(width: 1, height: 1)
             }
             .padding(22)
             .background(AppBackdrop())
@@ -29,6 +37,15 @@ struct WalletSheet: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Close") { dismiss() }.font(.system(size: 11, weight: .bold)).foregroundColor(Theme.muted)
                 }
+            }
+            .onChange(of: session.walletConnected) { connected in
+                if connected {
+                    connecting = false
+                    dismiss()
+                }
+            }
+            .onChange(of: bridgeError) { error in
+                if error != nil { connecting = false }
             }
         }
         .preferredColorScheme(.dark)
@@ -49,11 +66,8 @@ struct WalletSheet: View {
                 dismiss()
             } else {
                 connecting = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-                    session.walletConnected = true
-                    connecting = false
-                    dismiss()
-                }
+                bridgeError = nil
+                connectRequest += 1
             }
         } label: {
             HStack {

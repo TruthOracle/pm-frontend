@@ -1,5 +1,6 @@
 import type { AmuletHoldings } from "@/view-functions/getAccountBalance";
 import type { LiquidityPositionRecord, PredictionMarketRecord, UserMarketPosition } from "@/utils/activeContracts";
+import { WALLET_DISPLAY_NAME } from "@/config";
 import { fmtCC } from "./marketHelpers";
 
 export function YourPositionBox({
@@ -26,7 +27,7 @@ export function YourPositionBox({
           <div className="flex justify-between border-t border-border pt-2"><span className="text-muted-foreground">Value at current price</span><span className="font-semibold text-foreground">{fmtCC(userPosition.yesShares * probYes + userPosition.noShares * probNo, 2)} CC</span></div>
         </div>
       )}
-      {holdings && <p className="mt-3 border-t border-border pt-2 text-xs text-muted-foreground">Wallet balance: <span className="font-medium text-primary">{holdings.balance.toFixed(2)} CC</span></p>}
+      {holdings && <p className="mt-3 border-t border-border pt-2 text-xs text-muted-foreground">{WALLET_DISPLAY_NAME} wallet (external): <span className="font-medium text-primary">{holdings.balance.toFixed(2)} CC</span></p>}
     </div>
   );
 }
