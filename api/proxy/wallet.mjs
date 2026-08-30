@@ -6,6 +6,9 @@ const TARGET_ENV = ["ENTERPRISE_WALLET_PROXY_TARGET_URL", "VITE_ENTERPRISE_WALLE
 // Bearer JWT. This proxy mints one server-side (client id/secret never reach the
 // browser) and injects it. If the caller already sent an Authorization header, it is
 // passed through untouched. Prefers dedicated server creds, then the shared ones.
+// Unlike the ledger proxy, this stays on the normal (digik) credentials on every
+// network — the wallet trusts its own Keycloak, not the zkpc node's; use
+// WALLET_KEYCLOAK_* if the wallet's issuer ever differs.
 const AUTH_PREFIXES = ["WALLET_KEYCLOAK", "KEYCLOAK", "VITE_KEYCLOAK"];
 
 function absoluteTarget(value) {

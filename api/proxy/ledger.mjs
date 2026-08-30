@@ -1,11 +1,22 @@
 import { keycloakBearer } from "./_keycloakToken.mjs";
 
-const TARGET_ENV = ["CANTON_LEDGER_PROXY_TARGET_URL", "VITE_CANTON_PARTICIPANT_URL"];
+// VITE_APP_NETWORK=mainnet points the app at the dedicated zkpc node, whose
+// Keycloak holds DIFFERENT credentials from the digik (devnet) set. On mainnet
+// only the ZKPC_* values are read — no fallback to the devnet names — so a
+// misconfigured deploy fails fast instead of silently minting tokens against
+// the wrong Keycloak (the participant rejects those with an opaque 401).
+const IS_MAINNET = (process.env.VITE_APP_NETWORK || "").trim().toLowerCase() === "mainnet";
+
+const TARGET_ENV = IS_MAINNET
+  ? ["ZKPC_LEDGER_API_URL"]
+  : ["CANTON_LEDGER_PROXY_TARGET_URL", "VITE_CANTON_PARTICIPANT_URL"];
 
 // The Ledger API requires a Bearer JWT (Keycloak client_credentials). This proxy
 // mints one server-side and injects it, so the client id/secret never reach the
 // browser bundle. A caller-supplied Authorization header is passed through untouched.
-const AUTH_PREFIXES = ["LEDGER_KEYCLOAK", "KEYCLOAK", "VITE_KEYCLOAK"];
+const AUTH_PREFIXES = IS_MAINNET
+  ? ["ZKPC_KEYCLOAK"]
+  : ["LEDGER_KEYCLOAK", "KEYCLOAK", "VITE_KEYCLOAK"];
 
 function absoluteTarget(value) {
   const trimmed = typeof value === "string" ? value.trim().replace(/\/$/, "") : "";
