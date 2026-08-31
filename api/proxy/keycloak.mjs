@@ -1,6 +1,10 @@
 // User auth stays on the normal (digik) Keycloak on every network — only the
 // ledger proxy switches to the zkpc credentials on VITE_APP_NETWORK=mainnet.
-const TARGET_ENV = ["KEYCLOAK_PROXY_TARGET_URL", "VITE_KEYCLOAK_URL"];
+// KEYCLOAK_URL is the same name _keycloakToken.mjs resolves (prefix + "_URL"), so one
+// server-only var covers both this passthrough and token minting. VITE_KEYCLOAK_URL
+// stays last as a migration fallback — prefer the unprefixed names, since anything
+// VITE_* is compiled into the public JS bundle.
+const TARGET_ENV = ["KEYCLOAK_PROXY_TARGET_URL", "KEYCLOAK_URL", "VITE_KEYCLOAK_URL"];
 
 function absoluteTarget(value) {
   const trimmed = typeof value === "string" ? value.trim().replace(/\/$/, "") : "";

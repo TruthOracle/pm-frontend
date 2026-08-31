@@ -83,9 +83,9 @@ function networkConfig(network: Network) {
         clientSecret: mustEnv(viteEnv("ZKPC_KEYCLOAK_CLIENT_SECRET"), "ZKPC_KEYCLOAK_CLIENT_SECRET"),
       }
     : {
-        ledgerApi: stripTrailingSlash(mustEnv(viteEnv("VITE_CANTON_PARTICIPANT_URL"), "VITE_CANTON_PARTICIPANT_URL")),
-        keycloakUrl: mustEnv(viteEnv("VITE_KEYCLOAK_URL"), "VITE_KEYCLOAK_URL"),
-        realm: viteEnv("VITE_KEYCLOAK_REALM") || "master",
+        ledgerApi: stripTrailingSlash(mustEnv(viteEnv("CANTON_LEDGER_PROXY_TARGET_URL") || viteEnv("VITE_CANTON_PARTICIPANT_URL"), "CANTON_LEDGER_PROXY_TARGET_URL")),
+        keycloakUrl: mustEnv(viteEnv("KEYCLOAK_URL") || viteEnv("VITE_KEYCLOAK_URL"), "KEYCLOAK_URL"),
+        realm: viteEnv("KEYCLOAK_REALM") || viteEnv("VITE_KEYCLOAK_REALM") || "master",
         clientId: mustEnv(viteEnv("KEYCLOAK_CLIENT_ID"), "KEYCLOAK_CLIENT_ID"),
         clientSecret: mustEnv(viteEnv("KEYCLOAK_CLIENT_SECRET"), "KEYCLOAK_CLIENT_SECRET"),
       };
