@@ -48,12 +48,17 @@ export const TRUTHORACLE_PACKAGE_NAME = readString(
 );
 
 // The browser never calls the participant or the wallet directly — it calls the
-// proxies below, which inject a Keycloak token server-side. The upstream URLs are
-// therefore server-only and must NOT carry the VITE_ prefix (anything VITE_* is
-// compiled into the public JS bundle):
-//   CANTON_LEDGER_PROXY_TARGET_URL      → api/proxy/ledger.mjs
-//   ENTERPRISE_WALLET_PROXY_TARGET_URL  → api/proxy/wallet.mjs
-//   KEYCLOAK_URL / KEYCLOAK_PROXY_TARGET_URL → api/proxy/keycloak.mjs
+// proxies below, which resolve the upstream URL and inject a Keycloak token
+// server-side. Each proxy accepts two names, first match wins:
+//   api/proxy/ledger.mjs    CANTON_LEDGER_PROXY_TARGET_URL → VITE_CANTON_PARTICIPANT_URL
+//   api/proxy/wallet.mjs    ENTERPRISE_WALLET_PROXY_TARGET_URL → VITE_ENTERPRISE_WALLET_URL
+//   api/proxy/keycloak.mjs  KEYCLOAK_PROXY_TARGET_URL → KEYCLOAK_URL → VITE_KEYCLOAK_URL
+//
+// The VITE_* spellings are what .env uses and they stay out of the bundle only
+// because nothing in THIS file reads them: Vite inlines a VITE_ var when it sees an
+// explicit `import.meta.env.VITE_X` reference. Don't add one for an upstream URL,
+// and don't capture `import.meta.env` as an object (see the note at the top) — that
+// second form serialises every VITE_ var in the deploy env, these included.
 export const PARTICIPANT_PROXY_URL = trimTrailingSlash(
   readString(import.meta.env.VITE_CANTON_PARTICIPANT_PROXY_URL, "/__proxy/ledger"),
 );

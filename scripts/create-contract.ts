@@ -5,7 +5,8 @@
  * Flow (v0.1.28+): one POST to /api/v1/external/submit on the local Enterprise Wallet
  * — the wallet prepares + signs + executes the transaction with the admin party's key.
  * The wallet runs with AUTH_TYPE=keycloak, so every wallet call carries a Bearer JWT
- * obtained via client_credentials from VITE_KEYCLOAK_* (same client as the Ledger API).
+ * obtained via client_credentials from KEYCLOAK_CLIENT_ID/SECRET (same client as the
+ * Ledger API), with the issuer from KEYCLOAK_URL or VITE_KEYCLOAK_URL.
  *
  * Every HTTP call is logged as a copy-pasteable `curl` plus its full response.
  *
@@ -95,12 +96,14 @@ async function fetchWalletBearerToken(): Promise<string> {
     "WALLET_KEYCLOAK_URL or KEYCLOAK_URL",
   ));
   const realm = viteEnv("WALLET_KEYCLOAK_REALM") || viteEnv("KEYCLOAK_REALM") || viteEnv("VITE_KEYCLOAK_REALM") || "master";
+  // No VITE_ fallback for the credentials — see api/proxy/_keycloakToken.mjs. URL and
+  // REALM may still come from VITE_KEYCLOAK_* above; they are not secrets.
   const clientId = mustEnv(
-    viteEnv("WALLET_KEYCLOAK_CLIENT_ID") || viteEnv("KEYCLOAK_CLIENT_ID") || viteEnv("VITE_KEYCLOAK_CLIENT_ID"),
+    viteEnv("WALLET_KEYCLOAK_CLIENT_ID") || viteEnv("KEYCLOAK_CLIENT_ID"),
     "WALLET_KEYCLOAK_CLIENT_ID or KEYCLOAK_CLIENT_ID",
   );
   const clientSecret = mustEnv(
-    viteEnv("WALLET_KEYCLOAK_CLIENT_SECRET") || viteEnv("KEYCLOAK_CLIENT_SECRET") || viteEnv("VITE_KEYCLOAK_CLIENT_SECRET"),
+    viteEnv("WALLET_KEYCLOAK_CLIENT_SECRET") || viteEnv("KEYCLOAK_CLIENT_SECRET"),
     "WALLET_KEYCLOAK_CLIENT_SECRET or KEYCLOAK_CLIENT_SECRET",
   );
 

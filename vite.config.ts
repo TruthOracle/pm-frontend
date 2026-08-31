@@ -19,8 +19,14 @@ export default defineConfig(({ mode }) => {
     if (process.env[key] === undefined) process.env[key] = value;
   }
 
+  // Same resolution order as api/proxy/keycloak.mjs, so the user-auth passthrough
+  // points at the same host under `vite dev` as it does on Vercel. Reading only
+  // VITE_KEYCLOAK_URL here meant a .env using the server-only KEYCLOAK_URL name fell
+  // through to the hardcoded default without saying so.
   const keycloakTarget =
-    env.VITE_KEYCLOAK_URL?.replace(/\/$/, "") ||
+    [env.KEYCLOAK_PROXY_TARGET_URL, env.KEYCLOAK_URL, env.VITE_KEYCLOAK_URL]
+      .map((value) => (value || "").trim().replace(/\/$/, ""))
+      .find((value) => /^https?:\/\//i.test(value)) ||
     "https://auth.dev.digik.cantor8.tech";
 
   // Dev server: token injection happens inside these handlers (same as prod), so the
