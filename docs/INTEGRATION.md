@@ -50,11 +50,13 @@ Directly calls the Canton participant's Ledger API endpoints:
 ```bash
 VITE_USE_PARTICIPANT_API=true
 VITE_CANTON_PARTICIPANT_URL=https://api.validator.dev.digik.cantor8.tech/api/ledger
-# Keycloak client_credentials (required for Ledger API auth — same as the rest of the app)
+# Keycloak client_credentials (required for Ledger API auth — same as the rest of the app).
+# The token is minted server-side by api/proxy/ledger.mjs, never in the browser, so the
+# client id/secret take NO VITE_ prefix — a VITE_-prefixed spelling is ignored.
 VITE_KEYCLOAK_URL=...
 VITE_KEYCLOAK_REALM=master
-VITE_KEYCLOAK_CLIENT_ID=...
-VITE_KEYCLOAK_CLIENT_SECRET=...
+KEYCLOAK_CLIENT_ID=...
+KEYCLOAK_CLIENT_SECRET=...
 ```
 
 The mode is selected at runtime in `CantonWalletContext.tsx`:
@@ -185,8 +187,8 @@ If the Loop/Canton API returns a 500 error for active-contracts, verify:
    VITE_USE_PARTICIPANT_API=true
    VITE_CANTON_PARTICIPANT_URL=https://api.validator.dev.digik.cantor8.tech/api/ledger
    VITE_KEYCLOAK_URL=...
-   VITE_KEYCLOAK_CLIENT_ID=...
-   VITE_KEYCLOAK_CLIENT_SECRET=...
+   KEYCLOAK_CLIENT_ID=...
+   KEYCLOAK_CLIENT_SECRET=...
    ```
 2. Ensure the participant is running and accepts requests from your origin (CORS); in dev the app proxies Ledger and Keycloak to avoid CORS where configured.
 3. Run `npm run dev`
@@ -204,7 +206,7 @@ If the Loop/Canton API returns a 500 error for active-contracts, verify:
 ### active-contracts returns `[]` (empty array)
 
 1. **MarketCounter not created yet**  
-   Create it once with the admin party using `npm run create:contract` with the same `.env` as the app (`VITE_CANTON_PARTICIPANT_URL`, `VITE_TRUTHORACLE_*`, `VITE_KEYCLOAK_*`, and optionally `VITE_ENTERPRISE_WALLET_PARTY_ID`). Until that succeeds, there is no contract to see.
+   Create it once with the admin party using `npm run create:contract` with the same `.env` as the app (`VITE_CANTON_PARTICIPANT_URL`, `VITE_TRUTHORACLE_*`, `VITE_KEYCLOAK_URL`/`_REALM`, `KEYCLOAK_CLIENT_ID`/`_SECRET`, and optionally `VITE_ENTERPRISE_WALLET_PARTY_ID`). Until that succeeds, there is no contract to see.
 
 2. **Party mismatch**  
    You must query with the **exact party** that is signatory (or observer) on the contract. For `MarketCounter`, only the **admin** party is signatory. If the UI uses a different party (e.g. another wallet), that party will get `[]`. Fix: use the same party that ran `npm run create:contract`, or ensure the connected wallet’s `account.address` is that admin party ID.
@@ -274,7 +276,8 @@ Whoever runs the Canton participant (e.g. DigiK, Cantor8, or your team) may have
 From the repo root:
 
 ```bash
-# .env already has VITE_CANTON_PARTICIPANT_URL, VITE_TRUTHORACLE_PACKAGE_ID, VITE_KEYCLOAK_*.
+# .env already has VITE_CANTON_PARTICIPANT_URL, VITE_TRUTHORACLE_PACKAGE_ID,
+# VITE_KEYCLOAK_URL/_REALM and KEYCLOAK_CLIENT_ID/_SECRET.
 # Recommended: set your MarketCounter admin in .env (else the script uses a repo dev default):
 # VITE_ENTERPRISE_WALLET_PARTY_ID='6ff9435fff4d4f43856f688e95a27368::12204e98dc339cc86c6d318f3746f99e880245b4a5827ef1e8bbe7ba6193ef8c0e58'
 

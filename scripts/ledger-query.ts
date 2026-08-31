@@ -53,11 +53,9 @@ function networkConfig(network: Network) {
       };
 }
 
-/** The party each network's queries act as — same no-cross-network rule as the creds. */
-function networkParty(network: Network) {
-  return network === "zkpc"
-    ? mustEnv(viteEnv("ZKPC_PARTY_ID"), "ZKPC_PARTY_ID")
-    : mustEnv(viteEnv("VITE_ENTERPRISE_WALLET_PARTY_ID"), "VITE_ENTERPRISE_WALLET_PARTY_ID");
+/** The party the queries act as — one admin party, same on every network. */
+function adminParty() {
+  return mustEnv(viteEnv("VITE_ENTERPRISE_WALLET_PARTY_ID"), "VITE_ENTERPRISE_WALLET_PARTY_ID");
 }
 
 async function fetchJson(url: string, init: RequestInit): Promise<Json> {
@@ -105,7 +103,7 @@ async function main() {
       "Config: root `.env` — one credential set per network, never mixed:",
       "  --network devnet (default): VITE_CANTON_PARTICIPANT_URL, VITE_KEYCLOAK_URL/REALM,",
       "                              KEYCLOAK_CLIENT_ID/SECRET, VITE_ENTERPRISE_WALLET_PARTY_ID",
-      "  --network zkpc:             ZKPC_LEDGER_API_URL, ZKPC_KEYCLOAK_*, ZKPC_PARTY_ID",
+      "  --network zkpc:             ZKPC_LEDGER_API_URL, ZKPC_KEYCLOAK_* (party: VITE_ENTERPRISE_WALLET_PARTY_ID)",
       "  Optional: VITE_TRUTHORACLE_PACKAGE_NAME (default 'truthoracle')",
     ].join("\n"));
     return;
@@ -119,7 +117,7 @@ async function main() {
   const network = parseNetwork(process.argv.slice(2), "devnet");
   const net = networkConfig(network);
   const LEDGER_API = net.ledgerApi;
-  const ADMIN_PARTY = networkParty(network);
+  const ADMIN_PARTY = adminParty();
   // The active-contracts template filter expects a package-name reference ("#name:Module:Entity"),
   // not a package id, so we use the daml.yaml `name:` field.
   const PACKAGE_NAME = viteEnv("VITE_TRUTHORACLE_PACKAGE_NAME") || "truthoracle";
