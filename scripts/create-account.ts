@@ -69,12 +69,14 @@ async function fetchWalletBearerToken(): Promise<string> {
     mustEnv(firstEnv("WALLET_KEYCLOAK_URL", "KEYCLOAK_URL", "VITE_KEYCLOAK_URL"), "WALLET_KEYCLOAK_URL or KEYCLOAK_URL"),
   );
   const realm = firstEnv("WALLET_KEYCLOAK_REALM", "KEYCLOAK_REALM", "VITE_KEYCLOAK_REALM") || "master";
+  // No VITE_ fallback for the credentials — see api/proxy/_keycloakToken.mjs. URL and
+  // REALM may still come from VITE_KEYCLOAK_* above; they are not secrets.
   const clientId = mustEnv(
-    firstEnv("WALLET_KEYCLOAK_CLIENT_ID", "KEYCLOAK_CLIENT_ID", "VITE_KEYCLOAK_CLIENT_ID"),
+    firstEnv("WALLET_KEYCLOAK_CLIENT_ID", "KEYCLOAK_CLIENT_ID"),
     "WALLET_KEYCLOAK_CLIENT_ID or KEYCLOAK_CLIENT_ID",
   );
   const clientSecret = mustEnv(
-    firstEnv("WALLET_KEYCLOAK_CLIENT_SECRET", "KEYCLOAK_CLIENT_SECRET", "VITE_KEYCLOAK_CLIENT_SECRET"),
+    firstEnv("WALLET_KEYCLOAK_CLIENT_SECRET", "KEYCLOAK_CLIENT_SECRET"),
     "WALLET_KEYCLOAK_CLIENT_SECRET or KEYCLOAK_CLIENT_SECRET",
   );
 

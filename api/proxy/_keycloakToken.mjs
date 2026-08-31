@@ -4,17 +4,28 @@
  * client id/secret it reads must be SERVER-ONLY env vars (no VITE_ prefix), so they
  * are never compiled into the browser bundle.
  *
- * `prefixes` is tried in order; the first prefix that yields a full {URL, CLIENT_ID,
- * CLIENT_SECRET} set wins. E.g. ["WALLET_KEYCLOAK", "KEYCLOAK", "VITE_KEYCLOAK"]
- * resolves WALLET_KEYCLOAK_CLIENT_SECRET, then KEYCLOAK_CLIENT_SECRET, etc.
- * (VITE_KEYCLOAK_* is only a migration fallback — prefer the non-VITE names.)
+ * Each field resolves independently: `prefixes` is walked in order per suffix, so a
+ * deployment can mix names (e.g. take URL/REALM from VITE_KEYCLOAK_* while the
+ * credentials come from the unprefixed KEYCLOAK_*) — which is exactly how the
+ * checked-in .env is laid out.
+ *
+ * A VITE_* prefix only ever applies to URL and REALM. CLIENT_ID and CLIENT_SECRET
+ * are never read from a VITE_-prefixed name: Vite compiles every referenced VITE_*
+ * var into the public JS bundle, so honouring VITE_KEYCLOAK_CLIENT_SECRET here would
+ * invite putting the secret one bare `import.meta.env` capture away from shipping.
  */
 
 const MARGIN_SEC = 60;
 const cache = new Map(); // key -> { token, expiresAt }
 
+// Suffixes that carry a credential — never resolved from a VITE_-prefixed name.
+const SECRET_SUFFIXES = new Set(["CLIENT_ID", "CLIENT_SECRET"]);
+
 function readEnv(prefixes, suffix) {
-  for (const prefix of prefixes) {
+  const usable = SECRET_SUFFIXES.has(suffix)
+    ? prefixes.filter((prefix) => !prefix.startsWith("VITE_"))
+    : prefixes;
+  for (const prefix of usable) {
     const value = process.env[`${prefix}_${suffix}`];
     if (typeof value === "string" && value.trim()) return value.trim();
   }
