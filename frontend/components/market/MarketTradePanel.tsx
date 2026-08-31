@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import MarketHistoryChart from "./MarketHistoryChart";
 import { YourPositionBox } from "./MarketPositionCards";
 import { fmtCC, fmtCountdown } from "./marketHelpers";
@@ -39,12 +40,13 @@ type TradeContext = {
   holdings: any;
 };
 
-export default function MarketTradePanel({ context }: { context: TradeContext }) {
+export default function MarketTradePanel({ context, walletSlot }: { context: TradeContext; walletSlot?: ReactNode }) {
   const { setMainTab, subTabBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs, tradeSide, setTradeSide, selectedSide, setSelectedSide, probYes, probNo, collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage, buyQuote, sellQuote, swapQuote, account, busy, handleTradeClick, mintMode, setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge, userPosition, holdings } = context;
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,.8fr)] lg:items-start">
       <MarketHistoryChart probability={probYes} createdAt={market.createdAt} />
-          <div className="space-y-4">
+          <div className="space-y-4 lg:col-start-2 lg:row-start-1 lg:row-span-2">
+            {walletSlot}
             <div className="flex rounded-lg border border-border bg-white p-1">
               <button onClick={() => setMainTab("trade")} className={`${subTabBtn(true)} rounded-l-md`}>Trade</button>
               <button onClick={() => setMainTab("liquidity")} className={`${subTabBtn(false)} rounded-r-md`}>Liquidity</button>
@@ -267,9 +269,10 @@ export default function MarketTradePanel({ context }: { context: TradeContext })
                 </button>
               </div>
             )}
-            {/* Sidebar: Your Position */}
-            <div className="w-full space-y-4"><YourPositionBox account={account} userPosition={userPosition} holdings={holdings} probYes={probYes} probNo={probNo} /></div>
           </div>
+
+          {/* Under the chart, filling the left column's leftover height. */}
+          <div className="w-full lg:col-start-1 lg:row-start-2"><YourPositionBox account={account} userPosition={userPosition} holdings={holdings} probYes={probYes} probNo={probNo} /></div>
 
     </div>
   );

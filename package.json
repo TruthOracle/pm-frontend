@@ -18,6 +18,8 @@
     "create:contract": "tsx scripts/create-contract.ts",
     "ledger:query": "tsx scripts/ledger-query.ts",
     "contracts:active": "tsx scripts/active-contracts.ts",
+    "rights:grant": "tsx scripts/grant-rights.ts",
+    "create:account": "tsx scripts/create-account.ts",
     "dars:build": "cd daml && dpm build",
     "dars:upload": "tsx scripts/upload-dar.ts"
   },
@@ -27,7 +29,7 @@
     "@canton-network/core-wallet-dapp-rpc-client": "^0.22.0",
     "@canton-network/core-wallet-ui-components": "^0.23.0",
     "@canton-network/wallet-sdk": "^0.20.0",
-    "@cantor8/wallet-connect-sdk": "^0.3.0-alpha.2",
+    "@cantor8/wallet-connect-sdk": "^0.5.0",
     "@capacitor/core": "^8.5.0",
     "@capacitor/ios": "^8.5.0",
     "@chakra-ui/icons": "^2.2.4",

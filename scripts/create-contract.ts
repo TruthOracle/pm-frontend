@@ -19,7 +19,8 @@
  *
  * Usage:
  *   npm run create:contract
- *   npm run create:contract -- market-counter   # explicit (only kind for now)
+ *   npm run create:contract -- market-counter
+ *   npm run create:contract -- user-wallet <ownerPartyId> [initialCC] [txRef]
  */
 
 import dotenv from "dotenv";
@@ -84,13 +85,24 @@ function mustEnv(value: string, name: string) {
 
 /**
  * Keycloak client_credentials token for the Enterprise Wallet (AUTH_TYPE=keycloak).
- * Same client/secret the frontend uses for the Ledger API.
+ * The wallet validates tokens against ITS OWN Keycloak, which may differ from the
+ * Ledger API's — WALLET_KEYCLOAK_* wins when set (same order as the wallet proxy);
+ * a 401 "Key ID … not found in JWKS" from the wallet means the token issuer is wrong.
  */
 async function fetchWalletBearerToken(): Promise<string> {
-  const url = stripTrailingSlash(mustEnv(viteEnv("KEYCLOAK_URL") || viteEnv("VITE_KEYCLOAK_URL"), "KEYCLOAK_URL"));
-  const realm = viteEnv("KEYCLOAK_REALM") || viteEnv("VITE_KEYCLOAK_REALM") || "master";
-  const clientId = mustEnv(viteEnv("KEYCLOAK_CLIENT_ID") || viteEnv("VITE_KEYCLOAK_CLIENT_ID"), "KEYCLOAK_CLIENT_ID");
-  const clientSecret = mustEnv(viteEnv("KEYCLOAK_CLIENT_SECRET") || viteEnv("VITE_KEYCLOAK_CLIENT_SECRET"), "KEYCLOAK_CLIENT_SECRET");
+  const url = stripTrailingSlash(mustEnv(
+    viteEnv("WALLET_KEYCLOAK_URL") || viteEnv("KEYCLOAK_URL") || viteEnv("VITE_KEYCLOAK_URL"),
+    "WALLET_KEYCLOAK_URL or KEYCLOAK_URL",
+  ));
+  const realm = viteEnv("WALLET_KEYCLOAK_REALM") || viteEnv("KEYCLOAK_REALM") || viteEnv("VITE_KEYCLOAK_REALM") || "master";
+  const clientId = mustEnv(
+    viteEnv("WALLET_KEYCLOAK_CLIENT_ID") || viteEnv("KEYCLOAK_CLIENT_ID") || viteEnv("VITE_KEYCLOAK_CLIENT_ID"),
+    "WALLET_KEYCLOAK_CLIENT_ID or KEYCLOAK_CLIENT_ID",
+  );
+  const clientSecret = mustEnv(
+    viteEnv("WALLET_KEYCLOAK_CLIENT_SECRET") || viteEnv("KEYCLOAK_CLIENT_SECRET") || viteEnv("VITE_KEYCLOAK_CLIENT_SECRET"),
+    "WALLET_KEYCLOAK_CLIENT_SECRET or KEYCLOAK_CLIENT_SECRET",
+  );
 
   const res = await fetch(`${url}/realms/${realm}/protocol/openid-connect/token`, {
     method: "POST",
@@ -175,6 +187,66 @@ async function createMarketCounter() {
   );
 }
 
+/**
+ * Create a UserWallet for `owner` (in-app balance, custodied by the admin).
+ * With initialCC > 0 the wallet is seeded as an already-credited deposit —
+ * equivalent to create(balance 0) + Deposit, since the admin is sole signatory.
+ * Run this AFTER the owner's real CC transfer landed in the treasury; txRef
+ * records that transfer for audit.
+ */
+async function createUserWallet(owner: string, initialCC: number, txRef: string) {
+  const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
+  const repoRoot = path.join(scriptsDir, "..");
+  const rootEnv = path.join(repoRoot, ".env");
+  if (fs.existsSync(rootEnv)) dotenv.config({ path: rootEnv });
+
+  const WALLET_URL = stripTrailingSlash(viteEnv("VITE_ENTERPRISE_WALLET_URL") || "http://localhost:8080");
+  const PACKAGE_ID = mustEnv(viteEnv("VITE_TRUTHORACLE_PACKAGE_ID"), "VITE_TRUTHORACLE_PACKAGE_ID");
+  const APP_NAME = viteEnv("VITE_ENTERPRISE_WALLET_APP_NAME") || "truthoracle";
+  const admin = mustEnv(viteEnv("VITE_ENTERPRISE_WALLET_PARTY_ID"), "VITE_ENTERPRISE_WALLET_PARTY_ID");
+  if (!owner) throw new Error("user-wallet requires <ownerPartyId>: npm run create:contract -- user-wallet <ownerPartyId> [initialCC] [txRef]");
+  if (!(initialCC >= 0)) throw new Error(`initialCC must be a non-negative number, got: ${initialCC}`);
+
+  const TEMPLATE_ID = `${PACKAGE_ID}:Truthoracle:UserWallet`;
+  const commandId = `cmd-${Date.now()}-${randomUUID()}`;
+  const bearer = await fetchWalletBearerToken();
+  const amount = initialCC.toFixed(10); // Daml Decimal as string
+
+  console.log("=== TruthOracle: create UserWallet (via wallet /api/v1/external/submit) ===");
+  console.log(`WALLET=${WALLET_URL}`);
+  console.log(`TEMPLATE_ID=${TEMPLATE_ID}`);
+  console.log(`owner=${owner}`);
+  console.log(`initialCC=${amount}${txRef ? ` (txRef=${txRef})` : ""}`);
+
+  const submitBody: Json = {
+    partyId: admin,
+    appName: APP_NAME,
+    commandId,
+    commands: [
+      {
+        CreateCommand: {
+          templateId: TEMPLATE_ID,
+          createArguments: {
+            admin,
+            owner,
+            balanceCC: amount,
+            depositedCC: amount,
+            withdrawnCC: "0.0000000000",
+          },
+        },
+      },
+    ],
+    disclosedContracts: [],
+  };
+  const submit = await fetchJsonLogged(
+    "POST wallet /api/v1/external/submit",
+    `${WALLET_URL}/api/v1/external/submit`,
+    { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${bearer}` }, body: JSON.stringify(submitBody) }
+  );
+  if (!submit.ok) throw new Error(`wallet external/submit failed (${submit.status})`);
+  console.log(`\nDone. UserWallet for ${owner} submitted (balance ${amount} CC).`);
+}
+
 export async function main() {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     console.log([
@@ -183,6 +255,7 @@ export async function main() {
       "Usage:",
       "  npm run create:contract",
       "  npm run create:contract -- market-counter",
+      "  npm run create:contract -- user-wallet <ownerPartyId> [initialCC] [txRef]",
       "",
       "Required .env:",
       "  VITE_TRUTHORACLE_PACKAGE_ID — DAR package id",
@@ -202,7 +275,11 @@ export async function main() {
     await createMarketCounter();
     return;
   }
-  throw new Error(`Unknown contract kind "${kind}". Use: market-counter (or run with --help)`);
+  if (kind === "user-wallet") {
+    await createUserWallet(positional[1] ?? "", Number(positional[2] ?? "0"), positional[3] ?? "");
+    return;
+  }
+  throw new Error(`Unknown contract kind "${kind}". Use: market-counter | user-wallet (or run with --help)`);
 }
 
 const thisFile = path.resolve(fileURLToPath(import.meta.url));

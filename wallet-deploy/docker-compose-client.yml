@@ -1,6 +1,6 @@
 services:
   enterprise-wallet:
-    image: cantor8technologies/enterprise-wallet:v0.1.34
+    image: cantor8technologies/enterprise-wallet:v0.1.35
     # No arm64 build published — force amd64 (runs under Rosetta on Apple Silicon).
     platform: linux/amd64
     container_name: truthoracle-enterprise-wallet

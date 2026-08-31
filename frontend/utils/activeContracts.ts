@@ -514,6 +514,71 @@ export async function fetchModelForecasts(
   }
 }
 
+export interface UserWalletRecord {
+  contractId: string;
+  admin: string;
+  owner: string;
+  /** Spendable in-app balance in CC. */
+  balanceCC: number;
+  /** Lifetime external deposits. */
+  depositedCC: number;
+  /** Lifetime external withdrawals. */
+  withdrawnCC: number;
+}
+
+/**
+ * Fetch the party's in-app UserWallet (or null if they never deposited).
+ * The owner is an observer, so querying as the user surfaces their wallet;
+ * querying as the admin surfaces every wallet (treasury reconciliation).
+ */
+export async function fetchUserWallet(partyId: string): Promise<UserWalletRecord | null> {
+  try {
+    const client = createParticipantClient();
+    const list = await client.queryActiveContracts(
+      partyId,
+      templateId(TRUTHORACLE_MODULE, "UserWallet")
+    );
+    for (const item of list) {
+      const cid = getContractId(item);
+      if (!cid) continue;
+      const p = getPayload(item);
+      if (p.owner !== partyId) continue;
+      return {
+        contractId: cid,
+        admin: asString(p.admin),
+        owner: asString(p.owner),
+        balanceCC: num(p.balanceCC),
+        depositedCC: num(p.depositedCC),
+        withdrawnCC: num(p.withdrawnCC),
+      };
+    }
+    return null;
+  } catch (e) {
+    console.warn("fetchUserWallet", e);
+    return null;
+  }
+}
+
+/**
+ * Poll until the user's wallet satisfies `predicate` (e.g. balance credited
+ * after a deposit) or the timeout elapses. Returns the latest record either way.
+ */
+export async function waitForUserWallet(
+  partyId: string,
+  predicate: (w: UserWalletRecord | null) => boolean,
+  opts?: { timeoutMs?: number; intervalMs?: number },
+): Promise<UserWalletRecord | null> {
+  const timeoutMs = opts?.timeoutMs ?? 30_000;
+  const intervalMs = opts?.intervalMs ?? 1_500;
+  const deadline = Date.now() + timeoutMs;
+  let latest: UserWalletRecord | null = null;
+  for (;;) {
+    latest = await fetchUserWallet(partyId);
+    if (predicate(latest) || Date.now() >= deadline) return latest;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
+
 export interface PendingPayoutRecord {
   contractId: string;
   admin: string;

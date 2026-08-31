@@ -14,7 +14,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { getCantonCoinHoldings, type AmuletHoldings } from "@/view-functions/getAccountBalance";
 import { useQuery } from "@tanstack/react-query";
 import Pusher from "pusher-js";
-import { MODULE_ADDRESS, PUSHER_CLUSTER, PUSHER_KEY } from "@/config";
+import { MODULE_ADDRESS, PUSHER_CLUSTER, PUSHER_KEY, WALLET_DISPLAY_NAME } from "@/config";
 
 function truncatePartyId(partyId: string, chars = 6): string {
   if (!partyId || partyId.length <= chars * 2) return partyId;
@@ -115,7 +115,7 @@ export function WalletSelector() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80" style={{ zIndex: 1101 }}>
         <div className="px-4 py-2">
-          <p className="text-sm font-medium">Canton Coin</p>
+          <p className="text-sm font-medium">{WALLET_DISPLAY_NAME} wallet · Canton Coin</p>
           <p className="text-2xl font-bold">
             {(holdings?.balance ?? 0).toFixed(2)} CC
           </p>
@@ -128,7 +128,8 @@ export function WalletSelector() {
             </p>
           )}
           <p className="text-xs text-gray-500 mt-2">
-            Native validator balance. Separate from your TruthOracle trading balance (Portfolio page).
+            Balance in your connected {WALLET_DISPLAY_NAME} wallet. Trading spends your in-app
+            wallet balance — deposit from here to top it up.
           </p>
         </div>
         <DropdownMenuSeparator />

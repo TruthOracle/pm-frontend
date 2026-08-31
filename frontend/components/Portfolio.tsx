@@ -1,6 +1,7 @@
 import { useCantonWallet } from "@/wallets";
 import Activity from "./Portfolio/Activity";
 import PendingPayouts from "./Portfolio/PendingPayouts";
+import InAppWalletCard from "./InAppWalletCard";
 import { Briefcase } from "lucide-react";
 
 function Portfolio() {
@@ -19,6 +20,7 @@ function Portfolio() {
         </p>
       </div>
       <div className="space-y-6">
+        <InAppWalletCard />
         <PendingPayouts />
         <Activity />
       </div>

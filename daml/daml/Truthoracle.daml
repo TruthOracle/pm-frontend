@@ -13,14 +13,21 @@
 --       with bonds and objective escalation to T1/T2.
 --   * Void as a first-class outcome (cost-basis refunds).
 --
--- Collateral rails (unchanged two-step real-CC architecture):
---   * Buy / Split / ProvideLiquidity / bonds: the frontend triggers a CC
---     transfer (Cantor8 popup) to the admin first, then exercises the choice.
---     The contract does NOT verify the CC transfer - reconcile off-chain.
---   * Sell / Merge / Redeem / WithdrawLiquidity / bond returns / prizes:
---     the choice creates a PendingPayout (signed by admin, observed by user);
---     the admin batches payouts via the Enterprise Wallet.
--- No UserWallet template - the Cantor8 wallet IS the wallet.
+-- Collateral rails (in-app wallet architecture):
+--   * UserWallet: a per-user on-ledger CC balance custodied by the admin
+--     treasury. Deposits are real CC transfers (Cantor8 / any Canton wallet)
+--     to the admin, which the admin then credits via Deposit; the contract
+--     does NOT verify the transfer - reconcile off-chain. The trust boundary
+--     is confined to deposit/withdraw instead of every trade.
+--   * Buy / Split / ProvideLiquidity / T3 bonds: debit the user's UserWallet
+--     atomically inside the exercising transaction - one wallet action per
+--     trade, no prior CC-transfer popup.
+--   * Sell / Merge / Redeem / WithdrawLiquidity: credit the UserWallet
+--     atomically - proceeds are spendable immediately, no payout batching.
+--   * External withdrawals and admin-driven payouts (T3 bond settlement,
+--     model prizes) still go through PendingPayout: the admin settles either
+--     off-ledger via the Enterprise Wallet (MarkPaid) or into the in-app
+--     balance (SettleToWallet).
 
 module Truthoracle where
 
@@ -100,30 +107,159 @@ lookupSourceKey keys uri = case filter (\k -> k.sourceUri == uri) keys of
   [] -> None
 
 -- ---------------------------------------------------------------------------
--- Payout queue (admin owes user CC; settled off-ledger via Enterprise Wallet)
+-- UserWallet: the in-app CC balance (custodial claim on the admin treasury)
+-- ---------------------------------------------------------------------------
+
+template UserWallet
+  with
+    admin : Party           -- treasury custodian (Enterprise Wallet party)
+    owner : Party
+    balanceCC : Decimal     -- spendable in-app balance
+    depositedCC : Decimal   -- lifetime external deposits (reconciliation)
+    withdrawnCC : Decimal   -- lifetime external withdrawals (reconciliation)
+  where
+    signatory admin
+    observer owner
+    ensure balanceCC >= 0.0 && depositedCC >= 0.0 && withdrawnCC >= 0.0
+
+    -- External top-up: the admin credits after receiving the owner's real CC
+    -- transfer. txRef records the CC transfer for off-chain audit.
+    choice Deposit : ContractId UserWallet
+      with
+        amountCC : Decimal
+        txRef : Text
+      controller admin
+      do
+        assertMsg "deposit must be positive" (amountCC > 0.0)
+        create this with
+          balanceCC = balanceCC + amountCC
+          depositedCC = depositedCC + amountCC
+
+    -- Internal credit (trade proceeds, redemptions, payout settlement).
+    choice Credit : ContractId UserWallet
+      with
+        amountCC : Decimal
+        reason : Text
+      controller admin
+      do
+        assertMsg "credit must be positive" (amountCC > 0.0)
+        create this with balanceCC = balanceCC + amountCC
+
+    -- Internal debit. Requires BOTH the owner's and the admin's authority, so
+    -- it is only reachable from inside a market choice (owner = exercising
+    -- controller, admin = the market's signatory) - neither party can drain
+    -- or burn a balance unilaterally.
+    choice Debit : ContractId UserWallet
+      with
+        amountCC : Decimal
+        reason : Text
+      controller owner, admin
+      do
+        assertMsg "debit must be positive" (amountCC > 0.0)
+        assertMsg "insufficient in-app balance" (balanceCC >= amountCC)
+        create this with balanceCC = balanceCC - amountCC
+
+    -- Owner moves in-app CC back to an external wallet: debits the balance
+    -- and queues a PendingPayout (marketId 0 = not market-specific) for the
+    -- admin to settle via the Enterprise Wallet.
+    choice Withdraw : (ContractId UserWallet, ContractId PendingPayout)
+      with
+        amountCC : Decimal
+        nowSeconds : Int
+      controller owner
+      do
+        assertMsg "withdrawal must be positive" (amountCC > 0.0)
+        assertMsg "insufficient in-app balance" (balanceCC >= amountCC)
+        newCid <- create this with
+          balanceCC = balanceCC - amountCC
+          withdrawnCC = withdrawnCC + amountCC
+        payoutCid <- create PendingPayout with
+          admin, user = owner, marketId = 0
+          amountCC
+          reason = "withdraw"
+          createdAt = nowSeconds
+        return (newCid, payoutCid)
+
+-- Fetch-validate-debit helper for market choices: charges the exercising
+-- user's in-app wallet. Passes the cid through unchanged on a zero amount
+-- (e.g. zero-bond policies).
+debitUserWallet
+  : Party -> Party -> ContractId UserWallet -> Decimal -> Text
+ -> Update (ContractId UserWallet)
+debitUserWallet admin owner walletCid amountCC reason =
+  if amountCC <= 0.0 then return walletCid
+  else do
+    w <- fetch walletCid
+    assertMsg "wallet belongs to a different owner" (w.owner == owner)
+    assertMsg "wallet is managed by a different admin" (w.admin == admin)
+    exercise walletCid Debit with amountCC, reason
+
+-- Fetch-validate-credit helper for market choices: pays proceeds into the
+-- exercising user's in-app wallet. Cid passthrough on a zero amount.
+creditUserWallet
+  : Party -> Party -> ContractId UserWallet -> Decimal -> Text
+ -> Update (ContractId UserWallet)
+creditUserWallet admin owner walletCid amountCC reason =
+  if amountCC <= 0.0 then return walletCid
+  else do
+    w <- fetch walletCid
+    assertMsg "wallet belongs to a different owner" (w.owner == owner)
+    assertMsg "wallet is managed by a different admin" (w.admin == admin)
+    exercise walletCid Credit with amountCC, reason
+
+-- ---------------------------------------------------------------------------
+-- Payout queue (admin owes user CC for flows that cannot debit/credit a
+-- wallet inline: external withdrawals, T3 bond settlement, model prizes)
 -- ---------------------------------------------------------------------------
 
 template PendingPayout
   with
     admin : Party
     user : Party
-    marketId : Int
+    marketId : Int   -- 0 = not market-specific (withdrawals)
     amountCC : Decimal
-    reason : Text   -- "sell" | "merge" | "resolve" | "void-refund" | "liquidity" | "bond" | "model-prize"
+    reason : Text   -- "withdraw" | "liquidity" | "bond" | "model-prize"
     createdAt : Int
   where
     signatory admin
     observer user
 
+    -- Settled off-ledger: the admin sent real CC via the Enterprise Wallet.
     choice MarkPaid : ()
       with
         txHash : Text
       controller admin
       do return ()
 
-    choice CancelPayout : ()
+    -- Settled on-ledger: credit the user's in-app wallet instead of sending
+    -- external CC.
+    choice SettleToWallet : ContractId UserWallet
+      with
+        walletCid : ContractId UserWallet
+      controller admin
+      do
+        w <- fetch walletCid
+        assertMsg "wallet belongs to a different user" (w.owner == user)
+        assertMsg "wallet is managed by a different admin" (w.admin == admin)
+        exercise walletCid Credit with amountCC, reason
+
+    -- User escape hatch. For a withdrawal (or any payout), passing the
+    -- user's wallet re-credits the amount to the in-app balance; None just
+    -- forfeits the payout.
+    choice CancelPayout : Optional (ContractId UserWallet)
+      with
+        refundWalletCid : Optional (ContractId UserWallet)
       controller user
-      do return ()
+      do
+        case refundWalletCid of
+          None -> return None
+          Some wCid -> do
+            w <- fetch wCid
+            assertMsg "wallet belongs to a different user" (w.owner == user)
+            assertMsg "wallet is managed by a different admin" (w.admin == admin)
+            Some <$> exercise wCid Credit with
+              amountCC
+              reason = "cancel:" <> reason
 
 -- ---------------------------------------------------------------------------
 -- Position: a trader's YES/NO share holding for one market
@@ -285,11 +421,11 @@ template PredictionMarket
     -- Trading surface
     -- -----------------------------------------------------------------
 
-    -- Buy outcome shares with collateral. The frontend MUST have transferred
-    -- collateralCC of CC to the admin before exercising. Net collateral mints
-    -- complete sets whose opposite leg is swapped into the pool; the buyer
-    -- receives collateral/P-ish shares subject to price impact.
-    choice Buy : (ContractId PredictionMarket, ContractId Position)
+    -- Buy outcome shares with collateral debited from the buyer's in-app
+    -- wallet - a single wallet action, atomic with the share mint. Net
+    -- collateral mints complete sets whose opposite leg is swapped into the
+    -- pool; the buyer receives collateral/P-ish shares subject to price impact.
+    choice Buy : (ContractId PredictionMarket, ContractId Position, ContractId UserWallet)
       with
         buyer : Party
         side : Outcome
@@ -297,6 +433,7 @@ template PredictionMarket
         minSharesOut : Decimal
         nowSeconds : Int
         existingPosition : Optional (ContractId Position)
+        walletCid : ContractId UserWallet
       controller buyer
       do
         assertMsg "market is not trading" (status == Trading)
@@ -304,6 +441,8 @@ template PredictionMarket
         assertMsg "market has expired" (nowSeconds < expiresAt)
         assertMsg "side must be Yes or No" (side /= VoidOutcome)
         assertMsg "collateral must be positive" (collateralCC > 0.0)
+
+        newWalletCid <- debitUserWallet admin buyer walletCid collateralCC "buy"
 
         let l = effLOf this nowSeconds
         assertMsg "no effective liquidity" (l > 0.0)
@@ -340,11 +479,12 @@ template PredictionMarket
           prizePoolCC = prizePoolCC + prizeCut
           totalVolumeCC = totalVolumeCC + collateralCC
 
-        return (marketCid, posCid)
+        return (marketCid, posCid, newWalletCid)
 
     -- Sell outcome shares back to the pm-AMM for collateral (closed form).
-    -- Burns shares, creates a PendingPayout for the net proceeds.
-    choice Sell : (ContractId PredictionMarket, ContractId Position, ContractId PendingPayout)
+    -- Burns shares, credits the net proceeds to the seller's in-app wallet -
+    -- immediately spendable, no payout batching.
+    choice Sell : (ContractId PredictionMarket, ContractId Position, ContractId UserWallet)
       with
         seller : Party
         side : Outcome
@@ -352,6 +492,7 @@ template PredictionMarket
         minProceedsCC : Decimal
         nowSeconds : Int
         positionCid : ContractId Position
+        walletCid : ContractId UserWallet
       controller seller
       do
         assertMsg "market is not trading" (status == Trading)
@@ -390,11 +531,7 @@ template PredictionMarket
           yesShares = if side == Yes then pos.yesShares - sharesIn else pos.yesShares
           noShares = if side == No then pos.noShares - sharesIn else pos.noShares
 
-        payoutCid <- create PendingPayout with
-          admin, user = seller, marketId
-          amountCC = net
-          reason = "sell"
-          createdAt = nowSeconds
+        newWalletCid <- creditUserWallet admin seller walletCid net "sell"
 
         marketCid <- create this with
           reserveYes = newPhysYes
@@ -404,7 +541,7 @@ template PredictionMarket
           prizePoolCC = prizePoolCC + prizeCut
           totalVolumeCC = totalVolumeCC + gross
 
-        return (marketCid, newPosCid, payoutCid)
+        return (marketCid, newPosCid, newWalletCid)
 
     -- Direct outcome-token swap (the pm-AMM's primitive trading operation):
     -- deposit shares of one side, receive shares of the other. The fee is
@@ -467,27 +604,31 @@ template PredictionMarket
         return (marketCid, newPosCid)
 
     -- Mint complete sets: 1 CC -> 1 YES + 1 NO (no-arbitrage invariant).
-    -- Frontend must have transferred `amount` CC to the admin first.
-    nonconsuming choice Split : ContractId Position
+    -- The CC is debited from the user's in-app wallet atomically.
+    nonconsuming choice Split : (ContractId Position, ContractId UserWallet)
       with
         user : Party
         amount : Decimal
         nowSeconds : Int
         existingPosition : Optional (ContractId Position)
+        walletCid : ContractId UserWallet
       controller user
       do
         assertMsg "market is not trading" (status == Trading)
         assertMsg "market has expired" (nowSeconds < expiresAt)
         assertMsg "amount must be positive" (amount > 0.0)
-        upsertPosition user admin marketId auditObservers amount amount amount existingPosition
+        newWalletCid <- debitUserWallet admin user walletCid amount "split"
+        posCid <- upsertPosition user admin marketId auditObservers amount amount amount existingPosition
+        return (posCid, newWalletCid)
 
-    -- Burn equal YES+NO pairs for 1 CC each (PendingPayout).
-    nonconsuming choice Merge : (ContractId Position, ContractId PendingPayout)
+    -- Burn equal YES+NO pairs for 1 CC each, credited to the in-app wallet.
+    nonconsuming choice Merge : (ContractId Position, ContractId UserWallet)
       with
         user : Party
         amount : Decimal
         nowSeconds : Int
         positionCid : ContractId Position
+        walletCid : ContractId UserWallet
       controller user
       do
         assertMsg "amount must be positive" (amount > 0.0)
@@ -499,12 +640,8 @@ template PredictionMarket
         newPosCid <- create pos with
           yesShares = pos.yesShares - amount
           noShares = pos.noShares - amount
-        payoutCid <- create PendingPayout with
-          admin, user, marketId
-          amountCC = amount
-          reason = "merge"
-          createdAt = nowSeconds
-        return (newPosCid, payoutCid)
+        newWalletCid <- creditUserWallet admin user walletCid amount "merge"
+        return (newPosCid, newWalletCid)
 
     -- -----------------------------------------------------------------
     -- Liquidity provision (value-based, price-preserving)
@@ -512,15 +649,16 @@ template PredictionMarket
 
     -- LP names a desired pool-value increase dV; the pool scales x, y and L
     -- by (V + dV)/V so the price is untouched. Cost in CC = max(dx, dy)
-    -- (collateral that fully backs the minted inventory). Frontend transfers
-    -- the quoted cost to the admin first; maxCostCC bounds quote drift.
-    choice ProvideLiquidity : (ContractId PredictionMarket, ContractId LiquidityPosition)
+    -- (collateral that fully backs the minted inventory), debited from the
+    -- provider's in-app wallet; maxCostCC bounds quote drift.
+    choice ProvideLiquidity : (ContractId PredictionMarket, ContractId LiquidityPosition, ContractId UserWallet)
       with
         provider : Party
         valueIncreaseCC : Decimal
         maxCostCC : Decimal
         nowSeconds : Int
         existingLpPosition : Optional (ContractId LiquidityPosition)
+        walletCid : ContractId UserWallet
       controller provider
       do
         assertMsg "market is not trading" (status == Trading)
@@ -537,6 +675,8 @@ template PredictionMarket
             costCC = max dX dY
             lpMinted = lpTokenSupply * ratio
         assertMsg "cost exceeds maxCostCC" (costCC <= maxCostCC)
+
+        newWalletCid <- debitUserWallet admin provider walletCid costCC "liquidity-provide"
 
         lpCid <- case existingLpPosition of
           None -> create LiquidityPosition with
@@ -558,17 +698,19 @@ template PredictionMarket
           liquidityL = liquidityL * (1.0 + ratio)
           lpTokenSupply = lpTokenSupply + lpMinted
 
-        return (marketCid, lpCid)
+        return (marketCid, lpCid, newWalletCid)
 
     -- Withdraw liquidity. Dynamic pools lock LPs until resolution/void
     -- (uniform-LVR design); static pools may exit early receiving shares.
-    choice WithdrawLiquidity : (ContractId PredictionMarket, Optional (ContractId LiquidityPosition))
+    -- CC proceeds are credited to the provider's in-app wallet.
+    choice WithdrawLiquidity : (ContractId PredictionMarket, Optional (ContractId LiquidityPosition), ContractId UserWallet)
       with
         provider : Party
         lpTokensToBurn : Decimal
         nowSeconds : Int
         lpPositionCid : ContractId LiquidityPosition
         existingPosition : Optional (ContractId Position)  -- for early static exits (shares out)
+        walletCid : ContractId UserWallet
       controller provider
       do
         assertMsg "burn amount must be positive" (lpTokensToBurn > 0.0)
@@ -598,29 +740,21 @@ template PredictionMarket
                   Some No -> reserveNo
                   _ -> 0.0
                 payout = winning * share + feeOut
-            _ <- create PendingPayout with
-              admin, user = provider, marketId
-              amountCC = payout
-              reason = "liquidity"
-              createdAt = nowSeconds
+            newWalletCid <- creditUserWallet admin provider walletCid payout "liquidity"
             marketCid <- create this with
               reserveYes = reserveYes * (1.0 - share)
               reserveNo = reserveNo * (1.0 - share)
               accumulatedFeesCC = accumulatedFeesCC - feeOut
               lpTokenSupply = lpTokenSupply - lpTokensToBurn
-            return (marketCid, newLpCid)
+            return (marketCid, newLpCid, newWalletCid)
           Voided -> do
-            _ <- create PendingPayout with
-              admin, user = provider, marketId
-              amountCC = refundBasis + feeOut
-              reason = "liquidity"
-              createdAt = nowSeconds
+            newWalletCid <- creditUserWallet admin provider walletCid (refundBasis + feeOut) "liquidity"
             marketCid <- create this with
               reserveYes = reserveYes * (1.0 - share)
               reserveNo = reserveNo * (1.0 - share)
               accumulatedFeesCC = accumulatedFeesCC - feeOut
               lpTokenSupply = lpTokenSupply - lpTokensToBurn
-            return (marketCid, newLpCid)
+            return (marketCid, newLpCid, newWalletCid)
           Trading -> do
             assertMsg "dynamic-pool LP is locked until resolution" (not isDynamic)
             -- Early static exit: proportional physical inventory into the
@@ -629,18 +763,14 @@ template PredictionMarket
                 sharesNoOut = reserveNo * share
             _ <- upsertPosition provider admin marketId auditObservers
                    sharesYesOut sharesNoOut 0.0 existingPosition
-            _ <- create PendingPayout with
-              admin, user = provider, marketId
-              amountCC = feeOut
-              reason = "liquidity"
-              createdAt = nowSeconds
+            newWalletCid <- creditUserWallet admin provider walletCid feeOut "liquidity"
             marketCid <- create this with
               reserveYes = reserveYes - sharesYesOut
               reserveNo = reserveNo - sharesNoOut
               liquidityL = liquidityL * (1.0 - share)
               accumulatedFeesCC = accumulatedFeesCC - feeOut
               lpTokenSupply = lpTokenSupply - lpTokensToBurn
-            return (marketCid, newLpCid)
+            return (marketCid, newLpCid, newWalletCid)
           Proposed -> abort "cannot withdraw while a proposal is pending"
 
     -- -----------------------------------------------------------------
@@ -712,20 +842,22 @@ template PredictionMarket
           resolvedAt = Some nowSeconds
           proposal = None
 
-    -- T3: bonded optimistic proposal (Polymarket UX). Bond CC must have been
-    -- transferred to the admin before exercising (same rail as Buy).
-    choice ProposeOutcome : ContractId PredictionMarket
+    -- T3: bonded optimistic proposal (Polymarket UX). The bond is debited
+    -- from the proposer's in-app wallet atomically.
+    choice ProposeOutcome : (ContractId PredictionMarket, ContractId UserWallet)
       with
         proposer : Party
         proposedOutcome : Outcome
         nowSeconds : Int
+        walletCid : ContractId UserWallet
       controller proposer
       do
         assertMsg "T3 optimistic flow not enabled" (policy.challengeSecs > 0)
         assertMsg "market is not awaiting a proposal" (status == Trading)
         assertMsg "market not yet expired" (nowSeconds >= expiresAt)
         assertMsg "resolution window elapsed" (nowSeconds <= expiresAt + gracePeriodSecs)
-        create this with
+        newWalletCid <- debitUserWallet admin proposer walletCid policy.bondCC "bond"
+        marketCid <- create this with
           status = Proposed
           proposal = Some ProposalInfo with
             proposer
@@ -734,14 +866,17 @@ template PredictionMarket
             bondCC = policy.bondCC
             challenger = None
             challengerOutcome = None
+        return (marketCid, newWalletCid)
 
     -- T3: bonded challenge. Does NOT trigger a vote - it escalates to the
-    -- authoritative tier (Resolve with T1/T2 attestations).
-    choice ChallengeOutcome : ContractId PredictionMarket
+    -- authoritative tier (Resolve with T1/T2 attestations). The bond is
+    -- debited from the challenger's in-app wallet atomically.
+    choice ChallengeOutcome : (ContractId PredictionMarket, ContractId UserWallet)
       with
         challenger : Party
         challengerOutcome : Outcome
         nowSeconds : Int
+        walletCid : ContractId UserWallet
       controller challenger
       do
         assertMsg "no proposal to challenge" (status == Proposed)
@@ -753,10 +888,12 @@ template PredictionMarket
               (nowSeconds <= p.proposedAt + policy.challengeSecs)
             assertMsg "challenge must assert a different outcome"
               (challengerOutcome /= p.proposedOutcome)
-            create this with
+            newWalletCid <- debitUserWallet admin challenger walletCid p.bondCC "bond"
+            marketCid <- create this with
               proposal = Some p with
                 challenger = Some challenger
                 challengerOutcome = Some challengerOutcome
+            return (marketCid, newWalletCid)
 
     -- T3: an unchallenged proposal finalizes after the window; the proposer's
     -- bond is returned.
@@ -806,12 +943,14 @@ template PredictionMarket
     -- -----------------------------------------------------------------
 
     -- After Resolved: 1 CC per winning share, 0 per losing share.
-    -- After Voided: cost basis refunded. Archives the position.
-    nonconsuming choice RedeemPosition : ContractId PendingPayout
+    -- After Voided: cost basis refunded. Archives the position; the payout
+    -- is credited to the holder's in-app wallet.
+    nonconsuming choice RedeemPosition : ContractId UserWallet
       with
         holder : Party
         nowSeconds : Int
         positionCid : ContractId Position
+        walletCid : ContractId UserWallet
       controller holder
       do
         assertMsg "market not settled" (status == Resolved || status == Voided)
@@ -827,11 +966,8 @@ template PredictionMarket
               _ -> 0.0
         assertMsg "nothing to redeem" (payout > 0.0)
         archive positionCid
-        create PendingPayout with
-          admin, user = holder, marketId
-          amountCC = payout
-          reason = if status == Voided then "void-refund" else "resolve"
-          createdAt = nowSeconds
+        creditUserWallet admin holder walletCid payout
+          (if status == Voided then "void-refund" else "resolve")
 
     -- -----------------------------------------------------------------
     -- Prediction-model marketplace hooks
