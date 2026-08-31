@@ -4,7 +4,7 @@ Self-hosted Cantor8 Enterprise Wallet that signs admin-side TruthOracle transact
 (creating `MarketCounter`, future admin-only operations). End users keep using the
 popup `@cantor8/wallet-connect-sdk` — this deployment is for the **admin / house** party.
 
-- Image: `cantor8technologies/enterprise-wallet:v0.1.34` (amd64 only — compose pins `platform: linux/amd64`)
+- Image: `cantor8technologies/enterprise-wallet:v0.1.35` (amd64 only — compose pins `platform: linux/amd64`)
 - Network: DevNet — `WALLET_NETWORK=devnet` (`devnet` | `mainnet`) is all the wallet
   needs to resolve the validator and scanner URLs (see "Network resolution" below)
 - Identity service (`IDENTITY_SERVICE_URL`): `https://id.dev.digik.cantor8.tech` —
@@ -223,6 +223,6 @@ signing/submit for the admin party) without auth.
 - `docker-compose-client.yml` — minimal compose, single service, port 8080.
 - `.env.example` — DevNet config; copy to `.env` and fill `WALLET_MNEMONIC`.
 - `generate-mnemonic.mjs` — produces a 24-word BIP39 phrase.
-- `images/` — saved image tarballs (`docker save`), e.g. `enterprise-wallet-v0.1.34.tar`.
+- `images/` — saved image tarballs (`docker save`), e.g. `enterprise-wallet-v0.1.35.tar`.
   Gitignored (large binaries); load offline with `docker load -i images/<file>.tar`.
 - `.gitignore` — excludes `.env` (mnemonic) and `images/`.
