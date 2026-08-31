@@ -85,13 +85,24 @@ function mustEnv(value: string, name: string) {
 
 /**
  * Keycloak client_credentials token for the Enterprise Wallet (AUTH_TYPE=keycloak).
- * Same client/secret the frontend uses for the Ledger API.
+ * The wallet validates tokens against ITS OWN Keycloak, which may differ from the
+ * Ledger API's — WALLET_KEYCLOAK_* wins when set (same order as the wallet proxy);
+ * a 401 "Key ID … not found in JWKS" from the wallet means the token issuer is wrong.
  */
 async function fetchWalletBearerToken(): Promise<string> {
-  const url = stripTrailingSlash(mustEnv(viteEnv("KEYCLOAK_URL") || viteEnv("VITE_KEYCLOAK_URL"), "KEYCLOAK_URL"));
-  const realm = viteEnv("KEYCLOAK_REALM") || viteEnv("VITE_KEYCLOAK_REALM") || "master";
-  const clientId = mustEnv(viteEnv("KEYCLOAK_CLIENT_ID") || viteEnv("VITE_KEYCLOAK_CLIENT_ID"), "KEYCLOAK_CLIENT_ID");
-  const clientSecret = mustEnv(viteEnv("KEYCLOAK_CLIENT_SECRET") || viteEnv("VITE_KEYCLOAK_CLIENT_SECRET"), "KEYCLOAK_CLIENT_SECRET");
+  const url = stripTrailingSlash(mustEnv(
+    viteEnv("WALLET_KEYCLOAK_URL") || viteEnv("KEYCLOAK_URL") || viteEnv("VITE_KEYCLOAK_URL"),
+    "WALLET_KEYCLOAK_URL or KEYCLOAK_URL",
+  ));
+  const realm = viteEnv("WALLET_KEYCLOAK_REALM") || viteEnv("KEYCLOAK_REALM") || viteEnv("VITE_KEYCLOAK_REALM") || "master";
+  const clientId = mustEnv(
+    viteEnv("WALLET_KEYCLOAK_CLIENT_ID") || viteEnv("KEYCLOAK_CLIENT_ID") || viteEnv("VITE_KEYCLOAK_CLIENT_ID"),
+    "WALLET_KEYCLOAK_CLIENT_ID or KEYCLOAK_CLIENT_ID",
+  );
+  const clientSecret = mustEnv(
+    viteEnv("WALLET_KEYCLOAK_CLIENT_SECRET") || viteEnv("KEYCLOAK_CLIENT_SECRET") || viteEnv("VITE_KEYCLOAK_CLIENT_SECRET"),
+    "WALLET_KEYCLOAK_CLIENT_SECRET or KEYCLOAK_CLIENT_SECRET",
+  );
 
   const res = await fetch(`${url}/realms/${realm}/protocol/openid-connect/token`, {
     method: "POST",

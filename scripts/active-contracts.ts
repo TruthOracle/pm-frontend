@@ -10,12 +10,15 @@
  * Usage:
  *   npm run contracts:active                       # every template, grouped summary
  *   npm run contracts:active MarketCounter         # one template
+ *   npm run contracts:active -- --network zkpc     # against the zkpc (MainNet) node
  *   npm run contracts:active -- --party <partyId>  # query as some other party
  *   npm run contracts:active -- --json             # machine-readable
  *   npm run contracts:active -- --raw              # verbatim API responses
  *
- * Config: root `.env` (same VITE_* the frontend reads).
- *   Required: VITE_CANTON_PARTICIPANT_URL, VITE_KEYCLOAK_*, VITE_ENTERPRISE_WALLET_PARTY_ID
+ * Config: root `.env`. One credential set per network, never mixed:
+ *   --network devnet (default): VITE_CANTON_PARTICIPANT_URL, VITE_KEYCLOAK_URL/REALM,
+ *                               KEYCLOAK_CLIENT_ID/SECRET, VITE_ENTERPRISE_WALLET_PARTY_ID
+ *   --network zkpc:             ZKPC_LEDGER_API_URL, ZKPC_KEYCLOAK_*, ZKPC_PARTY_ID
  *   Optional: VITE_TRUTHORACLE_PACKAGE_NAME (default 'truthoracle')
  */
 
@@ -52,6 +55,47 @@ function mustEnv(value: string, name: string) {
 
 function stripTrailingSlash(url: string) {
   return url.replace(/\/$/, "");
+}
+
+type Network = "devnet" | "zkpc";
+
+function parseNetwork(argv: string[], fallback: Network): Network {
+  const i = argv.indexOf("--network");
+  const network = i >= 0 ? (argv[i + 1] ?? "") : fallback;
+  if (network !== "devnet" && network !== "zkpc") {
+    throw new Error(`Unknown --network "${network}". Use: devnet | zkpc`);
+  }
+  return network;
+}
+
+/**
+ * Exactly one credential set per network — never mixed. The digik (devnet) and
+ * zkpc (MainNet) Keycloaks hold DIFFERENT clients; a token minted on the wrong
+ * one is rejected by the participant with an opaque 401.
+ */
+function networkConfig(network: Network) {
+  return network === "zkpc"
+    ? {
+        ledgerApi: stripTrailingSlash(mustEnv(viteEnv("ZKPC_LEDGER_API_URL"), "ZKPC_LEDGER_API_URL")),
+        keycloakUrl: mustEnv(viteEnv("ZKPC_KEYCLOAK_URL"), "ZKPC_KEYCLOAK_URL"),
+        realm: viteEnv("ZKPC_KEYCLOAK_REALM") || "master",
+        clientId: mustEnv(viteEnv("ZKPC_KEYCLOAK_CLIENT_ID"), "ZKPC_KEYCLOAK_CLIENT_ID"),
+        clientSecret: mustEnv(viteEnv("ZKPC_KEYCLOAK_CLIENT_SECRET"), "ZKPC_KEYCLOAK_CLIENT_SECRET"),
+      }
+    : {
+        ledgerApi: stripTrailingSlash(mustEnv(viteEnv("VITE_CANTON_PARTICIPANT_URL"), "VITE_CANTON_PARTICIPANT_URL")),
+        keycloakUrl: mustEnv(viteEnv("VITE_KEYCLOAK_URL"), "VITE_KEYCLOAK_URL"),
+        realm: viteEnv("VITE_KEYCLOAK_REALM") || "master",
+        clientId: mustEnv(viteEnv("KEYCLOAK_CLIENT_ID"), "KEYCLOAK_CLIENT_ID"),
+        clientSecret: mustEnv(viteEnv("KEYCLOAK_CLIENT_SECRET"), "KEYCLOAK_CLIENT_SECRET"),
+      };
+}
+
+/** The party each network's queries act as — same no-cross-network rule as the creds. */
+function networkParty(network: Network) {
+  return network === "zkpc"
+    ? mustEnv(viteEnv("ZKPC_PARTY_ID"), "ZKPC_PARTY_ID (or pass --party)")
+    : mustEnv(viteEnv("VITE_ENTERPRISE_WALLET_PARTY_ID"), "VITE_ENTERPRISE_WALLET_PARTY_ID (or pass --party)");
 }
 
 /**
@@ -164,14 +208,17 @@ async function main() {
       "Usage:",
       "  npm run contracts:active                       # every template, grouped summary",
       "  npm run contracts:active MarketCounter         # a single template",
+      "  npm run contracts:active -- --network zkpc     # against the zkpc (MainNet) node",
       "  npm run contracts:active -- --party <partyId>  # query as another party",
       "  npm run contracts:active -- --json             # machine-readable JSON",
       "  npm run contracts:active -- --raw              # verbatim API responses",
       "",
       `Known templates: ${TEMPLATES.map((t) => t.entity).join(", ")}`,
       "",
-      "Config (root `.env`):",
-      "  VITE_CANTON_PARTICIPANT_URL, VITE_KEYCLOAK_*, VITE_ENTERPRISE_WALLET_PARTY_ID",
+      "Config (root `.env`) — one credential set per network, never mixed:",
+      "  --network devnet (default): VITE_CANTON_PARTICIPANT_URL, VITE_KEYCLOAK_URL/REALM,",
+      "                              KEYCLOAK_CLIENT_ID/SECRET, VITE_ENTERPRISE_WALLET_PARTY_ID",
+      "  --network zkpc:             ZKPC_LEDGER_API_URL, ZKPC_KEYCLOAK_*, ZKPC_PARTY_ID",
       "  VITE_TRUTHORACLE_PACKAGE_NAME (default 'truthoracle')",
     ].join("\n"));
     return;
@@ -185,15 +232,16 @@ async function main() {
   const argv = process.argv.slice(2);
   const raw = argv.includes("--raw");
   const asJson = argv.includes("--json");
+  const network = parseNetwork(argv, "devnet");
   const partyIdx = argv.indexOf("--party");
+  const networkIdx = argv.indexOf("--network");
+  const flagValueIdxs = new Set([partyIdx, networkIdx].filter((i) => i >= 0).map((i) => i + 1));
   const partyOverride = partyIdx >= 0 ? argv[partyIdx + 1] : "";
-  const positional = argv.filter((a, i) => !a.startsWith("--") && i !== partyIdx + 1);
+  const positional = argv.filter((a, i) => !a.startsWith("--") && !flagValueIdxs.has(i));
 
-  const LEDGER_API = stripTrailingSlash(
-    mustEnv(viteEnv("VITE_CANTON_PARTICIPANT_URL"), "VITE_CANTON_PARTICIPANT_URL"),
-  );
-  const PARTY = partyOverride
-    || mustEnv(viteEnv("VITE_ENTERPRISE_WALLET_PARTY_ID"), "VITE_ENTERPRISE_WALLET_PARTY_ID");
+  const net = networkConfig(network);
+  const LEDGER_API = net.ledgerApi;
+  const PARTY = partyOverride || networkParty(network);
   // The active-contracts template filter takes a package-*name* reference
   // ("#truthoracle-v13:Module:Entity"), never a package id.
   const PACKAGE_NAME = viteEnv("VITE_TRUTHORACLE_PACKAGE_NAME") || "truthoracle";
@@ -206,18 +254,14 @@ async function main() {
     throw new Error(`Unknown template "${onlyEntity}". Known: ${TEMPLATES.map((t) => t.entity).join(", ")}`);
   }
 
-  const bearerToken = await getKeycloakAccessToken({
-    keycloakUrl: mustEnv(viteEnv("KEYCLOAK_URL") || viteEnv("VITE_KEYCLOAK_URL"), "KEYCLOAK_URL"),
-    realm: viteEnv("KEYCLOAK_REALM") || viteEnv("VITE_KEYCLOAK_REALM") || "master",
-    clientId: mustEnv(viteEnv("KEYCLOAK_CLIENT_ID") || viteEnv("VITE_KEYCLOAK_CLIENT_ID"), "KEYCLOAK_CLIENT_ID"),
-    clientSecret: mustEnv(viteEnv("KEYCLOAK_CLIENT_SECRET") || viteEnv("VITE_KEYCLOAK_CLIENT_SECRET"), "KEYCLOAK_CLIENT_SECRET"),
-  });
+  const bearerToken = await getKeycloakAccessToken(net);
   const headers = { Authorization: `Bearer ${bearerToken}`, "Content-Type": "application/json" };
 
   const ledgerEnd = await fetchJson(`${LEDGER_API}/v2/state/ledger-end`, { method: "GET", headers });
   const activeAtOffset = String(typeof (ledgerEnd as any).offset === "number" ? (ledgerEnd as any).offset : 0);
 
   if (!asJson && !raw) {
+    console.log(`Network:      ${network}`);
     console.log(`Participant:  ${LEDGER_API}`);
     console.log(`Package name: ${PACKAGE_NAME}`);
     console.log(`Party:        ${PARTY}`);

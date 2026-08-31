@@ -1,3 +1,5 @@
+// User auth stays on the normal (digik) Keycloak on every network — only the
+// ledger proxy switches to the zkpc credentials on VITE_APP_NETWORK=mainnet.
 const TARGET_ENV = ["KEYCLOAK_PROXY_TARGET_URL", "VITE_KEYCLOAK_URL"];
 
 function absoluteTarget(value) {

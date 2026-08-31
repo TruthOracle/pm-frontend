@@ -18,6 +18,8 @@
     "create:contract": "tsx scripts/create-contract.ts",
     "ledger:query": "tsx scripts/ledger-query.ts",
     "contracts:active": "tsx scripts/active-contracts.ts",
+    "rights:grant": "tsx scripts/grant-rights.ts",
+    "create:account": "tsx scripts/create-account.ts",
     "dars:build": "cd daml && dpm build",
     "dars:upload": "tsx scripts/upload-dar.ts"
   },
