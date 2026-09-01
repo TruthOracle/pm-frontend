@@ -53,7 +53,7 @@ export default function MarketSettlementPanel({ context }: { context: Settlement
                   <button
                     onClick={handleRedeem}
                     disabled={busy !== null || redeemable <= 0 || !account}
-                    className="w-full rounded-lg bg-primary py-3 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-secondary disabled:text-muted-foreground"
+                    className="trade-cta"
                   >
                     {busy === "redeem"
                       ? "Redeeming…"
