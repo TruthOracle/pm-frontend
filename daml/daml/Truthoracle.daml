@@ -117,13 +117,18 @@ template UserWallet
     balanceCC : Decimal     -- spendable in-app balance
     depositedCC : Decimal   -- lifetime external deposits (reconciliation)
     withdrawnCC : Decimal   -- lifetime external withdrawals (reconciliation)
+    -- txRefs already credited, newest first. Optional and LAST so 2.0.0 passes the
+    -- smart-contract-upgrade check against 1.0.0 contracts, which read as None.
+    depositRefs : Optional [Text]
   where
     signatory admin
     observer owner
     ensure balanceCC >= 0.0 && depositedCC >= 0.0 && withdrawnCC >= 0.0
 
     -- External top-up: the admin credits after receiving the owner's real CC
-    -- transfer. txRef records the CC transfer for off-chain audit.
+    -- transfer. txRef is recorded on the contract, so which transfers were credited
+    -- is an on-ledger invariant rather than an off-chain derivation, and replaying a
+    -- credit for the same transfer aborts here even if it slips past command-dedup.
     choice Deposit : ContractId UserWallet
       with
         amountCC : Decimal
@@ -131,9 +136,12 @@ template UserWallet
       controller admin
       do
         assertMsg "deposit must be positive" (amountCC > 0.0)
+        let credited = fromOptional [] depositRefs
+        assertMsg "txRef was already credited" (notElem txRef credited)
         create this with
           balanceCC = balanceCC + amountCC
           depositedCC = depositedCC + amountCC
+          depositRefs = Some (txRef :: credited)
 
     -- Internal credit (trade proceeds, redemptions, payout settlement).
     choice Credit : ContractId UserWallet
