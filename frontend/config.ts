@@ -62,6 +62,14 @@ export const TRUTHORACLE_PACKAGE_NAME = readString(
 export const PARTICIPANT_PROXY_URL = trimTrailingSlash(
   readString(import.meta.env.VITE_CANTON_PARTICIPANT_PROXY_URL, "/__proxy/ledger"),
 );
+/**
+ * Cantor8 wallet-backend, via our same-origin relay by default (the mainnet backend
+ * sends no CORS headers, so direct browser calls fail). The relay picks the real
+ * upstream server-side from VITE_APP_NETWORK, overridable with C8_WALLET_BACKEND_URL.
+ */
+export const C8_BACKEND_URL = trimTrailingSlash(
+  readString(import.meta.env.VITE_C8_BACKEND_URL, "/__proxy/c8b"),
+);
 export const USE_PARTICIPANT_API = readBoolean(import.meta.env.VITE_USE_PARTICIPANT_API);
 
 // Keycloak client credentials are intentionally NOT read here — token minting is
