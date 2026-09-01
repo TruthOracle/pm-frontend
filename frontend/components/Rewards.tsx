@@ -5,6 +5,7 @@ import { Box, Button, Heading, HStack, IconButton, Spinner, Text, VStack, useToa
 import { RepeatIcon } from "@chakra-ui/icons";
 import { useEffect, useState } from "react";
 import { getUserRewards, getRewardMarkets, getClaimedMarkets } from "../../blockend/cantonService";
+import { debugLog } from "@/lib/debugLog";
 
 const Rewards = () => {
   const { account, signAndSubmitTransaction } = useCantonWallet();
@@ -21,11 +22,7 @@ const Rewards = () => {
       try {
         const result = await getUserRewards(account.address);
         const [pending, total] = result;
-        console.log({
-          result,
-          pending,
-          total,
-        });
+        debugLog("[rewards]", { result, pending, total });
         setRewards({
           pending: Number(pending) / 1e8, // Convert from base units to Canton Coin
           total: Number(total) / 1e8,

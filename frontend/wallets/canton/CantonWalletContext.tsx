@@ -24,7 +24,7 @@ import type {
   CantonWalletContextValue,
   ConnectOptions,
 } from "../types";
-import { walletDebugLog } from "@/lib/walletDebug";
+import { debugLog } from "@/lib/debugLog";
 
 const CantonWalletContext = createContext<CantonWalletContextValue | null>(null);
 
@@ -67,7 +67,7 @@ export function CantonWalletProvider({ children }: { children: React.ReactNode }
       appName: APP_NAME,
       network: getLoopNetwork(),
       onTransactionUpdate: (payload) => {
-        walletDebugLog("[CantonWallet] Transaction update:", payload);
+        debugLog("[CantonWallet] Transaction update:", payload);
       },
       options: { openMode: "popup", requestSigningMode: "popup" },
       onAccept: (provider: LoopProvider) => {

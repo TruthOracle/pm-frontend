@@ -17,6 +17,7 @@ import { buildInitMarketParams, type ResolutionPolicyArg } from "@/utils/cantonC
 import { fetchMarketCounterContractId } from "@/utils/activeContracts";
 import { enterpriseWalletPartyId, submitAdminTransaction } from "@/lib/enterpriseWalletSubmit";
 import { optimalReserves, liquidityFromValue } from "@/lib/marketPricing";
+import { debugLog } from "@/lib/debugLog";
 
 type Props = {};
 
@@ -178,7 +179,7 @@ function AdminForm({}: Props) {
         setSubmitting(true);
         try {
             const committedTxn = await submitAdminTransaction(params, signAndSubmitTransaction);
-            console.log(`Committed transaction: ${committedTxn.hash}`);
+            debugLog(`Committed transaction: ${committedTxn.hash}`);
             (window as { refreshMarketplace?: () => void }).refreshMarketplace?.();
             toast({
                 title: "Market Created",

@@ -9,6 +9,7 @@ import {
   Button,
   Flex,
 } from '@chakra-ui/react'
+import { debugLog } from '@/lib/debugLog'
 type Props = {}
 
 const tradeData = [
@@ -34,8 +35,8 @@ const tradeData = [
 
 function VoteTable({}: Props) {
   
-  const handleVote= (value:boolean) =>{
-console.log(value)
+  const handleVote = (value: boolean) => {
+    debugLog('[vote-table] vote:', value)
   }
   return (
     <>
