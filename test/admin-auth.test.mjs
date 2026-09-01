@@ -246,9 +246,19 @@ describe("proxy access policy", () => {
 
   it("requires a session for every wallet path", () => {
     configure();
-    const gate = authorise({ req: request(), path: "api/v1/transfer", kind: "wallet" });
+    // api/v1/accounts is the exact read that was reachable anonymously on the old
+    // open relay — the wallet allowlist must stay empty, reads included.
+    for (const path of ["api/v1/transfer", "api/v1/accounts", "api/v1/external/submit"]) {
+      const gate = authorise({ req: request(), path, kind: "wallet" });
+      assert.equal(gate.allow, false, `wallet path should be denied: ${path}`);
+      assert.equal(gate.status, 401);
+    }
+  });
+
+  it("denies wallet reads even before auth is configured (fail closed)", () => {
+    const gate = authorise({ req: request(), path: "api/v1/accounts", kind: "wallet" });
     assert.equal(gate.allow, false);
-    assert.equal(gate.status, 401);
+    assert.equal(gate.status, 503);
   });
 
   it("admits a valid operator session", () => {
