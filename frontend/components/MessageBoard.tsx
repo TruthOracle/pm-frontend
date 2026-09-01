@@ -6,6 +6,7 @@ import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getMessageContent } from "@/view-functions/getMessageContent";
+import { debugError } from "@/lib/debugLog";
 
 export function MessageBoard() {
   const { account, signAndSubmitTransaction } = useCantonWallet();
@@ -51,7 +52,7 @@ export function MessageBoard() {
         description: `Transaction succeeded, commandId: ${result.hash}`,
       });
     } catch (error) {
-      console.error(error);
+      debugError("Message post failed", error);
     }
   };
 

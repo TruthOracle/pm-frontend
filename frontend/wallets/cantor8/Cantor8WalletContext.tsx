@@ -20,7 +20,7 @@ import type {
   CantonWalletContextValue,
   ConnectOptions,
 } from "../types";
-import { debugLog } from "@/lib/debugLog";
+import { debugLog, debugWarn } from "@/lib/debugLog";
 
 const Cantor8WalletContext = createContext<CantonWalletContextValue | null>(null);
 
@@ -81,7 +81,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
         const { accounts } = await wallet.getAccounts();
         setAccount(accountFromPayload(accounts));
       } catch (e) {
-        console.warn("[Cantor8] getAccounts failed:", e);
+        debugWarn("[Cantor8] getAccounts failed", e);
       }
     };
 
@@ -148,7 +148,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
         setAccount(connected);
       }
     } catch (e) {
-      console.warn("[Cantor8] getAccounts after connect failed:", e);
+      debugWarn("[Cantor8] getAccounts after connect failed", e);
     }
   }, []);
 

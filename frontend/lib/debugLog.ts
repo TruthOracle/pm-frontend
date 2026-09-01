@@ -13,3 +13,19 @@ const DEBUG: boolean =
 export function debugLog(...args: unknown[]): void {
   if (DEBUG) console.log(...args);
 }
+
+/**
+ * Warn/error with detail objects withheld in production. The static message still
+ * prints everywhere — a real failure must stay visible — but the caught error /
+ * payload objects (which can embed party ids, URLs, or API payloads) print only in
+ * dev or under VITE_DEBUG_WALLET=true.
+ */
+export function debugWarn(message: string, ...detail: unknown[]): void {
+  if (DEBUG) console.warn(message, ...detail);
+  else console.warn(message);
+}
+
+export function debugError(message: string, ...detail: unknown[]): void {
+  if (DEBUG) console.error(message, ...detail);
+  else console.error(message);
+}

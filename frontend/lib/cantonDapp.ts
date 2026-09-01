@@ -21,6 +21,7 @@ import type {
   Null,
   TxChangedExecutedEvent,
 } from "@canton-network/core-wallet-dapp-rpc-client";
+import { debugWarn } from "@/lib/debugLog";
 
 export type { PrepareExecuteParams, PrepareExecuteAndWaitResult, Wallet, Network };
 
@@ -89,7 +90,7 @@ function withTimeout(
   timeoutMs = 10_000
 ): ReturnType<typeof setTimeout> {
   return setTimeout(() => {
-    console.warn(`SDK: ${details}`);
+    debugWarn(`SDK: ${details}`);
     reject({ status: "error", error: 2, details });
   }, timeoutMs);
 }
@@ -245,7 +246,7 @@ export async function connect(options?: ConnectOptions): Promise<StatusEvent> {
       method: "connect",
     });
     if (response?.session) setKernelSession(response);
-    else if (response?.userUrl) console.warn("SDK: Connected without session", response);
+    else if (response?.userUrl) debugWarn("SDK: Connected without session", response);
     return response as unknown as StatusEvent;
   } catch (err) {
     const details =

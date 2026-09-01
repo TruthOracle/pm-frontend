@@ -56,6 +56,7 @@ import MarketResolutionPanel from "./MarketResolutionPanel";
 import MarketSettlementPanel from "./MarketSettlementPanel";
 import type { MainTab, TradeSubTab, LiquiditySubTab } from "./marketTypes";
 import { getPrefetchedMarkets } from "@/utils/marketPrefetch";
+import { debugError } from "@/lib/debugLog";
 
 async function waitForPositionUpdate(
   partyId: string,
@@ -247,7 +248,7 @@ const MarketView = () => {
       await signAndSubmitTransaction(params);
       return true;
     } catch (e) {
-      console.error(e);
+      debugError("Market action failed", e);
       toast({
         title: `${label} failed`,
         description: e instanceof Error ? e.message : "Wallet could not submit the transaction.",
@@ -611,7 +612,7 @@ const MarketView = () => {
         isClosable: true,
       });
     } catch (e) {
-      console.error(e);
+      debugError("Market action failed", e);
       toast({
         title: "Resolve failed",
         description: e instanceof Error ? e.message : "Could not submit ResolveT0.",
@@ -634,7 +635,7 @@ const MarketView = () => {
       await refreshAllViews();
       toast({ title: "Market resolved from attestations", status: "success", duration: 7000, isClosable: true });
     } catch (e) {
-      console.error(e);
+      debugError("Market action failed", e);
       toast({
         title: "Resolve failed",
         description: e instanceof Error ? e.message : "Quorum/signature requirements not met.",

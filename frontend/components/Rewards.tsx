@@ -5,7 +5,7 @@ import { Box, Button, Heading, HStack, IconButton, Spinner, Text, VStack, useToa
 import { RepeatIcon } from "@chakra-ui/icons";
 import { useEffect, useState } from "react";
 import { getUserRewards, getRewardMarkets, getClaimedMarkets } from "../../blockend/cantonService";
-import { debugLog } from "@/lib/debugLog";
+import { debugError, debugLog } from "@/lib/debugLog";
 
 const Rewards = () => {
   const { account, signAndSubmitTransaction } = useCantonWallet();
@@ -37,7 +37,7 @@ const Rewards = () => {
         const unclaimedMarkets = eligibleMarketIds.filter((id: number) => !claimedMarketIds.includes(id));
         setRewardMarkets(unclaimedMarkets);
       } catch (error) {
-        console.error("Error fetching rewards markets:", error);
+        debugError("Error fetching rewards markets", error);
         toast({
           title: "Error",
           description: "Failed to fetch rewards data. Please try again.",
@@ -92,7 +92,7 @@ const Rewards = () => {
       });
       await fetchRewardsAndClaims();
     } catch (error) {
-      console.error("Error claiming all rewards:", error);
+      debugError("Error claiming all rewards", error);
       toast({
         title: "Error",
         description: "Failed to claim rewards. Please try again.",
