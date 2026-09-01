@@ -8,7 +8,7 @@ import { LOOP_NETWORK } from "@/config";
 import { debugWarn } from "@/lib/debugLog";
 
 function getWalletBackendUrl(): string {
-  if (LOOP_NETWORK === "mainnet") return "https://wallet-backend.main.cantor8.tech";
+  if (LOOP_NETWORK === "mainnet") return "https://wallet-backend.main.digik.cantor8.tech";
   return "https://wallet-backend.dev.digik.cantor8.tech";
 }
 
