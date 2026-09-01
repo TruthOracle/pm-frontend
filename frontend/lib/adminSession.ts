@@ -98,6 +98,25 @@ async function requestAdminSession(): Promise<AdminSession> {
  * Run the challenge. `signMessage` is the wallet provider's bound method — the popup
  * asks the operator to approve, so this call blocks on a human.
  */
+/**
+ * The server's failure responses are deliberately terse and uniform (telling a caller
+ * WHY verification failed would make it an operator-enumeration oracle) — translate
+ * them into complete sentences the person at the screen can act on.
+ */
+function loginErrorMessage(status: number, data: { error?: unknown; detail?: unknown }): string {
+  const raw = typeof data.error === "string" ? data.error : "";
+  if (raw === "challenge rejected") {
+    return "The sign-in challenge expired or was already used. Try signing in again.";
+  }
+  if (status === 401) {
+    return "Sign-in failed: the signature could not be verified for this wallet.";
+  }
+  if (status === 429) {
+    return "Too many sign-in attempts. Wait a minute and try again.";
+  }
+  return raw || `Admin login failed (${status}).`;
+}
+
 export async function signInAsAdmin(args: {
   partyId: string;
   signMessage: (message: string, partyId?: string) => Promise<string>;
@@ -129,7 +148,7 @@ export async function signInAsAdmin(args: {
     }),
   });
   const data = await readJson(res);
-  if (!res.ok) throw new Error(String(data.error ?? `Admin login failed (${res.status})`));
+  if (!res.ok) throw new Error(loginErrorMessage(res.status, data));
   instanceToken = freshInstance;
 
   return {

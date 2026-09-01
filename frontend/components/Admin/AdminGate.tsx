@@ -136,27 +136,6 @@ export default function AdminGate({ children }: { children: React.ReactNode }) {
         <p className="mt-4 text-xs text-slate-500">No wallet connected yet.</p>
       )}
 
-      {/*
-        Setup aid: the server pins each operator's public key, and the only convenient
-        place to read it is the connected account itself. Showing the exact env line
-        removes the guesswork from onboarding a new operator. Public keys are public —
-        nothing sensitive is revealed here.
-      */}
-      {account?.partyId && account.publicKey ? (
-        <details className="mt-4">
-          <summary className="cursor-pointer text-xs text-slate-500">
-            Adding yourself as an operator?
-          </summary>
-          <p className="mt-2 text-xs text-slate-600">
-            Give this line to whoever runs the deployment, to append to{" "}
-            <code className="font-mono">ADMIN_OPERATORS</code>:
-          </p>
-          <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-100 p-3 font-mono text-[11px] leading-relaxed text-slate-800">
-            {`${account.partyId}=${account.publicKey}`}
-          </pre>
-        </details>
-      ) : null}
-
       <button
         type="button"
         onClick={signIn}
@@ -168,22 +147,16 @@ export default function AdminGate({ children }: { children: React.ReactNode }) {
 
       {error ? (
         <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {error}
+          <p>{error}</p>
           <button
             type="button"
             onClick={() => void signOutAsAdmin().then(refresh)}
-            className="mt-2 block text-xs underline"
+            className="mt-3 rounded-md border border-red-300 px-3 py-1 text-xs font-semibold text-red-700 transition hover:bg-red-100"
           >
-            Clear any stale session and retry
+            Clear stale session and retry
           </button>
         </div>
       ) : null}
-
-      <p className="mt-6 text-xs text-slate-500">
-        Not an operator? Your party id has to be listed in the server's{" "}
-        <code className="font-mono">ADMIN_OPERATORS</code> allowlist. Ask whoever runs the
-        deployment to add it.
-      </p>
     </Shell>
   );
 }
