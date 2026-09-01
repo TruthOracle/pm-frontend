@@ -176,19 +176,24 @@ export function InAppWalletCard({
   if (compact) {
     // Both states keep a 1px border so toggling never changes the button's size.
     const togglePill = (active: boolean) =>
-      `rounded-md border px-2 py-1 text-xs font-semibold transition-colors ${
+      `rounded-md border px-2.5 py-1 text-xs font-semibold transition-colors ${
         active
           ? "border-primary bg-primary text-primary-foreground"
-          : "border-border text-foreground hover:bg-secondary disabled:opacity-50"
+          : "border-primary/40 text-primary hover:bg-primary/10 disabled:opacity-50 disabled:hover:bg-transparent"
       }`;
     return (
-      <div className="rounded-xl border border-border bg-card px-3 py-2.5">
+      <div className="rounded-xl border border-primary/30 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent px-3 py-3 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
-          <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            <Wallet className="h-3.5 w-3.5" /> In-app wallet
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/15 text-primary">
+              <Wallet className="h-4 w-4" />
+            </span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-foreground/80">
+              In-app wallet
+            </span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="mr-1 text-sm font-bold text-foreground">{balanceText}</span>
+            <span className="mr-1 text-base font-extrabold tabular-nums text-foreground">{balanceText}</span>
             <button
               onClick={() => setPanel(panel === "deposit" ? null : "deposit")}
               className={togglePill(panel === "deposit")}
@@ -242,13 +247,18 @@ export function InAppWalletCard({
   }
 
   return (
-    <div className="rounded-xl border border-border bg-card px-4 py-3">
+    <div className="rounded-xl border border-primary/30 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent px-4 py-3 shadow-sm">
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
         <div className="min-w-[10rem]">
-          <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            <Wallet className="h-3.5 w-3.5" /> In-app wallet
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/15 text-primary">
+              <Wallet className="h-4 w-4" />
+            </span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-foreground/80">
+              In-app wallet
+            </span>
           </div>
-          <div className="mt-1 text-xl font-bold text-foreground">{balanceText}</div>
+          <div className="mt-1.5 text-2xl font-extrabold tabular-nums text-foreground">{balanceText}</div>
           <div className="text-[11px] text-muted-foreground">{subLine}</div>
         </div>
         <div className="flex flex-1 items-center gap-2">
