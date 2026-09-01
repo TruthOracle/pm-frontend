@@ -4,12 +4,11 @@
  * equivalent the validator surfaces alongside it.
  */
 
-import { LOOP_NETWORK } from "@/config";
+import { C8_BACKEND_URL } from "@/config";
 import { debugWarn } from "@/lib/debugLog";
 
 function getWalletBackendUrl(): string {
-  if (LOOP_NETWORK === "mainnet") return "https://wallet-backend.main.digik.cantor8.tech";
-  return "https://wallet-backend.dev.digik.cantor8.tech";
+  return C8_BACKEND_URL;
 }
 
 /**

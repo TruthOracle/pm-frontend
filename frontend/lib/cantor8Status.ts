@@ -17,13 +17,10 @@
  *   GET /api/transfer/history?limit=10        — recent transfers (deprecated but functional)
  */
 
-import { APP_NETWORK, DEBUG_WALLET_STATUS } from "@/config";
+import { C8_BACKEND_URL, DEBUG_WALLET_STATUS } from "@/config";
 
-/** Devnet/mainnet wallet backend URL — mirrors the SDK's `origin → backend` switch. */
 function getWalletBackendUrl(): string {
-  const network = APP_NETWORK.toLowerCase().trim();
-  if (network === "mainnet") return "https://wallet-backend.main.digik.cantor8.tech";
-  return "https://wallet-backend.dev.digik.cantor8.tech";
+  return C8_BACKEND_URL;
 }
 
 /**

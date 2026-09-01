@@ -13,6 +13,10 @@
       "destination": "/api/proxy/wallet?path=:path*"
     },
     {
+      "source": "/__proxy/c8b/:path*",
+      "destination": "/api/proxy/c8backend?path=:path*"
+    },
+    {
       "source": "/((?!api/|__proxy/|_vercel/|.*\\.).*)",
       "destination": "/"
     }
