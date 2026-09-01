@@ -819,10 +819,29 @@ const MarketView = () => {
   ];
 
   const subTabBtn = (active: boolean) =>
-    `flex-1 py-2 text-sm font-semibold transition-all ${active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"}`;
+    `flex-1 rounded-md py-1.5 text-sm font-semibold transition-all ${
+      active ? "bg-oracle-purple text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+    }`;
+
+  // Trade/Liquidity header tabs: label + one-line description, primary underline on
+  // the active tab (see the reference layout in PR discussion).
+  const tabHeaderBtn = (active: boolean) =>
+    `flex-1 rounded-t-lg border-b-[3px] pl-2.5 pr-1 pt-2 pb-2.5 text-left transition-colors ${
+      active
+        ? "border-primary bg-primary/5 text-foreground"
+        : "border-transparent text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+    }`;
+  // Mode pills (Swap Tokens / Mint Set, Add / Remove Liquidity): two separated
+  // buttons, the active one filled.
+  const pillBtn = (active: boolean) =>
+    `flex-1 rounded-lg py-2.5 text-sm font-semibold transition-all ${
+      active
+        ? "bg-slate-900 text-white shadow-sm"
+        : "border border-border bg-secondary text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
+    }`;
 
   const tradeContext = {
-    setMainTab, subTabBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs,
+    setMainTab, subTabBtn, tabHeaderBtn, pillBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs,
     tradeSide, setTradeSide, selectedSide, setSelectedSide, probYes, probNo,
     collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage,
     buyQuote, sellQuote, swapQuote, account, busy, handleTradeClick, mintMode,
@@ -830,7 +849,7 @@ const MarketView = () => {
     userPosition, holdings, wallet,
   };
   const liquidityContext = {
-    setMainTab, subTabBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity,
+    setMainTab, subTabBtn, tabHeaderBtn, pillBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity,
     liquidityValue, setLiquidityValue, liquidityQuote, busy, handleProvideLiquidity,
     lpPosition, market, phase, withdrawPct, setWithdrawPct, handleWithdrawLiquidity, account,
   };

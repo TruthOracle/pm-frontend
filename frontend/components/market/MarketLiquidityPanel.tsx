@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Droplets, TrendingUp } from "lucide-react";
 import MarketHistoryChart from "./MarketHistoryChart";
 import { YourLpBox } from "./MarketPositionCards";
 import { fmtCC } from "./marketHelpers";
@@ -6,6 +7,8 @@ import { fmtCC } from "./marketHelpers";
 type LiquidityContext = {
   setMainTab: any;
   subTabBtn: any;
+  tabHeaderBtn: any;
+  pillBtn: any;
   liquiditySubTab: any;
   setLiquiditySubTab: any;
   canProvideLiquidity: any;
@@ -24,33 +27,47 @@ type LiquidityContext = {
 };
 
 export default function MarketLiquidityPanel({ context, walletSlot }: { context: LiquidityContext; walletSlot?: ReactNode }) {
-  const { setMainTab, subTabBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity, liquidityValue, setLiquidityValue, liquidityQuote, busy, handleProvideLiquidity, lpPosition, market, phase, withdrawPct, setWithdrawPct, handleWithdrawLiquidity, account } = context;
+  const { setMainTab, tabHeaderBtn, pillBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity, liquidityValue, setLiquidityValue, liquidityQuote, busy, handleProvideLiquidity, lpPosition, market, phase, withdrawPct, setWithdrawPct, handleWithdrawLiquidity, account } = context;
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,.8fr)] lg:items-start">
-      <MarketHistoryChart probability={market.currentPrice} createdAt={market.createdAt} />
-          <div className="space-y-4 lg:col-start-2 lg:row-start-1 lg:row-span-2">
+      <div className="min-w-0 space-y-6">
+        <MarketHistoryChart probability={market.currentPrice} createdAt={market.createdAt} />
+        <YourLpBox account={account} lpPosition={lpPosition} market={market} />
+      </div>
+          <div className="space-y-4">
             {walletSlot}
-            <div className="flex rounded-lg border border-border bg-white p-1">
-              <button onClick={() => setMainTab("trade")} className={`${subTabBtn(false)} rounded-l-md`}>Trade</button>
-              <button onClick={() => setMainTab("liquidity")} className={`${subTabBtn(true)} rounded-r-md`}>Liquidity</button>
+            <div className="rounded-xl border border-border bg-card shadow-sm">
+            <div className="flex border-b border-border px-2 pt-2">
+              <button onClick={() => setMainTab("trade")} className={tabHeaderBtn(false)}>
+                <span className="flex items-center gap-1.5 text-[15px] font-bold">
+                  <TrendingUp className="h-4 w-4" /> Trade
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">Mint or exchange outcome tokens</span>
+              </button>
+              <button onClick={() => setMainTab("liquidity")} className={tabHeaderBtn(true)}>
+                <span className="flex items-center gap-1.5 text-[15px] font-bold">
+                  <Droplets className="h-4 w-4" /> Liquidity
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">Manage your LP position</span>
+              </button>
             </div>
             {/* Sub-toggle: Add / Remove */}
-            <div className="flex overflow-hidden rounded-lg border border-border">
-              <button onClick={() => setLiquiditySubTab("add")} className={subTabBtn(liquiditySubTab === "add")}>
+            <div className="flex gap-2 p-3">
+              <button onClick={() => setLiquiditySubTab("add")} className={pillBtn(liquiditySubTab === "add")}>
                 Add Liquidity
               </button>
-              <button onClick={() => setLiquiditySubTab("remove")} className={subTabBtn(liquiditySubTab === "remove")}>
+              <button onClick={() => setLiquiditySubTab("remove")} className={pillBtn(liquiditySubTab === "remove")}>
                 Remove Liquidity
               </button>
             </div>
 
             {liquiditySubTab === "add" ? (
               !canProvideLiquidity ? (
-                <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                <div className="mx-3 mb-3 rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
                   Liquidity can only be added before the market expires.
                 </div>
               ) : (
-                <div className="trade-panel">
+                <div className="border-t border-border p-4">
                   <p className="mb-3 text-center text-xs text-muted-foreground">
                     Value-based deposit: name a pool-value increase ΔV; the pool scales reserves and L
                     by (V+ΔV)/V so the price is untouched. ΔL = ΔV / φ(Φ⁻¹(P)).
@@ -81,14 +98,14 @@ export default function MarketLiquidityPanel({ context, walletSlot }: { context:
                   <button
                     onClick={handleProvideLiquidity}
                     disabled={busy !== null || liquidityValue <= 0 || !account}
-                    className="w-full rounded-lg bg-primary py-3 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-secondary disabled:text-muted-foreground"
+                    className="trade-cta"
                   >
                     {busy === "liquidity" ? "Submitting…" : "Add Liquidity"}
                   </button>
                 </div>
               )
             ) : (
-              <div className="trade-panel">
+              <div className="border-t border-border p-4">
                 {!lpPosition || lpPosition.lpTokens <= 0 ? (
                   <div className="p-4 text-center text-sm text-muted-foreground">No LP position to remove.</div>
                 ) : (
@@ -145,10 +162,9 @@ export default function MarketLiquidityPanel({ context, walletSlot }: { context:
                 )}
               </div>
             )}
+            </div>
           </div>
 
-          {/* Under the chart, filling the left column's leftover height. */}
-          <div className="w-full lg:col-start-1 lg:row-start-2"><YourLpBox account={account} lpPosition={lpPosition} market={market} /></div>
 
     </div>
   );

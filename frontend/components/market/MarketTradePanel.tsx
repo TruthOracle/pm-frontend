@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Droplets, TrendingUp } from "lucide-react";
 import MarketHistoryChart from "./MarketHistoryChart";
 import { YourPositionBox } from "./MarketPositionCards";
 import { fmtCC, fmtCountdown } from "./marketHelpers";
@@ -8,6 +9,8 @@ const SLIPPAGE_OPTIONS = [0.005, 0.01, 0.02];
 type TradeContext = {
   setMainTab: any;
   subTabBtn: any;
+  tabHeaderBtn: any;
+  pillBtn: any;
   tradeSubTab: any;
   setTradeSubTab: any;
   phase: any;
@@ -41,32 +44,46 @@ type TradeContext = {
 };
 
 export default function MarketTradePanel({ context, walletSlot }: { context: TradeContext; walletSlot?: ReactNode }) {
-  const { setMainTab, subTabBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs, tradeSide, setTradeSide, selectedSide, setSelectedSide, probYes, probNo, collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage, buyQuote, sellQuote, swapQuote, account, busy, handleTradeClick, mintMode, setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge, userPosition, holdings } = context;
+  const { setMainTab, subTabBtn, tabHeaderBtn, pillBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs, tradeSide, setTradeSide, selectedSide, setSelectedSide, probYes, probNo, collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage, buyQuote, sellQuote, swapQuote, account, busy, handleTradeClick, mintMode, setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge, userPosition, holdings } = context;
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,.8fr)] lg:items-start">
-      <MarketHistoryChart probability={probYes} createdAt={market.createdAt} />
-          <div className="space-y-4 lg:col-start-2 lg:row-start-1 lg:row-span-2">
+      <div className="min-w-0 space-y-6">
+        <MarketHistoryChart probability={probYes} createdAt={market.createdAt} />
+        <YourPositionBox account={account} userPosition={userPosition} holdings={holdings} probYes={probYes} probNo={probNo} />
+      </div>
+          <div className="space-y-4">
             {walletSlot}
-            <div className="flex rounded-lg border border-border bg-white p-1">
-              <button onClick={() => setMainTab("trade")} className={`${subTabBtn(true)} rounded-l-md`}>Trade</button>
-              <button onClick={() => setMainTab("liquidity")} className={`${subTabBtn(false)} rounded-r-md`}>Liquidity</button>
+            <div className="rounded-xl border border-border bg-card shadow-sm">
+            <div className="flex border-b border-border px-2 pt-2">
+              <button onClick={() => setMainTab("trade")} className={tabHeaderBtn(true)}>
+                <span className="flex items-center gap-1.5 text-[15px] font-bold">
+                  <TrendingUp className="h-4 w-4" /> Trade
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">Mint or exchange outcome tokens</span>
+              </button>
+              <button onClick={() => setMainTab("liquidity")} className={tabHeaderBtn(false)}>
+                <span className="flex items-center gap-1.5 text-[15px] font-bold">
+                  <Droplets className="h-4 w-4" /> Liquidity
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">Manage your LP position</span>
+              </button>
             </div>
             {/* Sub-toggle: Swap Tokens / Mint Set */}
-            <div className="flex overflow-hidden rounded-lg border border-border">
-              <button onClick={() => setTradeSubTab("swap")} className={subTabBtn(tradeSubTab === "swap")}>
+            <div className="flex gap-2 p-3">
+              <button onClick={() => setTradeSubTab("swap")} className={pillBtn(tradeSubTab === "swap")}>
                 Swap Tokens
               </button>
-              <button onClick={() => setTradeSubTab("mint")} className={subTabBtn(tradeSubTab === "mint")}>
+              <button onClick={() => setTradeSubTab("mint")} className={pillBtn(tradeSubTab === "mint")}>
                 Mint Set
               </button>
             </div>
 
             {phase !== "trading" && phase !== "liquidity_period" ? (
-              <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+              <div className="mx-3 mb-3 rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
                 Trading is closed — the market has {phase === "expired" || phase === "proposed" ? "expired and awaits resolution" : "settled"}.
               </div>
             ) : tradeSubTab === "swap" && phase === "liquidity_period" ? (
-              <div className="rounded-xl border border-dashed border-oracle-blue/40 p-8 text-center text-sm text-muted-foreground">
+              <div className="mx-3 mb-3 rounded-lg border border-dashed border-oracle-blue/40 p-6 text-center text-sm text-muted-foreground">
                 Swaps open when trading starts in{" "}
                 <span className="font-semibold text-oracle-blue">
                   {fmtCountdown(market.createdAt + market.liquidityPeriodSecs, nowSecs)}
@@ -74,8 +91,8 @@ export default function MarketTradePanel({ context, walletSlot }: { context: Tra
                 . Meanwhile you can mint complete sets and add liquidity.
               </div>
             ) : tradeSubTab === "swap" ? (
-              <div className="trade-panel">
-                <div className="mb-4 flex overflow-hidden rounded-lg border border-border">
+              <div className="border-t border-border p-4">
+                <div className="mb-4 flex gap-1 rounded-lg bg-secondary p-1">
                   <button onClick={() => setTradeSide("buy")} className={subTabBtn(tradeSide === "buy")}>
                     Buy
                   </button>
@@ -199,11 +216,7 @@ export default function MarketTradePanel({ context, walletSlot }: { context: Tra
                     <button
                       onClick={handleTradeClick}
                       disabled={disabled}
-                      className={`w-full rounded-lg py-3 text-sm font-bold transition-all ${
-                        disabled
-                          ? "cursor-not-allowed bg-secondary text-muted-foreground"
-                          : "bg-primary text-primary-foreground hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/20"
-                      }`}
+                      className="trade-cta"
                     >
                       {reason ??
                         (tradeSide === "buy"
@@ -214,13 +227,13 @@ export default function MarketTradePanel({ context, walletSlot }: { context: Tra
                     </button>
                   );
                 })()}
-                <p className="mt-2 text-center text-xs text-muted-foreground">
+                <p className="mt-2.5 text-center text-xs text-muted-foreground">
                   Executed on-ledger by the pm-AMM; your slippage bound protects the quote.
                 </p>
               </div>
             ) : (
-              <div className="trade-panel">
-                <div className="mb-4 flex overflow-hidden rounded-lg border border-border">
+              <div className="border-t border-border p-4">
+                <div className="mb-4 flex gap-1 rounded-lg bg-secondary p-1">
                   <button onClick={() => setMintMode("mint")} className={subTabBtn(mintMode === "mint")}>
                     Mint
                   </button>
@@ -263,16 +276,15 @@ export default function MarketTradePanel({ context, walletSlot }: { context: Tra
                 <button
                   onClick={() => handleSplitMerge(mintMode === "mint" ? "split" : "merge")}
                   disabled={busy !== null || splitMergeAmount <= 0 || !account || (mintMode === "merge" && !userPosition)}
-                  className="w-full rounded-lg bg-primary py-3 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-secondary disabled:text-muted-foreground"
+                  className="trade-cta"
                 >
                   {busy === "splitmerge" ? "Submitting…" : mintMode === "mint" ? "Mint Complete Set" : "Merge Complete Set"}
                 </button>
               </div>
             )}
+            </div>
           </div>
 
-          {/* Under the chart, filling the left column's leftover height. */}
-          <div className="w-full lg:col-start-1 lg:row-start-2"><YourPositionBox account={account} userPosition={userPosition} holdings={holdings} probYes={probYes} probNo={probNo} /></div>
 
     </div>
   );
