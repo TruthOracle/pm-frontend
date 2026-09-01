@@ -5,6 +5,7 @@
  */
 
 import { LOOP_NETWORK } from "@/config";
+import { debugWarn } from "@/lib/debugLog";
 
 function getWalletBackendUrl(): string {
   if (LOOP_NETWORK === "mainnet") return "https://wallet-backend.main.cantor8.tech";
@@ -90,7 +91,7 @@ export async function getCantonCoinHoldings(): Promise<AmuletHoldings> {
       lockedBalanceUsd: num(amulet.locked_balance_usd),
     };
   } catch (e) {
-    console.warn("getCantonCoinHoldings", e);
+    debugWarn("getCantonCoinHoldings", e);
     return EMPTY;
   }
 }

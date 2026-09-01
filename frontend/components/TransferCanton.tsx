@@ -6,6 +6,7 @@ import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getCantonCoinHoldings } from "@/view-functions/getAccountBalance";
+import { debugError } from "@/lib/debugLog";
 
 export function TransferCanton() {
   const { account, signAndSubmitTransaction } = useCantonWallet();
@@ -40,7 +41,7 @@ export function TransferCanton() {
         description: `Transaction succeeded, commandId: ${result.hash}`,
       });
     } catch (error) {
-      console.error(error);
+      debugError("Transfer failed", error);
     }
   };
 

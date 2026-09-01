@@ -1,6 +1,7 @@
 import { createParticipantClient } from "@/lib/cantonParticipant";
 import { TRUTHORACLE_PACKAGE_ID, TRUTHORACLE_PACKAGE_NAME } from "@/constants";
 import { ENTERPRISE_WALLET_PARTY_ID } from "@/config";
+import { debugWarn } from "@/lib/debugLog";
 
 const TRUTHORACLE_MODULE = "Truthoracle";
 const INCENTIVES_MODULE = "Incentives";
@@ -228,7 +229,7 @@ export async function fetchMarketCounterContractId(): Promise<string | null> {
     const first = forAdmin[0];
     return first ? getContractId(first) : null;
   } catch (e) {
-    console.warn("fetchMarketCounterContractId", e);
+    debugWarn("fetchMarketCounterContractId", e);
     return null;
   }
 }
@@ -255,7 +256,7 @@ export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecor
     out.sort((a, b) => b.marketId - a.marketId);
     return out;
   } catch (e) {
-    console.warn("fetchAllPredictionMarkets", e);
+    debugWarn("fetchAllPredictionMarkets", e);
     return [];
   }
 }
@@ -287,7 +288,7 @@ export async function fetchPredictionMarketContractId(
     }
     return null;
   } catch (e) {
-    console.warn("fetchPredictionMarketContractId", e);
+    debugWarn("fetchPredictionMarketContractId", e);
     return null;
   }
 }
@@ -334,7 +335,7 @@ export async function fetchUserPosition(
     }
     return null;
   } catch (e) {
-    console.warn("fetchUserPosition", e);
+    debugWarn("fetchUserPosition", e);
     return null;
   }
 }
@@ -357,7 +358,7 @@ export async function fetchAllUserPositions(
     out.sort((a, b) => b.marketId - a.marketId);
     return out;
   } catch (e) {
-    console.warn("fetchAllUserPositions", e);
+    debugWarn("fetchAllUserPositions", e);
     return [];
   }
 }
@@ -412,7 +413,7 @@ export async function fetchUserLpPosition(
     }
     return null;
   } catch (e) {
-    console.warn("fetchUserLpPosition", e);
+    debugWarn("fetchUserLpPosition", e);
     return null;
   }
 }
@@ -464,7 +465,7 @@ export async function fetchAttestations(
     out.sort((a, b) => b.fetchedAt - a.fetchedAt);
     return out;
   } catch (e) {
-    console.warn("fetchAttestations", e);
+    debugWarn("fetchAttestations", e);
     return [];
   }
 }
@@ -509,7 +510,7 @@ export async function fetchModelForecasts(
     out.sort((a, b) => b.committedAt - a.committedAt);
     return out;
   } catch (e) {
-    console.warn("fetchModelForecasts", e);
+    debugWarn("fetchModelForecasts", e);
     return [];
   }
 }
@@ -554,7 +555,7 @@ export async function fetchUserWallet(partyId: string): Promise<UserWalletRecord
     }
     return null;
   } catch (e) {
-    console.warn("fetchUserWallet", e);
+    debugWarn("fetchUserWallet", e);
     return null;
   }
 }
@@ -619,7 +620,7 @@ export async function fetchPendingPayouts(partyId: string): Promise<PendingPayou
     out.sort((a, b) => b.createdAt - a.createdAt);
     return out;
   } catch (e) {
-    console.warn("fetchPendingPayouts", e);
+    debugWarn("fetchPendingPayouts", e);
     return [];
   }
 }
@@ -644,7 +645,7 @@ export async function fetchUserRewardsSummaryContractId(
     const first = list[0];
     return first ? getContractId(first) : null;
   } catch (e) {
-    console.warn("fetchUserRewardsSummaryContractId", e);
+    debugWarn("fetchUserRewardsSummaryContractId", e);
     return null;
   }
 }
