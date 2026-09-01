@@ -64,31 +64,31 @@ describe("configuration", () => {
 describe("login nonce", () => {
   beforeEach(() => configure());
 
-  it("round-trips", () => {
+  it("round-trips", async () => {
     const { nonce, expiresAt } = issueNonce();
     assert.ok(expiresAt > Date.now());
-    assert.equal(consumeNonce(nonce).ok, true);
+    assert.equal((await consumeNonce(nonce)).ok, true);
   });
 
-  it("rejects a replay (same warm instance)", () => {
+  it("rejects a replay", async () => {
     const { nonce } = issueNonce();
-    assert.equal(consumeNonce(nonce).ok, true);
-    const replay = consumeNonce(nonce);
+    assert.equal((await consumeNonce(nonce)).ok, true);
+    const replay = await consumeNonce(nonce);
     assert.equal(replay.ok, false);
     assert.match(replay.reason, /already used/);
   });
 
-  it("rejects tampering with the timestamp", () => {
+  it("rejects tampering with the timestamp", async () => {
     const { nonce } = issueNonce();
     const [random, issuedAt, mac] = nonce.split(".");
     const forged = `${random}.${Number(issuedAt) - 10 * 60 * 1000}.${mac}`;
-    assert.equal(consumeNonce(forged).ok, false);
+    assert.equal((await consumeNonce(forged)).ok, false);
   });
 
-  it("rejects garbage", () => {
-    assert.equal(consumeNonce("").ok, false);
-    assert.equal(consumeNonce("a.b").ok, false);
-    assert.equal(consumeNonce("a.b.c.d").ok, false);
+  it("rejects garbage", async () => {
+    assert.equal((await consumeNonce("")).ok, false);
+    assert.equal((await consumeNonce("a.b")).ok, false);
+    assert.equal((await consumeNonce("a.b.c.d")).ok, false);
   });
 });
 

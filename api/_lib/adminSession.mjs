@@ -7,7 +7,7 @@
  * signing key is ADMIN_SESSION_SECRET (server-only; never VITE_-prefixed).
  *
  * Nonce:   <random>.<issuedAtMs>.<hmac>        — 5 minute window, single use
- *          (best effort; see consumeNonce)
+ *          (fleet-wide when a shared store is configured; see consumeNonce)
  * Session: <partyId>.<issuedAtMs>.<expiresAtMs>.<instanceHash>.<hmac>
  *
  * A session is BOUND TO ONE PAGE LOAD. At login the browser generates a random
@@ -22,6 +22,7 @@
  */
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { claimOnce } from "./sharedStore.mjs";
 
 const NONCE_TTL_MS = 5 * 60 * 1000;
 // Short by design: the session authorises treasury-signed actions, and renewing it
@@ -80,17 +81,12 @@ export function issueNonce() {
 }
 
 /**
- * Warm-instance replay guard. A cold invocation starts with an empty set, so this
- * narrows the replay window rather than closing it — the 5 minute TTL and HTTPS do
- * the real work. Swap for Redis/KV if a shared store ever exists.
+ * Single use is enforced through the shared store (api/_lib/sharedStore.mjs) keyed by
+ * the nonce's MAC, so a replay is rejected fleet-wide, not just on the instance that
+ * first consumed it. Without a store configured this degrades to the old warm-instance
+ * guard — the 5 minute TTL and HTTPS then do the real work.
  */
-const spent = new Map();
-
-function forget(now) {
-  for (const [value, expiry] of spent) if (expiry <= now) spent.delete(value);
-}
-
-export function consumeNonce(nonce) {
+export async function consumeNonce(nonce) {
   const raw = String(nonce ?? "");
   const parts = raw.split(".");
   if (parts.length !== 3) return { ok: false, reason: "malformed nonce" };
@@ -103,9 +99,10 @@ export function consumeNonce(nonce) {
   if (now - issuedAt > NONCE_TTL_MS) return { ok: false, reason: "nonce expired" };
   if (issuedAt - now > 60_000) return { ok: false, reason: "nonce issued in the future" };
 
-  forget(now);
-  if (spent.has(raw)) return { ok: false, reason: "nonce already used" };
-  spent.set(raw, issuedAt + NONCE_TTL_MS);
+  // The MAC is unique per nonce and already verified, so it is the claim key. Keep the
+  // claim alive for the nonce's remaining lifetime — after that expiry rejects it anyway.
+  const { claimed } = await claimOnce(`nonce:${mac}`, issuedAt + NONCE_TTL_MS - now);
+  if (!claimed) return { ok: false, reason: "nonce already used" };
   return { ok: true };
 }
 

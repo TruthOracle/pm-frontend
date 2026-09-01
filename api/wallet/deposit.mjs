@@ -25,20 +25,32 @@
  * each credited in full. The commandId is therefore DERIVED from the exact state the
  * command was computed against: racing duplicates submit the same id and ledger
  * command-dedup rejects all but one, while a legitimate later deposit sees new state
- * and gets a new id. An in-instance lock cheapens the common same-instance case.
+ * and gets a new id. A best-effort lock (cross-instance when a shared store is
+ * configured) cheapens the common race to a fast 409.
  */
 
 import { currentOperator } from "../_lib/adminSession.mjs";
 import { fetchUserWallet, templateId } from "../_lib/ledgerClient.mjs";
 import { adminPartyId, appName } from "../_lib/upstream.mjs";
 import { externalSubmit, totalReceivedFrom, transferHistory } from "../_lib/walletClient.mjs";
+import { acquireLock, hitRateLimit, requestClientKey } from "../_lib/sharedStore.mjs";
 import { createHash } from "node:crypto";
 
 // CC carries 10 decimal places; anything under this is rounding noise, not a deposit.
 const DUST_CC = 1e-9;
 
-/** Users this instance is reconciling right now — same-instance races 409 immediately. */
-const inFlight = new Set();
+// The endpoint is unauthenticated (no user sessions yet) and each call costs upstream
+// work — a transfer-history fetch, a ledger read, possibly a submit. The limits cap
+// what an anonymous caller can burn; a real user reconciles once per deposit, so
+// these are invisible to legitimate use. Operators with a session are not exempt on
+// purpose: nothing legitimate needs more than this either.
+const RATE_WINDOW_MS = 60_000;
+const MAX_PER_IP = 10;
+const MAX_PER_PARTY = 6;
+
+// Crash ceiling for the cross-instance lock. Generous next to the endpoint's few
+// upstream calls; correctness never depends on it (ledger command-dedup does that).
+const LOCK_TTL_MS = 60_000;
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -84,10 +96,18 @@ export default async function handler(req, res) {
   // unauthenticated caller can do is trigger someone else's legitimate credit.
   const operator = currentOperator(req);
 
-  if (inFlight.has(userPartyId)) {
+  const [byIp, byParty] = await Promise.all([
+    hitRateLimit(`rl:deposit:ip:${requestClientKey(req)}`, RATE_WINDOW_MS, MAX_PER_IP),
+    hitRateLimit(`rl:deposit:party:${userPartyId}`, RATE_WINDOW_MS, MAX_PER_PARTY),
+  ]);
+  if (byIp.limited || byParty.limited) {
+    return json(res, 429, { error: "too many reconciliation attempts, try again shortly" });
+  }
+
+  const lock = await acquireLock(`lock:deposit:${userPartyId}`, LOCK_TTL_MS);
+  if (!lock.acquired) {
     return json(res, 409, { error: "a reconciliation for this user is already in progress" });
   }
-  inFlight.add(userPartyId);
 
   try {
     const [history, existing] = await Promise.all([
@@ -131,6 +151,9 @@ export default async function handler(req, res) {
         ]
       : [
           {
+            // No depositRefs here: v13 1.0.0 has no such field, and on 2.0.0 an
+            // omitted Optional defaults to None — the wallet records refs from its
+            // first Deposit exercise onward (see ADMIN_AUTH.md, deposit audit trail).
             CreateCommand: {
               templateId: templateId("UserWallet"),
               createArguments: {
@@ -163,6 +186,6 @@ export default async function handler(req, res) {
     console.error(`[deposit] failed for ${userPartyId}: ${message}`);
     return json(res, 502, { error: "deposit reconciliation failed", detail: message.slice(0, 400) });
   } finally {
-    inFlight.delete(userPartyId);
+    await lock.release();
   }
 }

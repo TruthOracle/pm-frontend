@@ -21,22 +21,13 @@ import {
   sessionCookie,
 } from "../_lib/adminSession.mjs";
 import { describeAttempt, verifyPartySignature } from "../_lib/verifyPartySignature.mjs";
+import { hitRateLimit, requestClientKey } from "../_lib/sharedStore.mjs";
 
-// Best-effort throttle. Serverless invocations do not share memory, so this slows a
-// single warm instance rather than the fleet — the real protection is that a valid
-// signature requires a pinned private key. Sized to be invisible to a human operator.
+// Fleet-wide when a shared store is configured, per-warm-instance otherwise — the
+// real protection either way is that a valid signature requires a pinned private key.
+// Sized to be invisible to a human operator.
 const ATTEMPT_WINDOW_MS = 60_000;
 const MAX_ATTEMPTS = 10;
-const attempts = new Map();
-
-function throttled(key) {
-  const now = Date.now();
-  const recent = (attempts.get(key) || []).filter((at) => now - at < ATTEMPT_WINDOW_MS);
-  recent.push(now);
-  attempts.set(key, recent);
-  if (attempts.size > 500) for (const [k, v] of attempts) if (!v.some((at) => now - at < ATTEMPT_WINDOW_MS)) attempts.delete(k);
-  return recent.length > MAX_ATTEMPTS;
-}
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -67,13 +58,12 @@ export default async function handler(req, res) {
     return;
   }
 
-  // x-real-ip is set by the platform; the first x-forwarded-for entry is client-
-  // supplied and trivially spoofable, so it is only the fallback.
-  const clientKey =
-    String(req.headers["x-real-ip"] || "").trim() ||
-    String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() ||
-    "unknown";
-  if (throttled(clientKey)) {
+  const { limited } = await hitRateLimit(
+    `rl:login:${requestClientKey(req)}`,
+    ATTEMPT_WINDOW_MS,
+    MAX_ATTEMPTS,
+  );
+  if (limited) {
     res.statusCode = 429;
     res.end(JSON.stringify({ error: "too many attempts, try again shortly" }));
     return;
@@ -98,7 +88,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const nonceCheck = consumeNonce(nonce);
+  const nonceCheck = await consumeNonce(nonce);
   if (!nonceCheck.ok) {
     res.statusCode = 401;
     res.end(JSON.stringify({ error: "challenge rejected", detail: nonceCheck.reason }));

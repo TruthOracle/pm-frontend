@@ -24,14 +24,26 @@
  *   2. Before transferring we ask the wallet whether that commandId was already
  *      submitted — which doubles as crash recovery: a payout whose transfer went
  *      through but whose MarkPaid didn't resumes at MarkPaid instead of paying again.
- *   3. A per-instance in-flight set turns same-instance races into an immediate 409.
+ *   3. A best-effort lock (cross-instance when a shared store is configured) turns
+ *      most races into an immediate 409 before any upstream work happens.
  */
 
 import { currentOperator } from "../_lib/adminSession.mjs";
 import { fetchPendingPayout, templateId } from "../_lib/ledgerClient.mjs";
 import { adminPartyId, appName } from "../_lib/upstream.mjs";
 import { externalSubmit, transfer, transferAlreadySubmitted } from "../_lib/walletClient.mjs";
+import { acquireLock, hitRateLimit, requestClientKey } from "../_lib/sharedStore.mjs";
 import { createHash } from "node:crypto";
+
+// Anonymous callers can only trigger legitimate, ledger-recorded payouts, but each
+// attempt costs upstream reads — cap the burn. A settlement worker retries a handful
+// of payouts; these limits are far above that.
+const RATE_WINDOW_MS = 60_000;
+const MAX_PER_IP = 30;
+const MAX_PER_CID = 6;
+
+// Crash ceiling for the cross-instance lock; correctness lives in command-dedup.
+const LOCK_TTL_MS = 60_000;
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -53,9 +65,6 @@ function json(res, status, payload) {
   res.setHeader("cache-control", "no-store");
   res.end(JSON.stringify(payload));
 }
-
-/** Payouts this instance is settling right now. Layer 3 of the race defence above. */
-const inFlight = new Set();
 
 /** Stable per-payout ids: every attempt to settle one cid submits the same commands. */
 function commandIdsFor(pendingPayoutCid) {
@@ -81,10 +90,18 @@ export default async function handler(req, res) {
 
   const operator = currentOperator(req);
 
-  if (inFlight.has(pendingPayoutCid)) {
+  const [byIp, byCid] = await Promise.all([
+    hitRateLimit(`rl:payout:ip:${requestClientKey(req)}`, RATE_WINDOW_MS, MAX_PER_IP),
+    hitRateLimit(`rl:payout:cid:${pendingPayoutCid}`, RATE_WINDOW_MS, MAX_PER_CID),
+  ]);
+  if (byIp.limited || byCid.limited) {
+    return json(res, 429, { error: "too many settlement attempts, try again shortly" });
+  }
+
+  const lock = await acquireLock(`lock:payout:${pendingPayoutCid}`, LOCK_TTL_MS);
+  if (!lock.acquired) {
     return json(res, 409, { error: "a settlement for this payout is already in progress" });
   }
-  inFlight.add(pendingPayoutCid);
 
   try {
     const payout = await fetchPendingPayout(admin, pendingPayoutCid);
@@ -154,6 +171,6 @@ export default async function handler(req, res) {
     console.error(`[payout] failed for ${pendingPayoutCid}: ${message}`);
     return json(res, 502, { error: "payout settlement failed", detail: message.slice(0, 400) });
   } finally {
-    inFlight.delete(pendingPayoutCid);
+    await lock.release();
   }
 }
