@@ -182,7 +182,7 @@ export function InAppWalletCard({
           : "border-primary/40 text-primary hover:bg-primary/10 disabled:opacity-50 disabled:hover:bg-transparent"
       }`;
     return (
-      <div className="rounded-xl border border-primary/20 border-l-4 border-l-primary bg-card px-4 py-3 shadow-sm">
+      <div className="rounded-xl border-2 border-primary/40 border-l-4 border-l-primary bg-card px-4 py-3 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
           <div className="flex items-center gap-2">
             <Wallet className="h-4 w-4 text-primary" />
@@ -243,7 +243,7 @@ export function InAppWalletCard({
   }
 
   return (
-    <div className="rounded-xl border border-primary/20 border-l-4 border-l-primary bg-card px-5 py-4 shadow-sm">
+    <div className="rounded-xl border-2 border-primary/40 border-l-4 border-l-primary bg-card px-5 py-4 shadow-sm">
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
         <div className="min-w-[10rem]">
           <div className="flex items-center gap-2">
