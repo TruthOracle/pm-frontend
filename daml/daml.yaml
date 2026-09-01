@@ -6,8 +6,9 @@ sdk-version: "3.4.10"
 # Canton 3.x smart-contract-upgrade checks reject schema-incompatible DARs uploaded
 # under an existing package name.
 # v13: in-app UserWallet - trades debit/credit an on-ledger balance in one transaction.
+# v13 2.0.0: UserWallet.depositRefs (Optional, appended - SCU-compatible) records credited txRefs on-ledger.
 name: truthoracle-v13
-version: 1.0.0
+version: 2.0.0
 source: daml
 dependencies:
   - daml-prim

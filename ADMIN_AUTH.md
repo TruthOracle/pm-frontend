@@ -176,11 +176,15 @@ Both also keep a per-instance in-flight set so same-instance races fail fast wit
 
 ## Tests
 
-`npm test` runs a zero-dependency `node --test` suite (`test/admin-auth.test.mjs`)
-over the auth stack: nonce lifecycle and replay, session MAC tampering and immediate
-revocation, allowlist parsing, Ed25519 verification across all nine encoding
-combinations plus the pre-hashed preimage, and the proxy policy including the
-fail-closed, allowlist-bypass, and CSRF cases.
+`npm test` runs a zero-dependency `node --test` suite over the auth stack: nonce
+lifecycle and replay, session MAC tampering and immediate revocation, allowlist
+parsing, Ed25519 verification across all nine encoding combinations plus the
+pre-hashed preimage, and the proxy policy including the fail-closed,
+allowlist-bypass, and CSRF cases (`test/admin-auth.test.mjs`); plus the shared
+store's claim/rate-limit/lock semantics, cross-instance behaviour against an
+emulated backend, and its degrade-on-outage path (`test/shared-store.test.mjs`).
+The dedup assertion in `UserWallet.Deposit` is covered by the Daml suite
+(`daml/daml/TruthoracleTest.daml`, `dpm test`).
 
 The ledger allowlist is `v2/state/active-contracts`, `v2/state/ledger-end`,
 `v2/state/connected-synchronizers`, `v2/interactive-submission/prepare`, and
@@ -189,17 +193,43 @@ unauthenticated because it is self-authorising — `prepare` only builds an unsi
 transaction, and `execute` is rejected without a valid signature from the acting
 party.
 
+## Shared store (closes the per-instance gaps)
+
+`api/_lib/sharedStore.mjs` speaks the Upstash Redis REST protocol. When configured
+(`KV_REST_API_URL`/`KV_REST_API_TOKEN`, or the `UPSTASH_REDIS_REST_*` pair — Vercel KV
+exposes the former automatically), these guards become fleet-wide:
+
+- nonce single use (`SET NX PX` keyed by the nonce's MAC)
+- login rate limit (10/min per IP)
+- deposit and settle-payout rate limits (per IP and per party/contract) and
+  in-flight locks (60 s crash ceiling, `DEL` on release)
+
+Without a store everything degrades to the previous per-instance behaviour and logs
+one warning — the store being down never blocks logins or payouts, and the
+money-moving races never depended on it in the first place (they are closed by ledger
+command-dedup on deterministic ids, see the concurrency section above).
+
+## Deposit audit trail (truthoracle-v13 2.0.0)
+
+`UserWallet` now records which transfers were credited: `depositRefs : Optional [Text]`
+(appended last and `Optional`, so the 2.0.0 DAR passes Canton's smart-contract-upgrade
+check and 1.0.0 contracts read as `None`). `Deposit` rejects a `txRef` that was already
+credited, so double-crediting one transfer now aborts on-ledger even if it slipped past
+command-dedup — the invariant is auditable instead of derived.
+
+Deploying it: `npm run dars:build` (done — package id
+`ddeffbe7e09a4f19cafdb7e2e3cab77c4f5bbe814e718c923447e4371475ced9`), then
+`npm run dars:upload`, then point `VITE_TRUTHORACLE_PACKAGE_ID` at that id. Until the
+env flips, submissions keep targeting 1.0.0 and behave exactly as before. One wrinkle:
+the create path (a user's very first deposit) cannot record its own ref — the JSON API
+create against 1.0.0 has no such field, and after the flip the wallet starts at `None`
+and records refs from the first `Deposit` exercise onward.
+
 ## Known gaps
 
-- **Deposit dedup relies on a derived delta, not a ledger record.** `UserWallet.Deposit`
-  accepts a `txRef` but discards it (`daml/daml/Truthoracle.daml:127`), so there is no
-  on-ledger record of which transfers were credited. The reconciliation approach makes
-  this safe *today* — credit is `transfersIn − depositedCC`, which is idempotent by
-  construction — but storing `txRef` would make the invariant explicit and auditable.
-- **Rate limiting and nonce replay guards are per-instance.** Serverless invocations
-  share no memory, so both narrow the window rather than closing it. A shared store
-  (Redis/KV) would close them properly. (The money-moving races do NOT depend on
-  shared memory — they are closed by ledger command-dedup on deterministic ids, see
-  the concurrency section above.)
 - **`/api/wallet/deposit` is unauthenticated.** Deliberate — there is no user session
-  system yet, and the endpoint derives its own amount. Revisit if user sessions land.
+  system yet, and the endpoint derives its own amount, so the worst an anonymous
+  caller can do is trigger someone's legitimate credit. The shared-store rate limits
+  now cap the upstream work such a caller can burn. Tracked in
+  [#78](https://github.com/TruthOracle/prediction-market/issues/78), which specs the
+  user-session flow (reusing the operator nonce/cookie plumbing) that closes this.
