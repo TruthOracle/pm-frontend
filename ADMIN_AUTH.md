@@ -230,4 +230,6 @@ and records refs from the first `Deposit` exercise onward.
 - **`/api/wallet/deposit` is unauthenticated.** Deliberate — there is no user session
   system yet, and the endpoint derives its own amount, so the worst an anonymous
   caller can do is trigger someone's legitimate credit. The shared-store rate limits
-  now cap the upstream work such a caller can burn. Revisit when user sessions land.
+  now cap the upstream work such a caller can burn. Tracked in
+  [#78](https://github.com/TruthOracle/prediction-market/issues/78), which specs the
+  user-session flow (reusing the operator nonce/cookie plumbing) that closes this.
