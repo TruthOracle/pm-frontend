@@ -1,4 +1,5 @@
 import { keycloakBearer } from "./_keycloakToken.mjs";
+import { authorise } from "../_lib/proxyGuard.mjs";
 
 // VITE_APP_NETWORK=mainnet points the app at the dedicated zkpc node, whose
 // Keycloak holds DIFFERENT credentials from the digik (devnet) set. On mainnet
@@ -13,7 +14,12 @@ const TARGET_ENV = IS_MAINNET
 
 // The Ledger API requires a Bearer JWT (Keycloak client_credentials). This proxy
 // mints one server-side and injects it, so the client id/secret never reach the
-// browser bundle. A caller-supplied Authorization header is passed through untouched.
+// browser bundle.
+//
+// ACCESS: read-only query paths are public; everything else needs an admin session
+// (see ../_lib/proxyGuard.mjs). The injected token holds ParticipantAdmin — the same
+// authority scripts/grant-rights.ts relies on — so an open /v2/users/*/rights would
+// let anyone grant themselves act-as on any party hosted here.
 const AUTH_PREFIXES = IS_MAINNET
   ? ["ZKPC_KEYCLOAK"]
   : ["LEDGER_KEYCLOAK", "KEYCLOAK", "VITE_KEYCLOAK"];
@@ -36,10 +42,12 @@ async function headersForUpstream(req) {
   delete headers.host;
   delete headers.connection;
   delete headers["content-length"];
-  if (!headers.authorization) {
-    const token = await keycloakBearer(AUTH_PREFIXES);
-    if (token) headers.authorization = `Bearer ${token}`;
-  }
+  // Replace, never pass through — see the matching note in wallet.mjs.
+  delete headers.authorization;
+  delete headers.cookie;
+  delete headers["x-admin-instance"];
+  const token = await keycloakBearer(AUTH_PREFIXES);
+  if (token) headers.authorization = `Bearer ${token}`;
   return headers;
 }
 
@@ -67,6 +75,15 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") {
     res.statusCode = 204;
     res.end();
+    return;
+  }
+
+  const gate = authorise({ req, path: proxyPath(req), kind: "ledger" });
+  if (!gate.allow) {
+    res.statusCode = gate.status;
+    res.setHeader("content-type", "application/json");
+    res.setHeader("cache-control", "no-store");
+    res.end(JSON.stringify({ error: gate.error }));
     return;
   }
 

@@ -23,6 +23,7 @@ import {
     enterpriseWalletPartyId,
     submitAdminTransaction,
 } from "@/lib/enterpriseWalletSubmit";
+import { runAdminAutoPayout } from "@/lib/adminAutoPayout";
 
 function truncate(s: string, head = 8, tail = 6) {
     if (s.length <= head + tail + 1) return s;
@@ -31,18 +32,20 @@ function truncate(s: string, head = 8, tail = 6) {
 
 /**
  * Admin payout queue. Lists every PendingPayout the admin party can see
- * (i.e. they're signatory). Admin reads the queue, sends the CC off-ledger
- * via the Enterprise Wallet's `/api/v1/transfer`, then exercises MarkPaid
- * to archive the row with a tx hash for audit.
+ * (i.e. they're signatory).
  *
- * This is the manual half of the two-step flow. The actual CC transfer
- * is NOT wired through this UI yet — admin pastes the off-ledger tx hash.
+ * "Settle" is the normal path: the server reads payee and amount from the contract,
+ * sends the CC through the Enterprise Wallet, and exercises MarkPaid — the same
+ * race-safe endpoint the automatic flows use, so a stuck payout is retried here with
+ * no chance of double-paying. The paste-a-hash Mark Paid remains as the escape hatch
+ * for payouts that were genuinely settled out-of-band.
  */
 function PayoutQueue() {
     const { account, signAndSubmitTransaction } = useCantonWallet();
     const [rows, setRows] = useState<PendingPayoutRecord[]>([]);
     const [loading, setLoading] = useState(false);
     const [marking, setMarking] = useState<string | null>(null);
+    const [settling, setSettling] = useState<string | null>(null);
     const [txHashes, setTxHashes] = useState<Record<string, string>>({});
     const toast = useToast();
 
@@ -62,6 +65,33 @@ function PayoutQueue() {
     useEffect(() => {
         refresh();
     }, [refresh]);
+
+    const settle = async (cid: string) => {
+        setSettling(cid);
+        try {
+            const result = await runAdminAutoPayout({ pendingPayoutCid: cid });
+            toast({
+                title: result.settled ? "Payout settled" : "Nothing to settle",
+                description: result.settled
+                    ? `Sent ${result.amountCC?.toFixed(4) ?? "?"} CC to ${truncate(result.to ?? "?")} and archived the row.`
+                    : "The payout was already settled or cancelled.",
+                status: result.settled ? "success" : "info",
+                duration: 6000,
+                isClosable: true,
+            });
+            await refresh();
+        } catch (e) {
+            toast({
+                title: "Settlement failed",
+                description: e instanceof Error ? e.message : String(e),
+                status: "error",
+                duration: 6000,
+                isClosable: true,
+            });
+        } finally {
+            setSettling(null);
+        }
+    };
 
     const markPaid = async (cid: string) => {
         if (!account) return;
@@ -118,7 +148,9 @@ function PayoutQueue() {
         <Box className="font-jbm" color="white" p={6} mt={6} borderRadius="lg" borderWidth="2px" borderColor="#CCCCFF" bg="#18191C" maxW="6xl" mx="auto">
             <Heading size="md" mb={1} color="#CCCCFF">Payout Queue</Heading>
             <Text fontSize="xs" color="gray.500" mb={4}>
-                Sell, Merge, and resolved-winner shares each create a `PendingPayout` row here. Send the CC out-of-band via the Enterprise Wallet, then paste the resulting tx hash and Mark Paid to archive the row.
+                Sell, Merge, withdrawals, and resolved-winner shares each create a `PendingPayout` row here.
+                Settle sends the CC via the Enterprise Wallet and archives the row in one step (amount and
+                payee come from the contract). Use Mark Paid only for payouts already settled out-of-band.
             </Text>
             <Text fontSize="sm" color="amber.300" mb={3}>
                 Outstanding: <strong>{total.toFixed(4)} CC</strong> across <strong>{rows.length}</strong> row{rows.length === 1 ? "" : "s"}
@@ -163,8 +195,23 @@ function PayoutQueue() {
                                     <Button
                                         size="sm"
                                         colorScheme="green"
+                                        mr={2}
+                                        onClick={() => settle(r.contractId)}
+                                        isLoading={settling === r.contractId}
+                                        isDisabled={settling !== null || marking !== null}
+                                    >
+                                        Settle
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        colorScheme="gray"
                                         onClick={() => markPaid(r.contractId)}
-                                        isDisabled={marking === r.contractId || !(txHashes[r.contractId] ?? "").trim()}
+                                        isDisabled={
+                                            settling !== null ||
+                                            marking === r.contractId ||
+                                            !(txHashes[r.contractId] ?? "").trim()
+                                        }
                                     >
                                         {marking === r.contractId ? "…" : "Mark Paid"}
                                     </Button>

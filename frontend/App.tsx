@@ -1,23 +1,32 @@
-import { BrowserRouter as Router, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { BrowserRouter as Router, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { Header } from "@/components/Header";
 import FAQ from "@/components/FAQ";
 import Marketplace from "./components/Marketplace";
 import Homepage from "./components/Homepage";
 import Portfolio from "./components/Portfolio";
 import Admin from "./components/Admin/Admin";
+import AdminGate from "./components/Admin/AdminGate";
 import MarketDetails from "./components/MarketDetails";
 import Rewards from "./components/Rewards";
 import News from "./components/News";
 import { WalletProvider } from "./components/WalletProvider";
-import { useIsAdmin } from "@/lib/useIsAdmin";
 import Footer from "@/components/Footer";
 import { useEffect, useLayoutEffect, useState } from "react";
 import { fetchAllPredictionMarkets } from "@/utils/activeContracts";
 import { setPrefetchedMarkets } from "@/utils/marketPrefetch";
 import { fetchMarketNews } from "@/lib/marketNews";
 
+/**
+ * /admin is reachable by anyone; AdminGate decides whether to show the console or a
+ * sign-in prompt. Redirecting instead would hide nothing (the server enforces access)
+ * while making a failed login indistinguishable from a broken route.
+ */
 function AdminRoute() {
-  return useIsAdmin() ? <Admin /> : <Navigate to="/" replace />;
+  return (
+    <AdminGate>
+      <Admin />
+    </AdminGate>
+  );
 }
 
 function resetPageScroll() {

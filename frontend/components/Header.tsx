@@ -1,5 +1,4 @@
 import { useCantonWallet } from "@/wallets";
-import { useIsAdmin } from "@/lib/useIsAdmin";
 import { WalletSelector } from "./WalletSelector";
 import { Link, useLocation } from "react-router-dom";
 import { useToast } from "@chakra-ui/react";
@@ -17,7 +16,6 @@ const TOPICS = ["Trending", "Politics", "Sports", "Crypto", "Business", "Culture
 
 export function Header() {
   const { account } = useCantonWallet();
-  const isAdmin = useIsAdmin();
   const location = useLocation();
   const toast = useToast();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -72,7 +70,6 @@ export function Header() {
           </Link>
           <nav className="hidden items-center gap-1 lg:flex">
             {NAV_ITEMS.map(({ to, label }) => <Link key={to} to={to} className={cn("product-nav-link", isActive(to) && "product-nav-link-active")}>{label}</Link>)}
-            {isAdmin && <Link to="/admin" className="product-nav-link">Create market</Link>}
           </nav>
           <div className="ml-auto flex items-center gap-2">
             {searchOpen ? (
@@ -93,7 +90,7 @@ export function Header() {
           {TOPICS.map((topic, index) => <Link key={topic} to={`/marketplace?category=${topic.toLowerCase()}`} className={cn("topic-link", index === 0 && "topic-link-active")}>{index === 0 && <TrendingUp className="h-3.5 w-3.5" />}{topic}</Link>)}
           <Link to="/faq" className="topic-link !font-semibold !text-emerald-700 hover:!text-emerald-800"><Info className="h-3.5 w-3.5" /> How it works</Link>
         </div></div>
-        {mobileMenuOpen && <div className="mobile-menu lg:hidden"><div className="grid gap-1">{NAV_ITEMS.map(({ to, label }) => <Link key={to} to={to} className={cn("mobile-nav-link", isActive(to) && "text-primary")}>{label}</Link>)}{isAdmin && <Link to="/admin" className="mobile-nav-link">Create market</Link>}</div><div className="mt-3 border-t border-slate-100 pt-3"><WalletSelector /></div></div>}
+        {mobileMenuOpen && <div className="mobile-menu lg:hidden"><div className="grid gap-1">{NAV_ITEMS.map(({ to, label }) => <Link key={to} to={to} className={cn("mobile-nav-link", isActive(to) && "text-primary")}>{label}</Link>)}</div><div className="mt-3 border-t border-slate-100 pt-3"><WalletSelector /></div></div>}
       </div>
     </header>
   );

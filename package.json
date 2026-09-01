@@ -12,6 +12,7 @@
     "deploy": "vercel",
     "hooks:install": "git config core.hooksPath .githooks",
     "lint": "eslint frontend --ext ts,tsx --report-unused-disable-directives",
+    "test": "node --test test/*.test.mjs",
     "preview": "vite preview",
     "_fmt": "prettier 'frontend/**/*.ts'",
     "fmt": "npm run _fmt -- --write",

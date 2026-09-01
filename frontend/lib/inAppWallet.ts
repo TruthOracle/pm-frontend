@@ -15,21 +15,14 @@
  */
 
 import type { PrepareExecuteParams } from "@/lib/cantonDapp";
-import {
-  buildCreateUserWalletParams,
-  buildDepositParams,
-  buildWalletWithdrawParams,
-} from "@/utils/cantonCommands";
+import { buildWalletWithdrawParams } from "@/utils/cantonCommands";
 import {
   fetchPendingPayouts,
   fetchUserWallet,
   waitForUserWallet,
   type UserWalletRecord,
 } from "@/utils/activeContracts";
-import {
-  enterpriseWalletPartyId,
-  submitViaEnterpriseWallet,
-} from "@/lib/enterpriseWalletSubmit";
+import { enterpriseWalletPartyId } from "@/lib/enterpriseWalletSubmit";
 import { runAdminAutoPayout } from "@/lib/adminAutoPayout";
 
 /** "10" not "10.00", "10.5" not "10.50" — wallet memos read better without forced decimals. */
@@ -64,18 +57,28 @@ export async function depositToInAppWallet(args: DepositArgs): Promise<UserWalle
   const before = await fetchUserWallet(args.userParty);
 
   // 1. Real CC to the treasury — the user's only signature.
-  const { txId } = await args.transferCC({
+  await args.transferCC({
     to: admin,
     amount: args.amountCC,
     memo: `TruthOracle: deposit ${formatCC(args.amountCC)} CC to in-app wallet`,
     metadata: { kind: "truthoracle_deposit", amount_cc: String(args.amountCC) },
   });
 
-  // 2. Admin credits the in-app balance (Enterprise Wallet signs; no user popup).
-  const params = before
-    ? buildDepositParams(admin, before.contractId, args.amountCC, txId || "cc-transfer")
-    : buildCreateUserWalletParams(admin, args.userParty, args.amountCC);
-  await submitViaEnterpriseWallet(params);
+  // 2. Ask the server to reconcile. It re-derives what is owed from the treasury's
+  //    transfer history minus the wallet's on-ledger depositedCC, so the amount we
+  //    just transferred is never something the browser asserts. This replaced a
+  //    direct admin-signed credit through the open wallet proxy, which let anyone
+  //    mint balance by POSTing a credit they never paid for.
+  const res = await fetch("/api/wallet/deposit", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userPartyId: args.userParty }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Deposit reconciliation failed (${res.status}): ${text.slice(0, 300)}`);
+  }
 
   // 3. Wait until the participant shows the credited balance.
   const target = (before?.balanceCC ?? 0) + args.amountCC;
@@ -127,13 +130,8 @@ export async function withdrawFromInAppWallet(args: WithdrawArgs): Promise<Withd
   }
   if (!fresh) return { settled: false };
 
-  // 3. Admin sends real CC and marks the payout paid.
-  await runAdminAutoPayout({
-    toUser: args.userParty,
-    amountCC: fresh.amountCC,
-    pendingPayoutCid: fresh.contractId,
-    reason: "withdraw",
-    signAndSubmitTransaction: args.signAndSubmitTransaction,
-  });
-  return { settled: true };
+  // 3. Admin sends real CC and marks the payout paid. The amount and payee come from
+  //    the contract server-side, so nothing here can influence what gets paid.
+  const result = await runAdminAutoPayout({ pendingPayoutCid: fresh.contractId });
+  return { settled: result.settled };
 }
