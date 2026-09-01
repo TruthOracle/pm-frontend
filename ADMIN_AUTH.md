@@ -83,8 +83,11 @@ ADMIN_OPERATORS="a99dd107…::1220880b…=b6f1…,3b9317d2…::1220514795…=9ac
 ADMIN_SESSION_TTL_HOURS=0.25
 ```
 
-To find an operator's public key: connect that wallet, open `/admin`, and expand
-"Adding yourself as an operator?" — the gate prints the exact line to append.
+An operator's public key is the Ed25519 key on the wallet's account payload: the
+Cantor8 SDK (≥0.5.0) returns `publicKey` on the account object, and the Canton wallet
+exposes it as `provider.public_key` (see `frontend/wallets/*/…WalletContext.tsx`). Read
+it from the wallet-backend accounts API, or from the connected account object in the
+browser console. It is deliberately NOT shown anywhere in the UI.
 
 Revocation is immediate: `verifySession` re-checks the allowlist on every request, so
 removing a party from `ADMIN_OPERATORS` invalidates their live cookie rather than

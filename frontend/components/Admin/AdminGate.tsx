@@ -136,27 +136,6 @@ export default function AdminGate({ children }: { children: React.ReactNode }) {
         <p className="mt-4 text-xs text-slate-500">No wallet connected yet.</p>
       )}
 
-      {/*
-        Setup aid: the server pins each operator's public key, and the only convenient
-        place to read it is the connected account itself. Showing the exact env line
-        removes the guesswork from onboarding a new operator. Public keys are public —
-        nothing sensitive is revealed here.
-      */}
-      {account?.partyId && account.publicKey ? (
-        <details className="mt-4">
-          <summary className="cursor-pointer text-xs text-slate-500">
-            Adding yourself as an operator?
-          </summary>
-          <p className="mt-2 text-xs text-slate-600">
-            Give this line to whoever runs the deployment, to append to{" "}
-            <code className="font-mono">ADMIN_OPERATORS</code>:
-          </p>
-          <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-100 p-3 font-mono text-[11px] leading-relaxed text-slate-800">
-            {`${account.partyId}=${account.publicKey}`}
-          </pre>
-        </details>
-      ) : null}
-
       <button
         type="button"
         onClick={signIn}
@@ -178,12 +157,6 @@ export default function AdminGate({ children }: { children: React.ReactNode }) {
           </button>
         </div>
       ) : null}
-
-      <p className="mt-6 text-xs text-slate-500">
-        Not an operator? Your party id has to be listed in the server's{" "}
-        <code className="font-mono">ADMIN_OPERATORS</code> allowlist. Ask whoever runs the
-        deployment to add it.
-      </p>
     </Shell>
   );
 }
