@@ -6,7 +6,13 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import ledgerHandler from "./api/proxy/ledger.mjs";
 import walletHandler from "./api/proxy/wallet.mjs";
 import newsHandler from "./api/news.mjs";
-import { proxyMiddleware } from "./api/proxy/_devProxy.mjs";
+import adminNonceHandler from "./api/admin/nonce.mjs";
+import adminSessionHandler from "./api/admin/session.mjs";
+import adminLogoutHandler from "./api/admin/logout.mjs";
+import adminMeHandler from "./api/admin/me.mjs";
+import walletDepositHandler from "./api/wallet/deposit.mjs";
+import walletSettlePayoutHandler from "./api/wallet/settle-payout.mjs";
+import { proxyMiddleware, routeMiddleware } from "./api/proxy/_devProxy.mjs";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -37,6 +43,13 @@ export default defineConfig(({ mode }) => {
       server.middlewares.use(proxyMiddleware("/__proxy/ledger", ledgerHandler));
       server.middlewares.use(proxyMiddleware("/__proxy/wallet", walletHandler));
       server.middlewares.use(proxyMiddleware("/api/news", newsHandler));
+      // Vercel routes these by filename; `vite dev` needs them wired by hand.
+      server.middlewares.use(routeMiddleware("/api/admin/nonce", adminNonceHandler));
+      server.middlewares.use(routeMiddleware("/api/admin/session", adminSessionHandler));
+      server.middlewares.use(routeMiddleware("/api/admin/logout", adminLogoutHandler));
+      server.middlewares.use(routeMiddleware("/api/admin/me", adminMeHandler));
+      server.middlewares.use(routeMiddleware("/api/wallet/deposit", walletDepositHandler));
+      server.middlewares.use(routeMiddleware("/api/wallet/settle-payout", walletSettlePayoutHandler));
     },
   };
 

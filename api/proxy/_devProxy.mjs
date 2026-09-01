@@ -23,3 +23,16 @@ export function proxyMiddleware(prefix, handler) {
     Promise.resolve(handler(req, res)).catch((err) => next(err));
   };
 }
+
+/**
+ * Same idea for the endpoints that are NOT path-forwarding proxies (api/admin/*,
+ * api/wallet/*): Vercel routes them by filename, so under `vite dev` we match the
+ * exact pathname instead and hand the request straight to the handler.
+ */
+export function routeMiddleware(pathname, handler) {
+  return (req, res, next) => {
+    const url = new URL(req.url || "", "http://localhost");
+    if (url.pathname !== pathname) return next();
+    Promise.resolve(handler(req, res)).catch((err) => next(err));
+  };
+}
