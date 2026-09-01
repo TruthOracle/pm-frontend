@@ -1,11 +1,17 @@
 import { keycloakBearer } from "./_keycloakToken.mjs";
+import { authorise } from "../_lib/proxyGuard.mjs";
 
 const TARGET_ENV = ["ENTERPRISE_WALLET_PROXY_TARGET_URL", "VITE_ENTERPRISE_WALLET_URL"];
 
 // The Enterprise Wallet runs with AUTH_TYPE=keycloak — every /api/v1/* call needs a
 // Bearer JWT. This proxy mints one server-side (client id/secret never reach the
-// browser) and injects it. If the caller already sent an Authorization header, it is
-// passed through untouched. Prefers dedicated server creds, then the shared ones.
+// browser) and injects it. Prefers dedicated server creds, then the shared ones.
+//
+// ACCESS: admin session required for every path (see ../_lib/proxyGuard.mjs). The
+// injected token signs with the treasury key, so an unauthenticated caller reaching
+// this handler could mint in-app balances and drain CC. User-facing flows that need
+// the admin signature live in api/wallet/*.mjs, which derive amounts from upstream
+// state rather than accepting them from the browser.
 // Unlike the ledger proxy, this stays on the normal (digik) credentials on every
 // network — the wallet trusts its own Keycloak, not the zkpc node's; use
 // WALLET_KEYCLOAK_* if the wallet's issuer ever differs.
@@ -29,10 +35,16 @@ async function headersForUpstream(req) {
   delete headers.host;
   delete headers.connection;
   delete headers["content-length"];
-  if (!headers.authorization) {
-    const token = await keycloakBearer(AUTH_PREFIXES);
-    if (token) headers.authorization = `Bearer ${token}`;
-  }
+  // Always REPLACE the caller's Authorization rather than passing it through. The
+  // header we care about from the browser is the session cookie, which authorises the
+  // request; letting a caller-supplied bearer reach the wallet would hand them a
+  // second, unreviewed way to talk to it.
+  delete headers.authorization;
+  delete headers.cookie;
+  // Half of the admin credential pair — for this proxy only, never for the upstream.
+  delete headers["x-admin-instance"];
+  const token = await keycloakBearer(AUTH_PREFIXES);
+  if (token) headers.authorization = `Bearer ${token}`;
   return headers;
 }
 
@@ -60,6 +72,15 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") {
     res.statusCode = 204;
     res.end();
+    return;
+  }
+
+  const gate = authorise({ req, path: proxyPath(req), kind: "wallet" });
+  if (!gate.allow) {
+    res.statusCode = gate.status;
+    res.setHeader("content-type", "application/json");
+    res.setHeader("cache-control", "no-store");
+    res.end(JSON.stringify({ error: gate.error }));
     return;
   }
 

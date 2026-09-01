@@ -131,6 +131,13 @@ export function CantonWalletProvider({ children }: { children: React.ReactNode }
     [],
   );
 
+  /** Same story as transferCC — admin login runs through the Cantor8 popup. */
+  const signMessage = useCallback(async (_message: string, _partyId?: string): Promise<string> => {
+    throw new Error(
+      "Message signing is only wired through the Cantor8 wallet. Connect via Cantor8 to sign in as an operator.",
+    );
+  }, []);
+
   const wallets: CantonWalletItem[] | null = account
     ? [{ partyId: account.partyId, primary: true, publicKey: account.publicKey }]
     : null;
@@ -142,6 +149,7 @@ export function CantonWalletProvider({ children }: { children: React.ReactNode }
     disconnect,
     signAndSubmitTransaction,
     transferCC,
+    signMessage,
     wallets,
     network,
   };

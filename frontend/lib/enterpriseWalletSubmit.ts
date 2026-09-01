@@ -7,6 +7,7 @@
  */
 import type { PrepareExecuteParams } from "@/lib/cantonDapp";
 import { normalizeCommands } from "@/utils/normalizeCommand";
+import { adminInstanceHeaders } from "@/lib/adminSession";
 import {
   ENTERPRISE_WALLET_APP_NAME,
   ENTERPRISE_WALLET_PARTY_ID,
@@ -17,6 +18,11 @@ import {
 // and attached SERVER-SIDE by the wallet proxy (api/proxy/wallet.mjs + the dev
 // middleware). Browser calls go through ENTERPRISE_WALLET_PROXY_URL with no
 // credentials, so no Keycloak secret is needed (or present) in the frontend.
+//
+// The proxy now requires an admin session cookie on every path — these commands are
+// signed with the treasury key, so they are operator-only. Ordinary user flows do not
+// come through here any more: deposits and payouts go to api/wallet/*, which derive
+// their amounts server-side instead of accepting them from the browser.
 
 export function enterpriseWalletPartyId(): string {
   return ENTERPRISE_WALLET_PARTY_ID;
@@ -71,12 +77,21 @@ export async function submitViaEnterpriseWallet(
 
   const res = await fetch(`${walletBaseUrl()}/api/v1/external/submit`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    // The session cookie plus the in-memory instance header authorise this call;
+    // either half alone is rejected (the pair dies with the page load).
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", ...adminInstanceHeaders() },
     body: JSON.stringify(body),
   });
 
   if (!res.ok) {
     const text = await res.text();
+    if (res.status === 401) {
+      throw new Error(
+        "Your admin session has expired or you are not signed in as an operator. " +
+          "Reload /admin and sign in again.",
+      );
+    }
     throw new Error(`Enterprise wallet external/submit failed (${res.status}): ${text}`);
   }
 

@@ -53,6 +53,7 @@ mkWallet admin owner amount = do
       balanceCC = 0.0
       depositedCC = 0.0
       withdrawnCC = 0.0
+      depositRefs = None
   if amount > 0.0
     then submit admin do
       exerciseCmd wCid Deposit with amountCC = amount, txRef = "0xdeposit"
@@ -145,6 +146,23 @@ inAppWalletLifecycle = do
       w.balanceCC === 50.0
       w.depositedCC === 50.0
       w.withdrawnCC === 0.0
+      w.depositRefs === Some ["0xdeposit"]
+
+  -- Crediting the same external transfer twice is rejected on-ledger; a fresh
+  -- txRef appends to the record. Exercised on bob's wallet so alice's flow below
+  -- stays on known balances.
+  bobW <- mkWallet admin bob 5.0
+  submitMustFail admin do
+    exerciseCmd bobW Deposit with amountCC = 1.0, txRef = "0xdeposit"
+  bobW <- submit admin do
+    exerciseCmd bobW Deposit with amountCC = 10.0, txRef = "0xdeposit2"
+  bOpt <- queryContractId bob bobW
+  case bOpt of
+    None -> abort "expected wallet visible"
+    Some w -> do
+      w.balanceCC === 15.0
+      w.depositedCC === 15.0
+      w.depositRefs === Some ["0xdeposit2", "0xdeposit"]
 
   -- Neither the owner nor the admin can debit unilaterally.
   submitMustFail alice do

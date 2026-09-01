@@ -53,6 +53,12 @@ export interface CantonWalletContextValue {
    * Resolves with the txId after the user confirms in the wallet popup.
    */
   transferCC: (args: TransferCCArgs) => Promise<{ txId: string }>;
+  /**
+   * Sign an arbitrary string with the connected party's key. Used for the admin
+   * login challenge (frontend/lib/adminSession.ts) — the popup prompts the operator,
+   * and the server verifies the result against a pinned public key.
+   */
+  signMessage: (message: string, partyId?: string) => Promise<string>;
   wallets: CantonWalletItem[] | null;
   network: CantonNetworkInfo | null;
 }

@@ -269,6 +269,22 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     [account],
   );
 
+  /**
+   * Sign a plain string with the connected party's key (SDK 0.5.0 `signMessage`).
+   * Only the admin login challenge uses this; the popup prompts for approval, and
+   * the returned string is opaque here — the server decides whether it verifies.
+   */
+  const signMessage = useCallback(
+    async (message: string, partyId?: string): Promise<string> => {
+      const wallet = walletRef.current;
+      if (!wallet) throw new Error("Cantor8 wallet not initialized");
+      const signer = partyId ?? account?.partyId;
+      if (!signer) throw new Error("Cantor8 wallet not connected (no partyId)");
+      return wallet.signMessage(message, signer);
+    },
+    [account],
+  );
+
   const wallets: CantonWalletItem[] | null = account
     ? [{ partyId: account.partyId, primary: true, publicKey: account.publicKey }]
     : null;
@@ -280,6 +296,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     disconnect,
     signAndSubmitTransaction,
     transferCC,
+    signMessage,
     wallets,
     network,
   };
