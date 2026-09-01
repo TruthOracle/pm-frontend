@@ -20,6 +20,7 @@ import type {
   CantonWalletContextValue,
   ConnectOptions,
 } from "../types";
+import { walletDebugLog } from "@/lib/walletDebug";
 
 const Cantor8WalletContext = createContext<CantonWalletContextValue | null>(null);
 
@@ -92,29 +93,29 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
       if (ev.origin !== popupOrigin) return;
       const data = ev.data as { kind?: string } | undefined;
       const kind = data && typeof data === "object" ? data.kind ?? "(no-kind)" : typeof data;
-      console.log(`[Cantor8] raw popup message kind=${kind}:`, ev.data);
+      walletDebugLog(`[Cantor8] raw popup message kind=${kind}:`, ev.data);
     };
     window.addEventListener("message", onRawPopupMessage);
 
     // The "connected" event carries no accounts payload — fetch them explicitly.
     wallet.on("connected", (e) => {
-      console.log("[Cantor8] event=connected:", e);
+      walletDebugLog("[Cantor8] event=connected:", e);
       void refreshAccount();
     });
 
     wallet.on("disconnected", (e) => {
-      console.log("[Cantor8] event=disconnected:", e);
+      walletDebugLog("[Cantor8] event=disconnected:", e);
       setAccount(null);
     });
 
     // accountChanged delivers the updated account list directly.
     wallet.on("accountChanged", (e) => {
-      console.log("[Cantor8] event=accountChanged:", e);
+      walletDebugLog("[Cantor8] event=accountChanged:", e);
       setAccount(accountFromPayload(e.accounts));
     });
 
     wallet.on("themeChanged", (e) => {
-      console.log("[Cantor8] event=themeChanged:", e);
+      walletDebugLog("[Cantor8] event=themeChanged:", e);
     });
 
     walletRef.current = wallet;
@@ -191,13 +192,13 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
 
         cleanup.push(
           wallet.on("txInitiated", (e) => {
-            console.log("[Cantor8] txInitiated event:", JSON.stringify(e, null, 2));
+            walletDebugLog("[Cantor8] txInitiated event:", JSON.stringify(e, null, 2));
             finish(() => resolve({ hash: e.txId ?? commandId }));
           }),
         );
         cleanup.push(
           wallet.on("txChanged", (e) => {
-            console.log("[Cantor8] txChanged event:", JSON.stringify(e, null, 2));
+            walletDebugLog("[Cantor8] txChanged event:", JSON.stringify(e, null, 2));
             if (e.status === "failed") {
               finish(() => reject(new Error(`Wallet failed to submit tx ${e.txId}`)));
             }
@@ -205,7 +206,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
         );
         cleanup.push(
           wallet.on("operationCanceled", (e) => {
-            console.log("[Cantor8] operationCanceled event:", JSON.stringify(e, null, 2));
+            walletDebugLog("[Cantor8] operationCanceled event:", JSON.stringify(e, null, 2));
             finish(() => reject(new Error(e.reason || "Wallet operation canceled")));
           }),
         );
@@ -220,16 +221,16 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
           commandsJson: JSON.stringify(normalizeCommands(params.commands)),
           disclosedContracts: JSON.stringify(params.disclosedContracts ?? []),
         };
-        console.log(
+        walletDebugLog(
           "[Cantor8] signAndExecute payload:\n" + JSON.stringify(signAndExecuteInput, null, 2),
         );
         wallet
           .signAndExecute(signAndExecuteInput)
           .then((result) => {
-            console.log("[Cantor8] signAndExecute resolved:", result);
+            walletDebugLog("[Cantor8] signAndExecute resolved:", result);
           })
           .catch((err) => {
-            console.log("[Cantor8] signAndExecute rejected:", err);
+            walletDebugLog("[Cantor8] signAndExecute rejected:", err);
             finish(() => reject(err instanceof Error ? err : new Error(String(err))));
           });
 
