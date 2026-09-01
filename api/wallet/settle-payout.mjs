@@ -36,11 +36,12 @@ import { acquireLock, hitRateLimit, requestClientKey } from "../_lib/sharedStore
 import { createHash } from "node:crypto";
 
 // Anonymous callers can only trigger legitimate, ledger-recorded payouts, but each
-// attempt costs upstream reads — cap the burn. A settlement worker retries a handful
-// of payouts; these limits are far above that.
+// attempt costs upstream reads — cap the burn, nothing else. Sized for an operator
+// draining a long payout queue from one IP (auto-payout settles sequentially, so
+// even 120/min is far above what the loop can reach) plus retry headroom per cid.
 const RATE_WINDOW_MS = 60_000;
-const MAX_PER_IP = 30;
-const MAX_PER_CID = 6;
+const MAX_PER_IP = 120;
+const MAX_PER_CID = 30;
 
 // Crash ceiling for the cross-instance lock; correctness lives in command-dedup.
 const LOCK_TTL_MS = 60_000;

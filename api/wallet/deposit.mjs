@@ -40,13 +40,13 @@ import { createHash } from "node:crypto";
 const DUST_CC = 1e-9;
 
 // The endpoint is unauthenticated (no user sessions yet) and each call costs upstream
-// work — a transfer-history fetch, a ledger read, possibly a submit. The limits cap
-// what an anonymous caller can burn; a real user reconciles once per deposit, so
-// these are invisible to legitimate use. Operators with a session are not exempt on
-// purpose: nothing legitimate needs more than this either.
+// work — a transfer-history fetch, a ledger read, possibly a submit. The limits only
+// cap what an anonymous caller can burn, so they are sized WAY above legitimate use
+// (one reconcile per deposit): headroom for shared IPs (NAT, offices) and for retry
+// loops, while still bounding a flood.
 const RATE_WINDOW_MS = 60_000;
-const MAX_PER_IP = 10;
-const MAX_PER_PARTY = 6;
+const MAX_PER_IP = 60;
+const MAX_PER_PARTY = 30;
 
 // Crash ceiling for the cross-instance lock. Generous next to the endpoint's few
 // upstream calls; correctness never depends on it (ledger command-dedup does that).
