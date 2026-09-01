@@ -132,7 +132,7 @@ domain separator, or a JSON envelope). Capture one signature and add that form t
 
 The SDK already holds a wallet-backend bearer token for the connected party
 (`auth-flow` → `session.setBearerToken`), and `GET /api/balance` on
-`wallet-backend.main.cantor8.tech` returns that token's `party_id`. Verifying a token
+`wallet-backend.main.digik.cantor8.tech` returns that token's `party_id`. Verifying a token
 that way needs no signature-format knowledge at all. It is a smaller change than it
 looks: only `api/admin/session.mjs` would swap its verification step.
 
