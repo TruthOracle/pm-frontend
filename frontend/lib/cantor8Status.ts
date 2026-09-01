@@ -1,7 +1,7 @@
 /**
  * Direct probes against the Cantor8 wallet backend
  * (https://wallet-backend.dev.digik.cantor8.tech/openapi.json — devnet,
- * https://wallet-backend.main.cantor8.tech for mainnet).
+ * https://wallet-backend.main.digik.cantor8.tech for mainnet).
  *
  * Why this exists: the bundled @cantor8/wallet-connect-sdk polls
  * `/api/transfer/status?command_id=...` which only knows about *transfers* — for a
@@ -22,7 +22,7 @@ import { APP_NETWORK, DEBUG_WALLET_STATUS } from "@/config";
 /** Devnet/mainnet wallet backend URL — mirrors the SDK's `origin → backend` switch. */
 function getWalletBackendUrl(): string {
   const network = APP_NETWORK.toLowerCase().trim();
-  if (network === "mainnet") return "https://wallet-backend.main.cantor8.tech";
+  if (network === "mainnet") return "https://wallet-backend.main.digik.cantor8.tech";
   return "https://wallet-backend.dev.digik.cantor8.tech";
 }
 
