@@ -182,15 +182,11 @@ export function InAppWalletCard({
           : "border-primary/40 text-primary hover:bg-primary/10 disabled:opacity-50 disabled:hover:bg-transparent"
       }`;
     return (
-      <div className="rounded-xl border border-primary/30 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent px-3 py-3 shadow-sm">
+      <div className="rounded-xl border border-primary/20 border-l-4 border-l-primary bg-card px-4 py-3 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
           <div className="flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/15 text-primary">
-              <Wallet className="h-4 w-4" />
-            </span>
-            <span className="text-xs font-semibold uppercase tracking-wider text-foreground/80">
-              In-app wallet
-            </span>
+            <Wallet className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">In-app wallet</h2>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="mr-1 text-base font-extrabold tabular-nums text-foreground">{balanceText}</span>
@@ -247,16 +243,12 @@ export function InAppWalletCard({
   }
 
   return (
-    <div className="rounded-xl border border-primary/30 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent px-4 py-3 shadow-sm">
+    <div className="rounded-xl border border-primary/20 border-l-4 border-l-primary bg-card px-5 py-4 shadow-sm">
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
         <div className="min-w-[10rem]">
           <div className="flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/15 text-primary">
-              <Wallet className="h-4 w-4" />
-            </span>
-            <span className="text-xs font-semibold uppercase tracking-wider text-foreground/80">
-              In-app wallet
-            </span>
+            <Wallet className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">In-app wallet</h2>
           </div>
           <div className="mt-1.5 text-2xl font-extrabold tabular-nums text-foreground">{balanceText}</div>
           <div className="text-[11px] text-muted-foreground">{subLine}</div>
