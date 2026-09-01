@@ -24,6 +24,7 @@ import {
     submitAdminTransaction,
 } from "@/lib/enterpriseWalletSubmit";
 import { runAdminAutoPayout } from "@/lib/adminAutoPayout";
+import { debugError } from "@/lib/debugLog";
 
 function truncate(s: string, head = 8, tail = 6) {
     if (s.length <= head + tail + 1) return s;
@@ -119,7 +120,7 @@ function PayoutQueue() {
             });
             await refresh();
         } catch (e) {
-            console.error(e);
+            debugError("Mark paid failed", e);
             toast({
                 title: "Mark paid failed",
                 description: e instanceof Error ? e.message : String(e),
