@@ -108,7 +108,7 @@ function Homepage() {
               <br />
               <span className="text-primary">Reap the Profits.</span>
             </h1>
-            <p className="mt-5 max-w-xl text-[15px] leading-[22px] text-slate-500 sm:text-base sm:leading-[26px]">
+            <p className="mt-5 max-w-xl pl-1 text-[15px] leading-[21px] text-slate-500 sm:text-base sm:leading-[24px]">
               TruthOracle is a decentralized prediction market on Canton. Trade Yes/No shares on real-world events with
               transparent settlement, real-time odds, and community intelligence.
             </p>
