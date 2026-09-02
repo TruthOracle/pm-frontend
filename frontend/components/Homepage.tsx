@@ -97,7 +97,7 @@ function Homepage() {
           Learn how it works <ArrowRight className="h-3 w-3" />
         </Link>
       </div>
-      <section className="page-container pt-12 sm:pt-16">
+      <section className="page-container pt-5 sm:pt-7">
         <div className="mb-8 flex flex-wrap items-end justify-between gap-5">
           <div className="max-w-2xl">
             <p className="eyebrow">
@@ -108,7 +108,7 @@ function Homepage() {
               <br />
               <span className="text-primary">Reap the Profits.</span>
             </h1>
-            <p className="mt-5 max-w-xl text-base leading-7 text-slate-500 sm:text-lg">
+            <p className="mt-5 max-w-xl text-[15px] leading-[22px] text-slate-500 sm:text-base sm:leading-[26px]">
               TruthOracle is a decentralized prediction market on Canton. Trade Yes/No shares on real-world events with
               transparent settlement, real-time odds, and community intelligence.
             </p>
@@ -125,18 +125,18 @@ function Homepage() {
                   <div className="eyebrow !mb-0">
                     <span className="live-dot" /> Trending market
                   </div>
-                  <span className="soft-badge">{lead.category || "Trending"}</span>
+                  <span className="soft-badge -mr-1 sm:-mr-2">{lead.category || "Trending"}</span>
                 </div>
                 <Link to={`/market/${lead.marketId}`} className="group/title block">
-                  <h2 className="mt-7 max-w-xl text-2xl font-bold tracking-[-0.04em] text-slate-950 transition-colors group-hover/title:text-primary group-active/title:text-primary sm:text-3xl">
+                  <h2 className="mt-3 max-w-xl text-2xl font-bold tracking-[-0.04em] text-slate-950 transition-colors group-hover/title:text-primary group-active/title:text-primary sm:text-3xl">
                     {lead.question}
                   </h2>
                 </Link>
-                <div className="mt-8 grid gap-6 sm:grid-cols-[1fr_1.2fr] sm:items-end">
+                <div className="my-auto grid gap-5 pt-6 sm:grid-cols-[1fr_1.2fr] sm:items-end">
                   <div>
                     <p className="text-sm font-medium text-slate-500">Probability of Yes</p>
                     <p className="mt-1 text-5xl font-bold tracking-[-0.07em] text-slate-950">{yesPct}%</p>
-                    <div className="mt-4 prob-bar h-2">
+                    <div className="mt-3 prob-bar h-2">
                       <div className="prob-bar-yes" style={{ width: `${yesPct}%` }} />
                     </div>
                   </div>
@@ -188,7 +188,7 @@ function Homepage() {
                     </div>
                   </div>
                 </div>
-                <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 pt-4 text-xs text-slate-500">
+                <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 pt-5 text-xs text-slate-500">
                   <span>{`${lead.totalVolumeCC.toFixed(1)} CC market volume`}</span>
                   <Link
                     to={`/market/${lead.marketId}`}
