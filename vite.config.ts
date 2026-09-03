@@ -1,6 +1,7 @@
 import path from "path";
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv, type PluginOption } from "vite";
+import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 import ledgerHandler from "./api/proxy/ledger.mjs";
 import walletHandler from "./api/proxy/wallet.mjs";
@@ -34,21 +35,6 @@ export default defineConfig(({ mode }) => {
       .map((value) => (value || "").trim().replace(/\/$/, ""))
       .find((value) => /^https?:\/\//i.test(value)) ||
     "https://auth.dev.digik.cantor8.tech";
-
-  // @cantor8/wallet-connect-sdk 0.5.0 hardcodes wallet-backend.main.cantor8.tech for
-  // mainnet origins — NXDOMAIN, and the real host (…main.digik…) sends no CORS headers
-  // anyway, so the SDK's internal balance/status polling can only work through our
-  // same-origin relay. Rewrite the constant inside the SDK until Cantor8 ships a fix.
-  // (optimizeDeps.exclude below makes the transform apply under `vite dev` too.)
-  const patchCantor8Backend: PluginOption = {
-    name: "patch-cantor8-wallet-backend",
-    transform(code, id) {
-      if (!id.includes("@cantor8/wallet-connect-sdk")) return null;
-      const broken = "https://wallet-backend.main.cantor8.tech";
-      if (!code.includes(broken)) return null;
-      return code.split(broken).join("/__proxy/c8b");
-    },
-  };
 
   // Dev server: token injection happens inside these handlers (same as prod), so the
   // browser calls /__proxy/ledger and /__proxy/wallet with no credentials at all.
@@ -88,12 +74,8 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [
-      react(), devServerProxies, patchCantor8Backend,
+      react(), nodePolyfills(), devServerProxies,
     ],
-    optimizeDeps: {
-      // Keep the SDK out of esbuild pre-bundling so patchCantor8Backend sees it in dev.
-      exclude: ["@cantor8/wallet-connect-sdk"],
-    },
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./frontend"),
