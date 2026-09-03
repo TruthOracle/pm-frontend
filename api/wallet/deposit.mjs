@@ -184,7 +184,7 @@ export default async function handler(req, res) {
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error(`[deposit] failed for ${userPartyId}: ${message}`);
-    return json(res, 502, { error: "deposit reconciliation failed", detail: message.slice(0, 400) });
+    return json(res, 502, { error: "deposit reconciliation failed", detail: message.slice(0, 800) });
   } finally {
     await lock.release();
   }

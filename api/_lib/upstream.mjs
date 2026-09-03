@@ -44,6 +44,13 @@ export const walletBaseUrl = () => resolveTarget(WALLET_TARGET_ENV);
 export const adminPartyId = () => (process.env.VITE_ENTERPRISE_WALLET_PARTY_ID || "").trim();
 export const appName = () => (process.env.VITE_ENTERPRISE_WALLET_APP_NAME || "truthoracle").trim();
 export const packageId = () => (process.env.VITE_TRUTHORACLE_PACKAGE_ID || "").trim();
+/**
+ * daml.yaml `name:` of the TruthOracle package. Active-contracts filters must reference
+ * templates by package NAME ("#name:Module:Entity"); the participant rejects the
+ * package-id form with INVALID_FIELD "expected a package name". Commands keep using
+ * packageId() — those accept (and are pinned by) the id.
+ */
+export const packageName = () => (process.env.VITE_TRUTHORACLE_PACKAGE_NAME || "").trim();
 
 /** Authenticated JSON call to an upstream. Throws with the upstream body on failure. */
 export async function authedJson(baseUrl, path, { method = "GET", body, authPrefixes } = {}) {
