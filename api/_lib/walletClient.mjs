@@ -22,30 +22,71 @@ function wallet(path, options) {
 }
 
 /**
- * Every settled transfer the admin party has seen. `limit` defaults high because the
- * reconciliation below must see the COMPLETE history — a truncated page would
- * understate what a user has sent in and silently under-credit them.
+ * Page size for history reads. The wallet's documented default (100000) is above
+ * what it can actually serve: on DevNet v0.1.35 `limit=100000` returns HTTP 500
+ * every time and anything past roughly 50000 is flaky, so the "one huge page"
+ * approach the reconciliation used to rely on 502'd every deposit. Page instead.
+ */
+const HISTORY_PAGE_SIZE = 1000;
+
+// Safety valve: 200 pages x 1000 = 200k events before we give up. The reconciliation
+// must see the COMPLETE history (a truncated one under-credits users), so hitting
+// this is an error, not a silent partial result.
+const HISTORY_MAX_PAGES = 200;
+
+/**
+ * Walk a newest-first, cursor-paged history to completion. `fetchPage(cursor)` returns
+ * one page (newest first); the cursor is the `timestamp` of the oldest row returned so
+ * far. Pure so the paging can be tested without a wallet.
+ *
+ * Verified on DevNet v0.1.35: `startDate` is an EXCLUSIVE cursor (rows strictly older
+ * than it in the default desc order), and every page carries a `timestamp` per event.
+ */
+export async function collectHistory(fetchPage, { pageSize = HISTORY_PAGE_SIZE, maxPages = HISTORY_MAX_PAGES } = {}) {
+  const all = [];
+  let cursor;
+  for (let page = 0; page < maxPages; page += 1) {
+    const events = await fetchPage(cursor);
+    all.push(...events);
+    if (events.length < pageSize) return all;
+    const oldest = events[events.length - 1]?.timestamp;
+    // No cursor = no way to ask for the next page; a full page with no timestamp
+    // means an unknown shape. Refuse rather than return something partial.
+    if (!oldest) throw new Error("wallet history page carries no timestamp cursor");
+    if (oldest === cursor) throw new Error("wallet history cursor did not advance");
+    cursor = oldest;
+  }
+  throw new Error(`wallet history exceeded ${maxPages * pageSize} events`);
+}
+
+/**
+ * Every settled transfer the admin party has seen. Pages through the full history:
+ * the reconciliation must see ALL of it — a truncated result would understate what
+ * a user has sent in and silently under-credit them.
  *
  * Wallet v0.1.35 replaced `GET /api/v1/transfer/{partyId}` with a unified
- * `GET /api/v1/history/{partyId}` returning `{ events: [{ eventType, event }] }`,
+ * `GET /api/v1/history/{partyId}` returning `{ events: [{ eventType, timestamp, event }] }`,
  * where each `event` payload is either a transfer or a swap. We flatten to the
  * payloads — swap events carry no `instrumentId`, so `totalReceivedFrom` skips them
  * naturally. The old flat-array endpoint remains as a fallback for pre-0.1.35
  * deployments (e.g. the local docker wallet).
  */
-export async function transferHistory(partyId, { limit = 100000 } = {}) {
+export async function transferHistory(partyId, { pageSize = HISTORY_PAGE_SIZE } = {}) {
+  const party = encodeURIComponent(partyId);
   try {
-    const response = await wallet(`/api/v1/history/${encodeURIComponent(partyId)}?limit=${limit}`);
-    const events = Array.isArray(response?.events)
-      ? response.events
-      : Array.isArray(response)
-        ? response
-        : [];
+    const events = await collectHistory(
+      async (cursor) => {
+        const qs = `limit=${pageSize}${cursor ? `&startDate=${encodeURIComponent(cursor)}` : ""}`;
+        const response = await wallet(`/api/v1/history/${party}?${qs}`);
+        return Array.isArray(response?.events) ? response.events : Array.isArray(response) ? response : [];
+      },
+      { pageSize },
+    );
     return events.map((item) => item?.event ?? item);
   } catch (e) {
     if (e?.status !== 404) throw e;
   }
-  const rows = await wallet(`/api/v1/transfer/${encodeURIComponent(partyId)}?limit=${limit}`);
+  const rows = await wallet(`/api/v1/transfer/${party}?limit=${pageSize}`);
   return Array.isArray(rows) ? rows : [];
 }
 
