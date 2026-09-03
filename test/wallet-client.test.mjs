@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { totalReceivedFrom } from "../api/_lib/walletClient.mjs";
+import { collectHistory, totalReceivedFrom } from "../api/_lib/walletClient.mjs";
 
 const ADMIN = "admin::1220aa";
 const USER = "user::1220bb";
@@ -73,5 +73,63 @@ describe("totalReceivedFrom", () => {
   it("ignores non-positive and non-numeric amounts", () => {
     const rows = [row({ amount: "0" }), row({ amount: "-3" }), row({ amount: "abc" })];
     assert.equal(totalReceivedFrom(rows, ADMIN, USER), 0);
+  });
+});
+
+/**
+ * Paging. The wallet 500s on its own documented default limit (100000 on DevNet
+ * v0.1.35), so history is read in pages keyed by the oldest timestamp seen. The
+ * reconciliation needs the COMPLETE history, so the walker must either return all
+ * of it or throw — never a silent partial.
+ */
+describe("collectHistory", () => {
+  const ev = (i) => ({ eventType: "transfer", timestamp: `2026-09-03T00:00:${String(i).padStart(2, "0")}Z`, event: { i } });
+
+  it("returns a single short page as-is with no cursor", async () => {
+    const calls = [];
+    const out = await collectHistory(async (c) => (calls.push(c), [ev(3), ev(2), ev(1)]), { pageSize: 5 });
+    assert.deepEqual(calls, [undefined]);
+    assert.equal(out.length, 3);
+  });
+
+  it("walks full pages using the oldest timestamp as an exclusive cursor", async () => {
+    const all = [9, 8, 7, 6, 5, 4, 3, 2, 1].map(ev);
+    const calls = [];
+    const fetchPage = async (cursor) => {
+      calls.push(cursor);
+      const from = cursor ? all.findIndex((e) => e.timestamp === cursor) + 1 : 0;
+      return all.slice(from, from + 4);
+    };
+    const out = await collectHistory(fetchPage, { pageSize: 4 });
+    assert.deepEqual(calls, [undefined, all[3].timestamp, all[7].timestamp]);
+    assert.deepEqual(out.map((e) => e.event.i), [9, 8, 7, 6, 5, 4, 3, 2, 1]);
+  });
+
+  it("stops on an exactly-full final page by asking once more and getting nothing", async () => {
+    const pages = [[ev(2), ev(1)], []];
+    const out = await collectHistory(async () => pages.shift(), { pageSize: 2 });
+    assert.equal(out.length, 2);
+  });
+
+  it("throws instead of returning a partial history when a full page has no cursor", async () => {
+    await assert.rejects(
+      collectHistory(async () => [{ event: {} }, { event: {} }], { pageSize: 2 }),
+      /no timestamp cursor/,
+    );
+  });
+
+  it("throws when the cursor stops advancing", async () => {
+    await assert.rejects(
+      collectHistory(async () => [ev(1), ev(1)], { pageSize: 2 }),
+      /did not advance/,
+    );
+  });
+
+  it("throws past maxPages rather than looping forever", async () => {
+    let i = 100;
+    await assert.rejects(
+      collectHistory(async () => [ev(i--), ev(i--)], { pageSize: 2, maxPages: 3 }),
+      /exceeded 6 events/,
+    );
   });
 });

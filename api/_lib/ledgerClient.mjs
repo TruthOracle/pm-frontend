@@ -6,7 +6,13 @@
  * through the wallet, which holds the signing key.
  */
 
-import { LEDGER_AUTH_PREFIXES, authedJson, ledgerBaseUrl, packageId } from "./upstream.mjs";
+import {
+  LEDGER_AUTH_PREFIXES,
+  authedJson,
+  ledgerBaseUrl,
+  packageId,
+  packageName,
+} from "./upstream.mjs";
 
 const TRUTHORACLE_MODULE = "Truthoracle";
 
@@ -16,10 +22,23 @@ function ledger(path, options) {
   return authedJson(base, path, { ...options, authPrefixes: LEDGER_AUTH_PREFIXES() });
 }
 
+/** Package-id form, for Create/Exercise commands (pins the exact package version). */
 export function templateId(entity, module = TRUTHORACLE_MODULE) {
   const pkg = packageId();
   if (!pkg) throw new Error("VITE_TRUTHORACLE_PACKAGE_ID is not set");
   return `${pkg}:${module}:${entity}`;
+}
+
+/**
+ * Package-NAME form, for active-contracts filters. The JSON Ledger API rejects the
+ * package-id form there ("Invalid field packageId: Received an identifier with
+ * package ID ..., but expected a package name") — frontend/utils/activeContracts.ts
+ * hit the same wall. Responses still carry templateId in package-id form.
+ */
+export function filterTemplateId(entity, module = TRUTHORACLE_MODULE) {
+  const name = packageName();
+  if (!name) throw new Error("VITE_TRUTHORACLE_PACKAGE_NAME is not set");
+  return `#${name}:${module}:${entity}`;
 }
 
 async function ledgerEnd() {
@@ -42,7 +61,10 @@ export async function activeContracts(party, entity, module = TRUTHORACLE_MODULE
               {
                 identifierFilter: {
                   TemplateFilter: {
-                    value: { templateId: templateId(entity, module), includeCreatedEventBlob: false },
+                    value: {
+                      templateId: filterTemplateId(entity, module),
+                      includeCreatedEventBlob: false,
+                    },
                   },
                 },
               },

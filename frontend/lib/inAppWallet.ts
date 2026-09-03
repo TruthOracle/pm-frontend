@@ -77,7 +77,7 @@ export async function depositToInAppWallet(args: DepositArgs): Promise<UserWalle
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Deposit reconciliation failed (${res.status}): ${text.slice(0, 300)}`);
+    throw new Error(`Deposit reconciliation failed (${res.status}): ${text.slice(0, 900)}`);
   }
 
   // 3. Wait until the participant shows the credited balance.

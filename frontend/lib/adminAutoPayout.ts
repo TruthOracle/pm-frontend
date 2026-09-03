@@ -46,7 +46,7 @@ export async function runAdminAutoPayout(args: AutoPayoutArgs): Promise<AutoPayo
 
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Payout settlement failed (${res.status}): ${text.slice(0, 400)}`);
+    throw new Error(`Payout settlement failed (${res.status}): ${text.slice(0, 900)}`);
   }
 
   try {
