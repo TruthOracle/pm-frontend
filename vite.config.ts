@@ -36,6 +36,20 @@ export default defineConfig(({ mode }) => {
       .find((value) => /^https?:\/\//i.test(value)) ||
     "https://auth.dev.digik.cantor8.tech";
 
+  // SDK 0.5.1 uses the correct MainNet hostname, but its internal session-restore
+  // and balance polling still call that host directly. The MainNet backend does
+  // not allow browser CORS for the app origin, so route only that backend through
+  // the existing same-origin relay. DevNet remains direct because its CORS works.
+  const routeCantor8MainnetBackendViaProxy: PluginOption = {
+    name: "route-cantor8-mainnet-backend-via-proxy",
+    transform(code, id) {
+      if (!id.includes("@cantor8/wallet-connect-sdk")) return null;
+      const mainnetBackend = "https://wallet-backend.main.digik.cantor8.tech";
+      if (!code.includes(mainnetBackend)) return null;
+      return code.split(mainnetBackend).join("/__proxy/c8b");
+    },
+  };
+
   // Dev server: token injection happens inside these handlers (same as prod), so the
   // browser calls /__proxy/ledger and /__proxy/wallet with no credentials at all.
   const devServerProxies: PluginOption = {
@@ -74,8 +88,12 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [
-      react(), nodePolyfills(), devServerProxies,
+      react(), nodePolyfills(), devServerProxies, routeCantor8MainnetBackendViaProxy,
     ],
+    optimizeDeps: {
+      // Keep the SDK transform active under `vite dev` as well as production builds.
+      exclude: ["@cantor8/wallet-connect-sdk"],
+    },
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./frontend"),
