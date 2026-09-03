@@ -170,7 +170,7 @@ export default async function handler(req, res) {
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error(`[payout] failed for ${pendingPayoutCid}: ${message}`);
-    return json(res, 502, { error: "payout settlement failed", detail: message.slice(0, 400) });
+    return json(res, 502, { error: "payout settlement failed", detail: message.slice(0, 800) });
   } finally {
     await lock.release();
   }
