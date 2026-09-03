@@ -1,7 +1,6 @@
 import path from "path";
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv, type PluginOption } from "vite";
-import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 import ledgerHandler from "./api/proxy/ledger.mjs";
 import walletHandler from "./api/proxy/wallet.mjs";
@@ -89,7 +88,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [
-      react(), nodePolyfills(), devServerProxies, patchCantor8Backend,
+      react(), devServerProxies, patchCantor8Backend,
     ],
     optimizeDeps: {
       // Keep the SDK out of esbuild pre-bundling so patchCantor8Backend sees it in dev.
