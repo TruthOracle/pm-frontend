@@ -64,8 +64,8 @@ platform lives in sibling repositories:
 
 | Repository | Contents |
 |---|---|
-| `truthoracle-canton` (this repo) | React/Vite frontend, `api/` Vercel functions (ledger/wallet proxies, admin auth, deposit + payout settlement) |
-| `truthoracle-backend` | NestJS backend — accounts (Google / Telegram / Canton wallet sign-in), linked wallets, KYC, session-gated deposits and payouts, admin API |
+| `truthoracle-canton` (this repo) | React/Vite frontend, `api/` Vercel functions (ledger/wallet proxies, accounts-backend relay, admin auth) |
+| `truthoracle-backend` | NestJS backend — accounts (Google / Telegram / Canton wallet sign-in), linked wallets, KYC, deposits and payouts (the only money rails; required for deposit/withdraw), admin API |
 | `truthoracle-contracts` | Daml package (`daml/`), DAR build/upload and operator scripts (`create:contract`, `ledger:query`, `contracts:active`, `rights:grant`, `create:account`) |
 | `enterprise-wallet` | Self-hosted Cantor8 Enterprise Wallet that signs as the admin / treasury party |
 

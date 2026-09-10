@@ -33,8 +33,8 @@ VITE_APP_NETWORK=devnet
 VITE_WALLET_TYPE=cantor8
 VITE_LOOP_NETWORK=devnet
 VITE_USE_PARTICIPANT_API=true
-VITE_TRUTHORACLE_PACKAGE_ID=0a786ef1027354cb70a1cd78331680bf34054a642520dc0eb94c9ac4f775b837
-VITE_TRUTHORACLE_PACKAGE_NAME=truthoracle-v13
+VITE_TRUTHORACLE_PACKAGE_ID=64653d3a4b63abcff3a0f016cdf08b0c46aa827f0b971b8990a7fdf5ede6446a
+VITE_TRUTHORACLE_PACKAGE_NAME=truthoracle-v14
 VITE_ENTERPRISE_WALLET_PARTY_ID=20a2514bea1b4dd382f116c1e580197d::12205811d9301bcc2456567f882baceb8e083483c8be3f2631aedc2ce1806c424393
 VITE_ENTERPRISE_WALLET_APP_NAME=truthoracle
 ```
@@ -78,7 +78,8 @@ suffix. The app appends those paths.
 
 `ENTERPRISE_WALLET_PROXY_TARGET_URL` has no fallback default. Unset, every wallet
 call returns `500 "Missing proxy target for enterprise wallet"` — market creation,
-result recording, admin payouts, and in-app wallet deposit/withdraw alike.
+result recording and Mark Paid alike. (Deposit credits and payout settlement go
+through the accounts backend, which reaches the wallet with its own configuration.)
 
 `KEYCLOAK_CLIENT_ID` / `KEYCLOAK_CLIENT_SECRET` take no `VITE_` prefix. A
 `VITE_`-prefixed spelling of either is deliberately ignored by

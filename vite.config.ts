@@ -12,8 +12,6 @@ import adminNonceHandler from "./api/admin/nonce.mjs";
 import adminSessionHandler from "./api/admin/session.mjs";
 import adminLogoutHandler from "./api/admin/logout.mjs";
 import adminMeHandler from "./api/admin/me.mjs";
-import walletDepositHandler from "./api/wallet/deposit.mjs";
-import walletSettlePayoutHandler from "./api/wallet/settle-payout.mjs";
 import { proxyMiddleware, routeMiddleware } from "./api/proxy/_devProxy.mjs";
 
 export default defineConfig(({ mode }) => {
@@ -69,8 +67,6 @@ export default defineConfig(({ mode }) => {
       server.middlewares.use(routeMiddleware("/api/admin/session", adminSessionHandler));
       server.middlewares.use(routeMiddleware("/api/admin/logout", adminLogoutHandler));
       server.middlewares.use(routeMiddleware("/api/admin/me", adminMeHandler));
-      server.middlewares.use(routeMiddleware("/api/wallet/deposit", walletDepositHandler));
-      server.middlewares.use(routeMiddleware("/api/wallet/settle-payout", walletSettlePayoutHandler));
     },
   };
 

@@ -6,9 +6,10 @@
  * `loading` only until the first probe settles, and every anonymous flow keeps working
  * while that happens. When the proxy has no BACKEND_URL the status is `unavailable`
  * and no account affordance is shown anywhere — the app is then exactly the pre-accounts
- * app. When a backend exists but does not answer the status is `unreachable`: sign-in
- * is offered but disabled and the money rails pause, because "no backend" and "backend
- * down" must never be confused (§18 — the legacy routes 410 only after the CC moved).
+ * app: read + wallet-signed trading, no deposits or withdrawals. When a backend exists
+ * but does not answer the status is `unreachable`: sign-in is offered but disabled and
+ * the money rails pause, because "no backend" and "backend down" must never be confused
+ * (one hides the controls for good, the other recovers on its own).
  *
  * Nothing security-relevant is decided here. The server owns the session; this module
  * only reports what it said and drives the login / link handshakes.
@@ -291,7 +292,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // States A and B (§16): the money rails key on the primary party. Everything else —
   // anonymous, unlinked (C), a session whose /me failed, no backend — is null, and the
-  // components fall back to the connected party's own wallet or pause.
+  // components offer no deposit / withdraw at all.
   const accountParty =
     me !== null && primaryPartyId !== null && (connectedWalletState === "primary" || connectedWalletState === "linked")
       ? primaryPartyId
@@ -408,13 +409,13 @@ export interface AccountWalletView {
   accountParty: string | null;
   /** `accountParty !== null`. */
   accountMode: boolean;
-  /** Anonymous with a backend present: ask for sign-in BEFORE any CC moves (§18). */
+  /** Anonymous with a backend present: deposits and withdrawals need an account — ask for sign-in. */
   signInRequired: boolean;
   /** Signed in with an UNLINKED wallet connected (state C): link before deposit/withdraw. */
   linkRequired: boolean;
   /**
    * Backend configured but not answering, or signed in without /me: the money rails
-   * must pause — the legacy routes would 410 only after the CC moved.
+   * must pause — the backend is the only thing that credits or settles a UserWallet.
    */
   backendPaused: boolean;
 }

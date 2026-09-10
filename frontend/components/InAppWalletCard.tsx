@@ -1,32 +1,32 @@
 /**
- * In-app wallet card: shows the on-ledger UserWallet balance and runs the
- * two flows that touch the external wallet — deposit (one CC-transfer popup,
- * then the balance is credited) and withdraw (one Withdraw signature, then
- * real CC is sent out). Trades themselves never come here: they debit/credit
- * the balance inside the market choice.
+ * In-app wallet card: shows the account's on-ledger UserWallet balance and runs the
+ * two flows that touch the external wallet — deposit (one CC-transfer popup, then the
+ * backend credits the balance) and withdraw (one Withdraw signature, then the backend
+ * settles real CC out). Trades themselves never come here: they debit/credit the
+ * balance inside the market choice.
  *
- * With an account signed in (ARCHITECTURE.md §16) the card is about the
- * ACCOUNT's balance, which lives on the primary wallet's UserWallet:
- *  (A) connected wallet is the primary   → deposit, withdraw (KYC-gated);
- *  (B) connected wallet is linked, not primary → deposit into the account; the party's
- *      OWN on-ledger balance (if it has one) is shown separately and withdrawable
- *      with this wallet's key (§8.1) — the account's balance needs the primary;
- *  (C) connected wallet is not linked    → the party's own wallet, legacy rails, plus a link CTA.
- * Anonymous, or a deployment without an accounts backend, is unchanged. A backend that
- * exists but is unreachable (or a session whose /me failed) PAUSES both flows: the
- * legacy routes would answer 410 only after the CC had moved (§18).
+ * The balance belongs to the ACCOUNT and lives on its primary wallet's UserWallet —
+ * the only UserWallet that exists, because only the backend creates one. States, keyed
+ * on the connected wallet vs the signed-in account (ARCHITECTURE.md §16):
+ *  (A) connected wallet is the primary          → deposit + withdraw (KYC-gated);
+ *  (B) connected wallet is linked, not primary  → deposit into the account; withdraw
+ *      needs the primary's key ("connect <primary> to withdraw");
+ *  (C) connected wallet is not linked           → controls disabled, "Link this wallet to
+ *      your account" CTA; no balance — a party without an account has no UserWallet.
+ *  anonymous    → "Sign in to deposit and trade with an in-app balance" + Sign-in button;
+ *  unavailable  → no accounts backend on this deployment: a sentence, no controls;
+ *  unreachable, or a session whose /me failed → both flows pause with a Retry.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useToast } from "@chakra-ui/react";
 import { Link } from "react-router-dom";
-import { ArrowDownToLine, ArrowUpFromLine, Link2, RefreshCw, Wallet } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Link2, LogIn, RefreshCw, Wallet } from "lucide-react";
 import { useCantonWallet } from "@/wallets";
 import { useAccountWallet, useAuth } from "@/auth/AuthContext";
 import { WALLET_DISPLAY_NAME } from "@/config";
 import { fetchUserWallet, type UserWalletRecord } from "@/utils/activeContracts";
 import {
   creditPendingDeposits,
-  creditPendingDepositsLegacy,
   depositToInAppWallet,
   isDepositCreditPending,
   withdrawFromInAppWallet,
@@ -41,6 +41,7 @@ import { fmtCC } from "./market/marketHelpers";
 type Lock = { reason: string; verifyLink?: boolean };
 
 const PAUSED_REASON = "Deposits and withdrawals are paused while the accounts service is unreachable";
+const CHECKING_REASON = "Checking your account…";
 
 export function InAppWalletCard({
   wallet: walletProp,
@@ -49,7 +50,10 @@ export function InAppWalletCard({
   reloadKey = 0,
   variant = "row",
 }: {
-  /** Pass the wallet record to control it from a parent; omit to self-fetch. */
+  /**
+   * Pass the account's wallet record (the primary party's UserWallet) to control it
+   * from a parent; omit to self-fetch. Ignored outside states A/B.
+   */
   wallet?: UserWalletRecord | null;
   /** Managed mode: false while the parent's first wallet read is still in flight. */
   walletLoaded?: boolean;
@@ -64,37 +68,30 @@ export function InAppWalletCard({
   const { me, walletState, accountParty, accountMode, signInRequired, linkRequired, backendPaused } = useAccountWallet();
   const toast = useToast();
   const [selfWallet, setSelfWallet] = useState<UserWalletRecord | null>(null);
-  const [ownWallet, setOwnWallet] = useState<UserWalletRecord | null>(null);
+  const [selfLoaded, setSelfLoaded] = useState(false);
   const [amount, setAmount] = useState<string>("");
-  const [busy, setBusy] = useState<"deposit" | "withdraw" | "withdraw-own" | "link" | "credit" | null>(null);
+  const [busy, setBusy] = useState<"deposit" | "withdraw" | "link" | "credit" | null>(null);
   // A transfer reached the treasury but the credit did not show: offer a credit-only retry.
   const [creditPending, setCreditPending] = useState<string | null>(null);
   // Compact variant: which action's amount form is open (collapsed by default).
   const [panel, setPanel] = useState<"deposit" | "withdraw" | null>(null);
 
   const managed = walletProp !== undefined;
-  const wallet = managed ? walletProp : selfWallet;
-  const [selfLoaded, setSelfLoaded] = useState(false);
-
-  // --- Which party's wallet is this card about? -----------------------------------
-  // States A and B go through the account rails and key on the primary party; state C
-  // and anonymous use the connected party's own wallet on the legacy rails.
-  const connected = account?.address ?? null;
-  const walletParty = accountParty ?? connected;
+  // The card is about the account's balance, so outside states A/B there is no wallet
+  // to show — whatever a parent passed for the connected party is not the account's.
+  const wallet = accountMode ? (managed ? walletProp : selfWallet) : null;
   const authLoading = auth.status === "loading";
-  // State B: the connected party may hold its own UserWallet from before it was linked.
-  const ownPartyWallet = walletState === "linked" ? connected : null;
 
   useEffect(() => {
     if (managed) return;
-    if (!walletParty) {
+    if (!accountParty) {
       setSelfWallet(null);
       setSelfLoaded(false);
       return;
     }
     let cancelled = false;
     setSelfLoaded(false);
-    fetchUserWallet(walletParty)
+    fetchUserWallet(accountParty)
       .then((w) => {
         if (!cancelled) setSelfWallet(w);
       })
@@ -105,76 +102,54 @@ export function InAppWalletCard({
     return () => {
       cancelled = true;
     };
-  }, [managed, walletParty, reloadKey]);
-
-  useEffect(() => {
-    if (!ownPartyWallet) {
-      setOwnWallet(null);
-      return;
-    }
-    let cancelled = false;
-    fetchUserWallet(ownPartyWallet)
-      .then((w) => {
-        if (!cancelled) setOwnWallet(w);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [ownPartyWallet, reloadKey]);
+  }, [managed, accountParty, reloadKey]);
 
   const reload = useCallback(async () => {
-    if (!managed && walletParty) {
-      setSelfWallet(await fetchUserWallet(walletParty));
+    if (!managed && accountParty) {
+      setSelfWallet(await fetchUserWallet(accountParty));
     }
-    if (ownPartyWallet) setOwnWallet(await fetchUserWallet(ownPartyWallet));
     await onChanged?.();
-  }, [managed, walletParty, ownPartyWallet, onChanged]);
+  }, [managed, accountParty, onChanged]);
 
-  if (!account || !walletParty) return null;
+  if (!account) return null;
 
   const amt = Number(amount);
   const balance = wallet?.balanceCC ?? 0;
 
   // --- Gates ------------------------------------------------------------------------
-  const pausedLock: Lock | null = backendPaused ? { reason: PAUSED_REASON } : null;
+  // Nothing may build a command while the account state is unknown or the backend is
+  // not answering: the CC would move (or the debit would commit) with nobody to credit
+  // or settle it.
+  const readyLock: Lock | null = authLoading
+    ? { reason: CHECKING_REASON }
+    : backendPaused
+      ? { reason: PAUSED_REASON }
+      : null;
   const depositLock: Lock | null =
-    pausedLock ??
+    readyLock ??
     (linkRequired
       ? { reason: "Link this wallet to your account to deposit" }
-      : accountMode && me && !me.capabilities.canDeposit
-        ? { reason: "Deposits are paused for this account. Contact support." }
-        : null);
-  // The account-level withdraw gate (KYC / suspension) — applies to the account's
-  // balance and, in state B, to the connected party's own balance too, since the
-  // payee is a linked wallet of the same account (§9.4 evaluates the payee's account).
+      : !accountParty
+        ? { reason: "Sign in and link this wallet to deposit" }
+        : me && !me.capabilities.canDeposit
+          ? { reason: "Deposits are paused for this account. Contact support." }
+          : null);
+  // The account-level withdraw gate (KYC / suspension) applies to the account's balance.
   const capabilityLock: Lock | null =
-    accountMode && me && !me.capabilities.canWithdraw
+    me && !me.capabilities.canWithdraw
       ? me.capabilities.kycRequiredForWithdrawal
         ? { reason: "Verify identity to withdraw", verifyLink: true }
         : { reason: "Withdrawals are not available for this account right now." }
       : null;
   const withdrawLock: Lock | null =
-    pausedLock ??
+    readyLock ??
     (linkRequired
       ? { reason: "Link this wallet to your account to withdraw" }
-      : !accountMode || !accountParty
-        ? null
+      : !accountParty
+        ? { reason: "Sign in and link this wallet to withdraw" }
         : walletState === "linked"
-          ? { reason: `Connect ${shortPartyId(accountParty)} to withdraw the account balance` }
+          ? { reason: `Connect ${shortPartyId(accountParty)} to withdraw` }
           : capabilityLock);
-  const ownWithdrawLock: Lock | null = pausedLock ?? capabilityLock;
-
-  const promptSignIn = (verb: string) => {
-    toast({
-      title: `Sign in to ${verb}`,
-      description: "Deposits and withdrawals are tied to a TruthOracle account on this deployment.",
-      status: "info",
-      duration: 5000,
-      isClosable: true,
-    });
-    auth.openLogin();
-  };
 
   const lockToast = (lock: Lock) =>
     toast({
@@ -186,8 +161,9 @@ export function InAppWalletCard({
     });
 
   const handleDeposit = async () => {
-    if (signInRequired) return promptSignIn("deposit");
     if (depositLock) return lockToast(depositLock);
+    // Every non-account state is locked above; this only narrows the type.
+    if (!accountParty) return;
     if (!(amt > 0)) {
       toast({ title: "Enter a CC amount to deposit", status: "info", duration: 3000, isClosable: true });
       return;
@@ -197,24 +173,19 @@ export function InAppWalletCard({
     // The primary wallet becomes permanent with the first deposit (§8.2) — say so at
     // the one moment it can still be changed. Only once the wallet read has settled:
     // a null wallet that is merely still loading is not a first deposit.
-    const firstDeposit = accountMode && walletLoaded && (managed || selfLoaded) && !wallet;
-    const description = firstDeposit && accountParty
+    const firstDeposit = walletLoaded && (managed || selfLoaded) && !wallet;
+    const description = firstDeposit
       ? `Confirm the ${fmtCC(amt)} CC transfer in the ${WALLET_DISPLAY_NAME} popup. This first deposit makes ${shortPartyId(accountParty)} the permanent primary wallet of your account — it owns your in-app balance and cannot change afterwards.`
-      : accountMode && accountParty && walletState === "linked"
+      : walletState === "linked"
         ? `Confirm the ${fmtCC(amt)} CC transfer in the ${WALLET_DISPLAY_NAME} popup — it credits the in-app balance owned by ${shortPartyId(accountParty)}.`
         : `Confirm the ${fmtCC(amt)} CC transfer in the ${WALLET_DISPLAY_NAME} popup — the in-app wallet credits automatically.`;
     const t = toast({ title: "Depositing…", description, status: "info", duration: null, isClosable: false });
     try {
-      const outcome = await depositToInAppWallet({
-        userParty: walletParty,
-        amountCC: amt,
-        transferCC,
-        backend: accountMode,
-      });
+      const outcome = await depositToInAppWallet({ userParty: accountParty, amountCC: amt, transferCC });
       setAmount("");
       await reload();
       // Attribution per wallet lives in /me; keep the Account page's numbers fresh.
-      if (accountMode) void auth.refresh();
+      void auth.refresh();
       if (outcome.credited) {
         toast({
           title: "Deposit credited",
@@ -260,38 +231,32 @@ export function InAppWalletCard({
     }
   };
 
-  /** Re-run §8.3 (or the legacy reconcile) without moving any CC. */
+  /** Re-run the §8.3 reconcile without moving any CC. */
   const handleRetryCredit = async () => {
-    if (pausedLock) return lockToast(pausedLock);
+    if (readyLock) return lockToast(readyLock);
     setBusy("credit");
     try {
-      if (accountMode) {
-        const res = await creditPendingDeposits({ windowMs: 10_000 });
-        if (res.status === "nothing_outstanding") {
-          toast({
-            title: "Nothing to credit yet",
-            description: "The treasury has not recorded the transfer yet. Try again in a minute; the transfer itself is safe.",
-            status: "info",
-            duration: 8000,
-            isClosable: true,
-          });
-          return;
-        }
-        setCreditPending(null);
+      const res = await creditPendingDeposits({ windowMs: 10_000 });
+      if (res.status === "nothing_outstanding") {
         toast({
-          title: res.status === "confirmed" ? "Deposit credited" : "Credit submitted",
-          description: `${fmtCC(Number(res.credited))} CC ${res.status === "confirmed" ? "credited to" : "being credited to"} your in-app balance.`,
-          status: "success",
-          duration: 6000,
+          title: "Nothing to credit yet",
+          description: "The treasury has not recorded the transfer yet. Try again in a minute; the transfer itself is safe.",
+          status: "info",
+          duration: 8000,
           isClosable: true,
         });
-      } else {
-        await creditPendingDepositsLegacy(walletParty);
-        setCreditPending(null);
-        toast({ title: "Credit re-run", description: "Any transfer not yet credited has been reconciled.", status: "success", duration: 5000, isClosable: true });
+        return;
       }
+      setCreditPending(null);
+      toast({
+        title: res.status === "confirmed" ? "Deposit credited" : "Credit submitted",
+        description: `${fmtCC(Number(res.credited))} CC ${res.status === "confirmed" ? "credited to" : "being credited to"} your in-app balance.`,
+        status: "success",
+        duration: 6000,
+        isClosable: true,
+      });
       await reload();
-      if (accountMode) void auth.refresh();
+      void auth.refresh();
     } catch (e) {
       toast({
         title: "Credit not completed",
@@ -336,23 +301,26 @@ export function InAppWalletCard({
     }
   };
 
-  /** Shared by the account-balance and own-balance withdrawals; the party is the signer. */
-  const runWithdraw = async (kind: "withdraw" | "withdraw-own", party: string, from: UserWalletRecord) => {
+  const handleWithdraw = async () => {
+    // Never build the Withdraw command while gated: the debit would commit on-ledger and
+    // the payout would then sit blocked server-side.
+    if (withdrawLock) return lockToast(withdrawLock);
+    if (!wallet || !accountParty) return;
     if (!(amt > 0)) {
       toast({ title: "Enter a CC amount to withdraw", status: "info", duration: 3000, isClosable: true });
       return;
     }
-    if (amt > from.balanceCC) {
+    if (amt > wallet.balanceCC) {
       toast({
         title: "Amount exceeds in-app balance",
-        description: `Available: ${fmtCC(from.balanceCC)} CC.`,
+        description: `Available: ${fmtCC(wallet.balanceCC)} CC.`,
         status: "warning",
         duration: 5000,
         isClosable: true,
       });
       return;
     }
-    setBusy(kind);
+    setBusy("withdraw");
     const t = toast({
       title: "Withdrawing…",
       description: `Confirm the withdrawal in the ${WALLET_DISPLAY_NAME} popup — CC is then sent to your ${WALLET_DISPLAY_NAME} wallet.`,
@@ -362,13 +330,10 @@ export function InAppWalletCard({
     });
     try {
       const result = await withdrawFromInAppWallet({
-        userParty: party,
+        userParty: accountParty,
         amountCC: amt,
-        walletContractId: from.contractId,
+        walletContractId: wallet.contractId,
         signAndSubmitTransaction,
-        // The account rail settles both: the payee is a linked wallet of this account,
-        // so the KYC gate applies either way (§9.4). State C / anonymous use the legacy rail.
-        backend: accountMode,
       });
       setAmount("");
       await reload();
@@ -385,22 +350,6 @@ export function InAppWalletCard({
       if (t !== undefined) toast.close(t);
       setBusy(null);
     }
-  };
-
-  const handleWithdraw = async () => {
-    if (signInRequired) return promptSignIn("withdraw");
-    // Never build the Withdraw command while gated: the debit would commit on-ledger and
-    // the payout would then sit blocked server-side.
-    if (withdrawLock) return lockToast(withdrawLock);
-    if (!wallet) return;
-    await runWithdraw("withdraw", walletParty, wallet);
-  };
-
-  /** State B: the connected party's OWN UserWallet, signed by the connected key (§8.1). */
-  const handleWithdrawOwn = async () => {
-    if (ownWithdrawLock) return lockToast(ownWithdrawLock);
-    if (!ownPartyWallet || !ownWallet) return;
-    await runWithdraw("withdraw-own", ownPartyWallet, ownWallet);
   };
 
   const handleLink = async () => {
@@ -423,35 +372,75 @@ export function InAppWalletCard({
 
   const compact = variant === "compact";
 
+  // --- Frame shared by every state --------------------------------------------------
+  const shell = (body: ReactNode) => (
+    <div
+      className={`rounded-xl border-2 border-primary/40 border-l-4 border-l-primary bg-card shadow-sm ${
+        compact ? "px-4 py-3" : "px-5 py-4"
+      }`}
+    >
+      {body}
+    </div>
+  );
+  const header = (
+    <div className="flex items-center gap-2">
+      <Wallet className="h-4 w-4 text-primary" />
+      <h2 className="text-sm font-semibold text-foreground">In-app wallet</h2>
+    </div>
+  );
+
+  if (auth.status === "unavailable") {
+    return shell(
+      <>
+        {header}
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          Accounts are not enabled on this deployment, so there is no in-app balance to deposit into or withdraw
+          from. Trading stays wallet-signed.
+        </p>
+      </>,
+    );
+  }
+
+  if (signInRequired) {
+    return shell(
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div>
+          {header}
+          <p className="mt-1.5 text-xs text-muted-foreground">Sign in to deposit and trade with an in-app balance.</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => auth.openLogin()}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          <LogIn className="h-3.5 w-3.5" /> Sign in
+        </button>
+      </div>,
+    );
+  }
+
   // While the wallet read is in flight (self-fetch, or the parent's first load), keep
   // the text short and the balance a dash — the long no-wallet hint would widen the
   // layout and shift the controls on load, and the "first deposit" note must not
   // flash for an account that already has a wallet.
-  const loading = managed ? !walletLoaded : !selfLoaded;
-  const balanceText = loading ? "—" : `${fmtCC(balance)} CC`;
+  const loading = authLoading || (accountMode && (managed ? !walletLoaded : !selfLoaded));
+  const balanceText = loading || !accountMode ? "—" : `${fmtCC(balance)} CC`;
   const subLine = loading
     ? "loading balance…"
-    : wallet
-      ? `deposited ${fmtCC(wallet.depositedCC)} · withdrawn ${fmtCC(wallet.withdrawnCC)}`
-      : "Deposit CC once, then every trade is a single signature.";
+    : linkRequired
+      ? "Link this wallet to use your account's in-app balance."
+      : wallet
+        ? `deposited ${fmtCC(wallet.depositedCC)} · withdrawn ${fmtCC(wallet.withdrawnCC)}`
+        : "Deposit CC once, then every trade is a single signature.";
 
-  const depositDisabled = busy !== null || authLoading || depositLock !== null;
-  const withdrawDisabled = busy !== null || authLoading || !wallet || balance <= 0 || withdrawLock !== null;
-  const ownBalance = ownWallet?.balanceCC ?? 0;
-  const showOwnBalance = walletState === "linked" && ownWallet !== null && ownBalance > 0;
-  const ownWithdrawDisabled = busy !== null || authLoading || ownWithdrawLock !== null || !(amt > 0);
+  const depositDisabled = busy !== null || depositLock !== null;
+  const withdrawDisabled = busy !== null || !wallet || balance <= 0 || withdrawLock !== null;
+  // Locks already explained by their own hint line below.
+  const explained = readyLock !== null || linkRequired;
 
-  /** Account-state lines under the controls; nothing at all for anonymous / unavailable. */
+  /** Account-state lines under the controls. */
   const hints = (
     <>
-      {signInRequired && (
-        <p>
-          <button type="button" onClick={() => auth.openLogin()} className="font-semibold text-primary hover:underline">
-            Sign in
-          </button>{" "}
-          to deposit or withdraw.
-        </p>
-      )}
       {backendPaused && (
         <p className="text-amber-700">
           {auth.status === "unreachable" ? BACKEND_UNREACHABLE_SENTENCE : "Your account details could not be loaded."}{" "}
@@ -471,7 +460,7 @@ export function InAppWalletCard({
           >
             <Link2 className="h-3 w-3" /> {busy === "link" ? "Waiting for your wallet…" : "Link this wallet to your account"}
           </button>{" "}
-          to deposit or withdraw — until then it keeps its own balance.
+          to deposit or withdraw.
         </p>
       )}
       {accountMode && accountParty && (
@@ -482,24 +471,6 @@ export function InAppWalletCard({
               {" "}· connected <span className="font-mono">{shortPartyId(account.address)}</span> is linked, deposit only
             </>
           )}
-        </p>
-      )}
-      {showOwnBalance && ownWallet && ownPartyWallet && (
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span>
-            Own on-ledger balance of <span className="font-mono">{shortPartyId(ownPartyWallet)}</span>:{" "}
-            <span className="font-semibold text-foreground">{fmtCC(ownBalance)} CC</span> — separate from the account
-            balance, withdrawable only with this wallet's key.
-          </span>
-          <button
-            type="button"
-            onClick={() => void handleWithdrawOwn()}
-            disabled={ownWithdrawDisabled}
-            title={ownWithdrawLock?.reason ?? (amt > 0 ? `Withdraw ${fmtCC(amt)} CC from this wallet's own balance` : "Enter an amount above first")}
-            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] font-semibold text-foreground transition-opacity disabled:opacity-50"
-          >
-            <ArrowUpFromLine className="h-3 w-3" /> {busy === "withdraw-own" ? "Withdrawing…" : "Withdraw own balance"}
-          </button>
         </p>
       )}
       {accountMode && !loading && !wallet && accountParty && (
@@ -518,8 +489,8 @@ export function InAppWalletCard({
           </button>
         </p>
       )}
-      {depositLock && !linkRequired && !backendPaused && <p className="text-amber-700">{depositLock.reason}</p>}
-      {withdrawLock && !linkRequired && !backendPaused && (
+      {depositLock && !explained && <p className="text-amber-700">{depositLock.reason}</p>}
+      {withdrawLock && !explained && (
         <p className="text-amber-700">
           {withdrawLock.verifyLink ? (
             <Link to="/account#verification" className="font-semibold underline underline-offset-2">
@@ -541,13 +512,10 @@ export function InAppWalletCard({
           ? "border-primary bg-primary text-primary-foreground"
           : "border-primary/40 text-primary hover:bg-primary/10 disabled:opacity-50 disabled:hover:bg-transparent"
       }`;
-    return (
-      <div className="rounded-xl border-2 border-primary/40 border-l-4 border-l-primary bg-card px-4 py-3 shadow-sm">
+    return shell(
+      <>
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
-          <div className="flex items-center gap-2">
-            <Wallet className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">In-app wallet</h2>
-          </div>
+          {header}
           <div className="flex items-center gap-1.5">
             <span className="mr-1 text-base font-extrabold tabular-nums text-foreground">{balanceText}</span>
             <button
@@ -560,7 +528,7 @@ export function InAppWalletCard({
             </button>
             <button
               onClick={() => setPanel(panel === "withdraw" ? null : "withdraw")}
-              disabled={(!wallet || balance <= 0 || withdrawLock !== null) && !showOwnBalance}
+              disabled={!wallet || balance <= 0 || withdrawLock !== null}
               title={withdrawLock?.reason}
               className={togglePill(panel === "withdraw")}
             >
@@ -583,7 +551,7 @@ export function InAppWalletCard({
               <button
                 onClick={panel === "deposit" ? handleDeposit : handleWithdraw}
                 disabled={panel === "deposit" ? depositDisabled : withdrawDisabled}
-                title={panel === "withdraw" ? withdrawLock?.reason : undefined}
+                title={panel === "withdraw" ? withdrawLock?.reason : depositLock?.reason}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-opacity disabled:opacity-50"
               >
                 {panel === "deposit" ? (
@@ -603,18 +571,15 @@ export function InAppWalletCard({
           </>
         )}
         <div className="mt-1.5 space-y-0.5 text-[11px] text-muted-foreground empty:hidden">{hints}</div>
-      </div>
+      </>,
     );
   }
 
-  return (
-    <div className="rounded-xl border-2 border-primary/40 border-l-4 border-l-primary bg-card px-5 py-4 shadow-sm">
+  return shell(
+    <>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
         <div className="min-w-[10rem]">
-          <div className="flex items-center gap-2">
-            <Wallet className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">In-app wallet</h2>
-          </div>
+          {header}
           <div className="mt-1.5 text-2xl font-extrabold tabular-nums text-foreground">{balanceText}</div>
           <div className="text-[11px] text-muted-foreground">{subLine}</div>
         </div>
@@ -626,7 +591,8 @@ export function InAppWalletCard({
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="Amount (CC)"
-            className="w-32 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+            disabled={depositLock !== null && withdrawLock !== null}
+            className="w-32 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary disabled:opacity-50"
           />
           <button
             onClick={handleDeposit}
@@ -649,7 +615,7 @@ export function InAppWalletCard({
         </div>
       </div>
       <div className="mt-2 space-y-0.5 text-xs text-muted-foreground empty:hidden">{hints}</div>
-    </div>
+    </>,
   );
 }
 

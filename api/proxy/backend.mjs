@@ -30,8 +30,9 @@
  *   - Bodies are capped (every proxied route is small JSON) — 413 above the cap.
  *
  * With BACKEND_URL unset the relay answers 503 backend_unconfigured. The frontend
- * treats that as "accounts unavailable" (no Sign-in button) and the legacy money
- * endpoints under api/wallet/ keep working exactly as before — ARCHITECTURE.md §18.
+ * treats that as "accounts unavailable": no Sign-in button, no deposits and no
+ * withdrawals — the app is then read + wallet-signed trading only. There is no other
+ * money rail; the backend is the only thing that credits or settles a UserWallet.
  */
 
 // Vercel function config: /in-app-wallet reads walk the treasury transfer history,

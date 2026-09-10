@@ -1,24 +1,22 @@
 /**
- * In-app UserWallet orchestration (v13 architecture).
+ * In-app UserWallet orchestration.
  *
- * Deposit: the user's ONLY signature is a real CC transfer to the admin
- * treasury (Cantor8 / any Canton wallet popup). The Enterprise Wallet then
- * credits the on-ledger UserWallet balance (create-on-first-deposit), and we
- * poll the participant until the credit shows.
+ * Deposit: the user's ONLY signature is a real CC transfer to the admin treasury
+ * (Cantor8 / any Canton wallet popup). The accounts backend then attributes the inbound
+ * to whichever linked wallet sent it and credits the account's PRIMARY UserWallet —
+ * treasury-signed, create-on-first-deposit (ARCHITECTURE.md §8.3) — and we poll the
+ * participant until the credit shows.
  *
  * Withdraw: the user signs UserWallet.Withdraw (debits the balance, queues a
- * PendingPayout), then the Enterprise Wallet auto-settles it — real CC out,
- * MarkPaid to archive the row.
+ * PendingPayout), then the backend settles it — KYC-gated (§9.4): real CC out, MarkPaid
+ * to archive the row.
  *
- * Two reconciliation rails coexist (ARCHITECTURE.md §16/§18):
- *  - legacy (anonymous, no accounts backend): `/api/wallet/deposit` and
- *    `/api/wallet/settle-payout` on this app's own serverless functions;
- *  - account (`backend: true`): the accounts backend reconciles deposits across
- *    every wallet linked to the account and gates payout settlement on KYC.
- * Callers pick the rail; the on-ledger steps are identical on both.
- *
- * Trades never touch this module: Buy/Sell/Split/Merge/liquidity/bonds
- * debit/credit the UserWallet inside the market choice itself.
+ * Both money flows REQUIRE a signed-in account. The on-ledger UserWallet exists only
+ * because the backend created it for an account's primary wallet, so for a party
+ * without an account there is nothing to credit or debit; the UI never offers these
+ * flows anonymously. Trades never touch this module: Buy/Sell/Split/Merge/liquidity/
+ * bonds debit/credit the UserWallet inside the market choice itself and stay
+ * wallet-signed.
  */
 
 import type { PrepareExecuteParams } from "@/lib/cantonDapp";
@@ -30,7 +28,6 @@ import {
   type UserWalletRecord,
 } from "@/utils/activeContracts";
 import { enterpriseWalletPartyId } from "@/lib/enterpriseWalletSubmit";
-import { runAdminAutoPayout } from "@/lib/adminAutoPayout";
 import { backendFetch, isBackendError } from "@/lib/backend";
 import { backendErrorMessage, type ErrorSentences } from "@/lib/backendErrors";
 import type { LedgerWallet, Money, Payout, Wallet } from "@/auth/types";
@@ -51,7 +48,7 @@ export interface InAppWalletView {
   partyId: string | null;
   ledger: LedgerWallet | null;
   wallets: Wallet[];
-  attribution: { legacyPrimaryCC: Money; creditedTotalCC: Money; ledgerDepositedCC: Money; delta: Money };
+  attribution: { creditedTotalCC: Money; ledgerDepositedCC: Money; delta: Money };
   pending: { submitted: number };
   payouts: Payout[];
 }
@@ -87,7 +84,45 @@ const MONEY_SENTENCES: ErrorSentences = {
 
 export function moneyErrorMessage(e: unknown): string {
   if (isBackendError(e, "payout_blocked")) return payoutBlockedSentence(readDetailStatus(e.details));
+  if (isBackendError(e, "deposit_attribution_drift")) return depositDriftSentence(readDetailKind(e.details));
   return backendErrorMessage(e, MONEY_SENTENCES);
+}
+
+/** `details.kind` of a 409 deposit_attribution_drift (API.md → In-app wallet). */
+export type DepositDriftKind = "over_credit" | "ledger_below_expected" | "ledger_above_expected" | "duplicate_user_wallet";
+
+const DRIFT_KINDS: ReadonlySet<string> = new Set<DepositDriftKind>([
+  "over_credit",
+  "ledger_below_expected",
+  "ledger_above_expected",
+  "duplicate_user_wallet",
+]);
+
+function readDetailKind(details: unknown): DepositDriftKind | undefined {
+  if (details && typeof details === "object" && "kind" in details) {
+    const k = (details as { kind?: unknown }).kind;
+    return typeof k === "string" && DRIFT_KINDS.has(k) ? (k as DepositDriftKind) : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Why the treasury refused to credit (§8.3): drift in EITHER direction between the
+ * backend's attribution and the on-ledger UserWallet pauses automatic crediting — there
+ * is no silent repair — so the sentence must not promise a credit when the ledger is
+ * already ahead.
+ */
+export function depositDriftSentence(kind: DepositDriftKind | undefined): string {
+  switch (kind) {
+    case "ledger_above_expected":
+      return "Your in-app wallet holds more than the treasury's records account for, so automatic crediting is paused until support reconciles it. Your CC is safe.";
+    case "duplicate_user_wallet":
+      return "Your party has more than one in-app wallet on the ledger, so automatic crediting is paused until support merges them. Your CC is safe.";
+    case "over_credit":
+    case "ledger_below_expected":
+    default:
+      return "The deposit could not be credited automatically because the treasury's records and your wallet disagree. Your CC is safe — support has been notified and will credit it manually.";
+  }
 }
 
 const PAYOUT_STATUSES: ReadonlySet<string> = new Set<Payout["status"]>([
@@ -142,9 +177,8 @@ export function payoutBlockedSentence(status: Payout["status"] | undefined): str
 
 export interface DepositArgs {
   /**
-   * Party whose UserWallet receives the credit. Anonymous: the connected party.
-   * Account mode: the account's PRIMARY party — even when a different linked
-   * wallet signs the transfer (ARCHITECTURE.md §16 state B).
+   * Party whose UserWallet receives the credit: the account's PRIMARY party — even
+   * when a different linked wallet signs the transfer (ARCHITECTURE.md §16 state B).
    */
   userParty: string;
   amountCC: number;
@@ -155,8 +189,6 @@ export interface DepositArgs {
     memo?: string;
     metadata?: Record<string, string>;
   }) => Promise<{ txId: string }>;
-  /** Reconcile through the accounts backend instead of the legacy serverless route. */
-  backend?: boolean;
 }
 
 /** How long we keep asking the backend to reconcile / wait for its deposit lock. */
@@ -181,14 +213,14 @@ export function isDepositCreditPending(e: unknown): e is DepositCreditPendingErr
 }
 
 /**
- * Account rail for the credit step of a deposit — ARCHITECTURE.md §8.3, and the ONLY
- * way to re-run it without moving more CC. The server re-derives what is owed from the
- * treasury's transfer history, so this never tells it an amount. Two things make the
- * first call after a transfer come back empty-handed and both are transient: the
- * history walk may not show the inbound yet (`nothing_outstanding`), or another tab /
- * the confirm pass still holds the deposit lock (`deposit_in_progress`). Both are
- * retried inside one bounded window; anything else is a real answer. Exported so the
- * wallet card and the Account page can offer "credit pending deposits" on its own.
+ * The credit step of a deposit — ARCHITECTURE.md §8.3, and the ONLY way to re-run it
+ * without moving more CC. The server re-derives what is owed from the treasury's
+ * transfer history, so this never tells it an amount. Two things make the first call
+ * after a transfer come back empty-handed and both are transient: the history walk may
+ * not show the inbound yet (`nothing_outstanding`), or another tab / the confirm pass
+ * still holds the deposit lock (`deposit_in_progress`). Both are retried inside one
+ * bounded window; anything else is a real answer. Exported so the wallet card and the
+ * Account page can offer "credit pending deposits" on its own.
  */
 export async function creditPendingDeposits(opts?: { windowMs?: number }): Promise<ReconcileResult> {
   const deadline = Date.now() + (opts?.windowMs ?? RECONCILE_WINDOW_MS);
@@ -225,33 +257,6 @@ async function waitForDepositLock(deadline: number): Promise<void> {
   }
 }
 
-/**
- * Legacy rail for the credit step (no accounts backend): the app's own serverless
- * route re-derives what is owed from the treasury history minus the wallet's on-ledger
- * depositedCC, so the amount just transferred is never something the browser asserts.
- * This replaced a direct admin-signed credit through the open wallet proxy, which let
- * anyone mint balance by POSTing a credit they never paid for.
- */
-export async function creditPendingDepositsLegacy(userParty: string): Promise<void> {
-  const res = await fetch("/api/wallet/deposit", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userPartyId: userParty }),
-  });
-  if (res.ok) return;
-  const text = await res.text();
-  // §18: once an accounts backend is configured this route is retired. The CC has
-  // already reached the treasury, so say what unblocks the credit rather than
-  // echoing a 410.
-  if (res.status === 410) {
-    throw new DepositCreditPendingError(
-      "Deposits now require a TruthOracle account. Sign in and link this wallet — your transfer is safe and will be credited once the wallet is linked.",
-    );
-  }
-  throw new DepositCreditPendingError(`Deposit reconciliation failed (${res.status}): ${text.slice(0, 900)}`);
-}
-
 export interface DepositOutcome {
   /** Latest wallet record the participant showed (null if the party has none yet). */
   wallet: UserWalletRecord | null;
@@ -263,8 +268,8 @@ export interface DepositOutcome {
    * is still in flight. Offer `creditPendingDeposits` — never another transfer.
    */
   pending: boolean;
-  /** Backend's reconcile answer (account rail only). */
-  reconcile?: ReconcileResult;
+  /** The backend's reconcile answer. */
+  reconcile: ReconcileResult;
 }
 
 /**
@@ -289,20 +294,14 @@ export async function depositToInAppWallet(args: DepositArgs): Promise<DepositOu
     metadata: { kind: "truthoracle_deposit", amount_cc: String(args.amountCC) },
   });
 
-  let reconcile: ReconcileResult | undefined;
-  if (args.backend) {
-    // 2 (account rail). The backend attributes the inbound to whichever linked wallet
-    //    sent it and credits the account's primary UserWallet (§8.3).
-    reconcile = await creditPendingDeposits();
-    if (reconcile.status === "nothing_outstanding") {
-      // The history walk never showed the inbound inside the window. Nothing was
-      // submitted, so the wallet will not change on its own — do not sit on the
-      // ledger for another 30 s pretending it might.
-      return { wallet: await fetchUserWallet(args.userParty), credited: false, pending: true, reconcile };
-    }
-  } else {
-    // 2 (legacy rail).
-    await creditPendingDepositsLegacy(args.userParty);
+  // 2. The backend attributes the inbound to whichever linked wallet sent it and
+  //    credits the account's primary UserWallet (§8.3).
+  const reconcile = await creditPendingDeposits();
+  if (reconcile.status === "nothing_outstanding") {
+    // The history walk never showed the inbound inside the window. Nothing was
+    // submitted, so the wallet will not change on its own — do not sit on the ledger
+    // for another 30 s pretending it might.
+    return { wallet: await fetchUserWallet(args.userParty), credited: false, pending: true, reconcile };
   }
 
   // 3. Wait until the participant shows the credited balance.
@@ -323,8 +322,6 @@ export interface WithdrawArgs {
   walletContractId: string;
   /** Bound signAndSubmitTransaction from the wallet context (signs Withdraw). */
   signAndSubmitTransaction: (p: PrepareExecuteParams) => Promise<{ hash: string }>;
-  /** Settle through the accounts backend (KYC-gated) instead of the legacy serverless route. */
-  backend?: boolean;
 }
 
 export type SettleMode = "external" | "in_app" | "already_settled";
@@ -378,9 +375,9 @@ export async function settlePayoutWithBackend(pendingPayoutCid: string): Promise
 }
 
 /**
- * Run a withdrawal end-to-end. If the auto-settlement step fails the CC stays
- * safe: the balance debit and the PendingPayout are atomic, and the payout
- * remains queued for the admin (or can be canceled back into the balance).
+ * Run a withdrawal end-to-end. If the settlement step fails the CC stays safe: the
+ * balance debit and the PendingPayout are atomic, and the payout remains queued for
+ * the backend's processor (or can be canceled back into the balance).
  */
 export async function withdrawFromInAppWallet(args: WithdrawArgs): Promise<WithdrawResult> {
   if (!(args.amountCC > 0)) throw new Error("Withdrawal amount must be positive");
@@ -409,16 +406,8 @@ export async function withdrawFromInAppWallet(args: WithdrawArgs): Promise<Withd
   }
   if (!fresh) return { settled: false };
 
-  if (args.backend) {
-    // 3 (account rail). KYC and wallet-status gates live server-side (§9.4); a
-    //    blocked row stays queued and is re-tried when the gate clears.
-    const outcome = await settlePayoutWithBackend(fresh.contractId);
-    return { ...outcome, pendingPayoutCid: fresh.contractId };
-  }
-
-  // 3 (legacy rail). Admin sends real CC and marks the payout paid. The amount and
-  //    payee come from the contract server-side, so nothing here can influence what
-  //    gets paid.
-  const result = await runAdminAutoPayout({ pendingPayoutCid: fresh.contractId });
-  return { settled: result.settled, pendingPayoutCid: fresh.contractId };
+  // 3. KYC and wallet-status gates live server-side (§9.4); a blocked row stays queued
+  //    and is re-tried when the gate clears.
+  const outcome = await settlePayoutWithBackend(fresh.contractId);
+  return { ...outcome, pendingPayoutCid: fresh.contractId };
 }

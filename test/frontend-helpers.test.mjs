@@ -1,6 +1,6 @@
 /**
  * Unit tests for the frontend's pure TypeScript helpers behind the accounts
- * integration (ARCHITECTURE.md §16 / §18): the backend probe's three answers, the
+ * integration (ARCHITECTURE.md §16): the backend probe's three answers, the
  * error-code → sentence tables, the KYC status reading, the payout settlement outcome
  * mapping and the party formatter. Imported straight from frontend/lib through the
  * hooks in _support/frontend-loader.mjs — no bundler, no browser: `fetch` is stubbed
@@ -195,15 +195,45 @@ describe("error sentences (lib/backendErrors.ts)", () => {
     assert.equal(errors.backendCodeMessage("unauthorized"), null);
   });
 
+  it("has a sentence for every browser-reachable §11 code and lets bad_request keep the server's words", () => {
+    for (const code of [
+      "invalid_credential",
+      "oidc_failed",
+      "not_found",
+      "payload_too_large",
+      "unsupported_media_type",
+      "not_ready",
+      "internal_error",
+      "user_suspended",
+      "csrf_rejected",
+    ]) {
+      assert.equal(typeof errors.backendCodeMessage(code), "string", code);
+    }
+    assert.equal(errors.backendCodeMessage("bad_request"), null);
+    assert.equal(errors.backendErrorMessage(err("bad_request", 409, "verification is approved; start a new session")),
+      "verification is approved; start a new session");
+  });
+
   it("flags only transient failures for automatic retry", () => {
     assert.ok(errors.isTransientBackendError(err("network_error", 0)));
     assert.ok(errors.isTransientBackendError(err("backend_unreachable", 502)));
     assert.ok(errors.isTransientBackendError(err("upstream_failed", 502)));
+    assert.ok(errors.isTransientBackendError(err("not_ready", 503)));
     assert.ok(errors.isTransientBackendError(err("http_500", 500)));
     assert.ok(!errors.isTransientBackendError(err("backend_unconfigured", 503)));
     assert.ok(!errors.isTransientBackendError(err("unauthenticated", 401)));
     assert.ok(!errors.isTransientBackendError(err("kyc_required", 409)));
     assert.ok(!errors.isTransientBackendError(new Error("plain")));
+  });
+
+  it("reads details.kind of a deposit_attribution_drift and never promises a credit for a ledger surplus", () => {
+    const drift = (kind) => new backend.BackendError(409, "deposit_attribution_drift", "drift", kind ? { kind } : undefined);
+    assert.equal(wallet.moneyErrorMessage(drift("ledger_above_expected")), wallet.depositDriftSentence("ledger_above_expected"));
+    assert.ok(!wallet.moneyErrorMessage(drift("ledger_above_expected")).includes("credit it manually"));
+    assert.equal(wallet.moneyErrorMessage(drift("duplicate_user_wallet")), wallet.depositDriftSentence("duplicate_user_wallet"));
+    assert.equal(wallet.moneyErrorMessage(drift("over_credit")), wallet.depositDriftSentence(undefined));
+    assert.equal(wallet.moneyErrorMessage(drift(undefined)), wallet.depositDriftSentence(undefined));
+    assert.equal(wallet.moneyErrorMessage(drift("something_new")), wallet.depositDriftSentence(undefined));
   });
 
   it("never names the other account for a KYC duplicate (§9.3)", () => {

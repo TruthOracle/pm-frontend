@@ -34,9 +34,10 @@ const LEDGER_PUBLIC_PATHS = new Set([
 
 /**
  * The wallet proxy has NO public surface. Every one of its endpoints either signs with
- * the admin key or discloses treasury state. The two flows ordinary users used to need
- * — crediting a deposit and settling a payout — now live behind api/wallet/*.mjs, which
- * derive their amounts from upstream state instead of trusting the caller.
+ * the admin key or discloses treasury state. The two flows ordinary users need with a
+ * treasury signature — crediting a deposit and settling a payout — live in the accounts
+ * backend (truthoracle-backend), behind a user session, and derive their amounts from
+ * upstream state instead of trusting the caller.
  */
 const WALLET_PUBLIC_PATHS = new Set();
 

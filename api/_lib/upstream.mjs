@@ -1,8 +1,8 @@
 /**
  * Single source of truth for where the ledger and wallet live, and which Keycloak
  * credentials reach them. Previously this resolution was duplicated inside each
- * proxy; the server-side endpoints under api/wallet/ need exactly the same answers,
- * and two copies would eventually disagree about which network they were on.
+ * proxy; the server-side helpers in api/_lib need exactly the same answers, and two
+ * copies would eventually disagree about which network they were on.
  */
 
 import { keycloakBearer } from "../proxy/_keycloakToken.mjs";

@@ -19,10 +19,10 @@ import {
 // middleware). Browser calls go through ENTERPRISE_WALLET_PROXY_URL with no
 // credentials, so no Keycloak secret is needed (or present) in the frontend.
 //
-// The proxy now requires an admin session cookie on every path — these commands are
-// signed with the treasury key, so they are operator-only. Ordinary user flows do not
-// come through here any more: deposits and payouts go to api/wallet/*, which derive
-// their amounts server-side instead of accepting them from the browser.
+// The proxy requires an admin session cookie on every path — these commands are
+// signed with the treasury key, so they are operator-only. Ordinary user flows never
+// come through here: deposit credits and payout settlement are the accounts backend's
+// (session-authenticated, amounts derived server-side — see lib/inAppWallet.ts).
 
 export function enterpriseWalletPartyId(): string {
   return ENTERPRISE_WALLET_PARTY_ID;

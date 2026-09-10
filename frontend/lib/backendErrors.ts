@@ -41,6 +41,8 @@ const BASE: ErrorSentences = {
   last_identity: "This is the account's only sign-in method. Add another one before removing it.",
   identity_locked_by_kyc:
     "This sign-in method is attached to the account's identity verification and cannot be removed while the approval stands.",
+  invalid_credential: "The Google sign-in could not be verified. Try signing in again.",
+  oidc_failed: "Telegram sign-in did not complete. Start it again from this page.",
   wallet_already_linked:
     "This wallet is already linked to another account. Sign in with that account, or connect a different wallet.",
   wallet_key_mismatch:
@@ -64,12 +66,20 @@ const BASE: ErrorSentences = {
   kyc_provider_unavailable: "Verification is not available yet.",
   user_suspended: "This account is suspended. Contact support if you think that is a mistake.",
   validation_failed: "Some of the details are missing or in the wrong format.",
+  // `bad_request` deliberately has no sentence: the backend uses it with a per-site
+  // message ("verification is approved; start a new session") that says more than a
+  // generic line could, so the server's words fall through. `webhook_rejected` is
+  // server-to-server only and never reaches a browser.
+  not_found: "That record no longer exists. Reload the page and try again.",
+  payload_too_large: "The request was too large to send. Try again with less data.",
+  unsupported_media_type: "The request was sent in a format the accounts service does not accept. Reload the page and try again.",
   upstream_failed: "A service we depend on did not answer. Try again in a moment.",
+  not_ready: "The accounts service is starting up. Try again in a moment.",
+  internal_error: "The accounts service hit an unexpected error. Try again in a moment.",
   backend_unconfigured: "Accounts are not enabled on this deployment.",
   backend_unreachable: BACKEND_UNREACHABLE_SENTENCE,
   network_error: BACKEND_UNREACHABLE_SENTENCE,
   invalid_response: "The accounts service returned an unexpected response. Try again in a moment.",
-  moved_to_backend: "This action now goes through your TruthOracle account. Sign in and try again.",
 };
 
 /** The sentence for a code alone (null when neither the overrides nor the base table know it). */
@@ -91,7 +101,14 @@ export function backendErrorMessage(e: unknown, overrides?: ErrorSentences): str
 /** A transient failure worth retrying automatically, as opposed to a definitive answer. */
 export function isTransientBackendError(e: unknown): boolean {
   if (!(e instanceof BackendError)) return false;
-  if (e.code === "network_error" || e.code === "backend_unreachable" || e.code === "upstream_failed") return true;
+  if (
+    e.code === "network_error" ||
+    e.code === "backend_unreachable" ||
+    e.code === "upstream_failed" ||
+    e.code === "not_ready"
+  ) {
+    return true;
+  }
   return e.status >= 500 && e.code !== "backend_unconfigured";
 }
 

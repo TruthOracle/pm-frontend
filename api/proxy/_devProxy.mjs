@@ -25,9 +25,9 @@ export function proxyMiddleware(prefix, handler) {
 }
 
 /**
- * Same idea for the endpoints that are NOT path-forwarding proxies (api/admin/*,
- * api/wallet/*): Vercel routes them by filename, so under `vite dev` we match the
- * exact pathname instead and hand the request straight to the handler.
+ * Same idea for the endpoints that are NOT path-forwarding proxies (api/admin/*):
+ * Vercel routes them by filename, so under `vite dev` we match the exact pathname
+ * instead and hand the request straight to the handler.
  */
 export function routeMiddleware(pathname, handler) {
   return (req, res, next) => {

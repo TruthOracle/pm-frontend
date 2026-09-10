@@ -6,7 +6,7 @@
  * Sign-in button instead of a redirect, so a failed login is debuggable rather than
  * looking like a broken link; a deployment without an accounts backend says so; and a
  * backend that exists but is not answering says THAT — never "accounts are not
- * enabled", which would send people to the retired legacy money rails (§18).
+ * enabled", which reads as permanent when the outage is transient.
  */
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";

@@ -67,15 +67,15 @@ const CANCEL_REFUSED = "This withdrawal is being sent right now (or was already 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
- * Lists CC payouts the admin owes the connected user. Each row comes from a
- * `PendingPayout` contract on-ledger — Sell, Merge, and resolved-winner shares
- * all flow through this queue. Admin marks each one paid after the actual CC
- * transfer goes out via the Enterprise Wallet.
+ * Lists CC payouts the treasury owes the connected user. Each row is a `PendingPayout`
+ * contract on-ledger — Sell, Merge, resolved-winner shares and withdrawals all flow
+ * through this queue, and the accounts backend settles them (real CC out via the
+ * Enterprise Wallet, or in-app for bonds / prizes).
  *
- * With an account signed in, the backend's view of each row (queued / settling /
- * blocked on KYC / failed) is merged in, and `withdraw` rows can be settled now or
- * cancelled back into the in-app balance (user-signed CancelPayout with the refund
- * variant — never the forfeiting one).
+ * Anonymous: read-only — the on-ledger rows and nothing else. With an account signed
+ * in, the backend's view of each row (queued / settling / blocked on KYC / failed) is
+ * merged in, and `withdraw` rows can be settled now or cancelled back into the in-app
+ * balance (user-signed CancelPayout with the refund variant — never the forfeiting one).
  */
 function PendingPayouts({ onChanged }: { onChanged?: () => void | Promise<void> }) {
   const { account, signAndSubmitTransaction } = useCantonWallet();

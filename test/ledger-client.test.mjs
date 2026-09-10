@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { filterTemplateId, templateId } from "../api/_lib/ledgerClient.mjs";
 
-const PKG_ID = "0a786ef1027354cb70a1cd78331680bf34054a642520dc0eb94c9ac4f775b837";
+const PKG_ID = "64653d3a4b63abcff3a0f016cdf08b0c46aa827f0b971b8990a7fdf5ede6446a";
 const saved = {};
 
 beforeEach(() => {
@@ -20,7 +20,7 @@ beforeEach(() => {
     saved[k] = process.env[k];
   }
   process.env.VITE_TRUTHORACLE_PACKAGE_ID = PKG_ID;
-  process.env.VITE_TRUTHORACLE_PACKAGE_NAME = "truthoracle-v13";
+  process.env.VITE_TRUTHORACLE_PACKAGE_NAME = "truthoracle-v14";
 });
 
 afterEach(() => {
@@ -43,8 +43,8 @@ describe("templateId (commands)", () => {
 
 describe("filterTemplateId (active-contracts filters)", () => {
   it("uses the package-name reference the participant requires", () => {
-    assert.equal(filterTemplateId("UserWallet"), "#truthoracle-v13:Truthoracle:UserWallet");
-    assert.equal(filterTemplateId("PendingPayout"), "#truthoracle-v13:Truthoracle:PendingPayout");
+    assert.equal(filterTemplateId("UserWallet"), "#truthoracle-v14:Truthoracle:UserWallet");
+    assert.equal(filterTemplateId("PendingPayout"), "#truthoracle-v14:Truthoracle:PendingPayout");
   });
 
   it("never falls back to the package-id form", () => {
@@ -55,7 +55,7 @@ describe("filterTemplateId (active-contracts filters)", () => {
   it("honours the module override", () => {
     assert.equal(
       filterTemplateId("UserRewardsSummary", "Incentives"),
-      "#truthoracle-v13:Incentives:UserRewardsSummary",
+      "#truthoracle-v14:Incentives:UserRewardsSummary",
     );
   });
 });

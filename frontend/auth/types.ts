@@ -20,10 +20,15 @@ export type BackendErrorCode =
   | "forbidden"
   | "csrf_rejected"
   | "rate_limited"
+  | "user_suspended"
   | "identity_already_linked"
   | "identity_unlinked"
   | "last_identity"
   | "identity_locked_by_kyc"
+  /** Google ID token / nonce could not be verified (401). */
+  | "invalid_credential"
+  /** Telegram OIDC callback refused; arrives as `?auth=error&code=oidc_failed`. */
+  | "oidc_failed"
   | "wallet_already_linked"
   | "wallet_key_mismatch"
   | "signature_invalid"
@@ -38,15 +43,21 @@ export type BackendErrorCode =
   | "kyc_required"
   | "kyc_duplicate_identity"
   | "kyc_provider_unavailable"
-  | "user_suspended"
+  /** Sumsub webhook signature refused — server-to-server only, never seen by a browser. */
+  | "webhook_rejected"
   | "validation_failed"
+  | "bad_request"
+  | "not_found"
+  | "payload_too_large"
+  | "unsupported_media_type"
   | "upstream_failed"
+  /** `GET /health/ready` while a dependency check fails or the process drains. */
+  | "not_ready"
+  | "internal_error"
   /** Relay (api/proxy/backend.mjs): no BACKEND_URL on this deployment. */
   | "backend_unconfigured"
   /** Relay: BACKEND_URL is set but the backend did not answer. */
   | "backend_unreachable"
-  /** Legacy money endpoints once a backend exists (§18). */
-  | "moved_to_backend"
   /** Synthesised by backendFetch: fetch() itself rejected. */
   | "network_error"
   /** Synthesised by backendFetch: a 2xx with a non-JSON body. */
@@ -97,10 +108,15 @@ export interface Wallet {
   status: "active" | "revoked";
   verifiedAt: string;
   creditedCC: Money;
-  legacyCreditedCC: Money;
   /** Only present in GET /in-app-wallet. */
   receivedCC?: Money;
-  /** A non-primary party's own on-ledger UserWallet, if any. */
+  /**
+   * A non-primary party's own on-ledger UserWallet. Null for the primary wallet and for
+   * nearly every other one: the backend creates UserWallets only for an account's primary
+   * party. The one exception (ARCHITECTURE §18) is an in-app payout (`bond` /
+   * `model-prize`) settled to a party that traded with its own key — that wallet is
+   * shown here and never folded into the account's balance.
+   */
   ownLedgerWallet: LedgerWallet | null;
 }
 
@@ -243,7 +259,6 @@ export type WalletChallengePurpose = "sign-in" | "link-wallet" | "admin-sign-in"
 export interface WalletLinkResult {
   wallet: Wallet;
   identity: Identity;
-  seededLegacyCreditedCC: Money;
 }
 
 /**
@@ -266,11 +281,11 @@ export interface TelegramWidgetUser {
 
 /**
  * `unavailable`  the relay answered 503 backend_unconfigured: accounts do not exist on
- *                this deployment and every anonymous flow behaves exactly as before.
+ *                this deployment, so there are no deposits or withdrawals either — the
+ *                app is read + wallet-signed trading only.
  * `unreachable`  a backend IS configured but the last probe could not reach it (502
  *                backend_unreachable, network error, 5xx). Sign-in is offered but
- *                disabled and the money rails pause — never fall back to the legacy
- *                routes, which answer 410 only after the CC has moved (§18).
+ *                disabled and the money rails pause until it answers.
  * `loading`      lasts only until the first probe settles; children render throughout.
  */
 export type AuthStatus = "unavailable" | "unreachable" | "loading" | "anonymous" | "authenticated";

@@ -10,8 +10,9 @@ const TARGET_ENV = ["ENTERPRISE_WALLET_PROXY_TARGET_URL", "VITE_ENTERPRISE_WALLE
 // ACCESS: admin session required for every path (see ../_lib/proxyGuard.mjs). The
 // injected token signs with the treasury key, so an unauthenticated caller reaching
 // this handler could mint in-app balances and drain CC. User-facing flows that need
-// the admin signature live in api/wallet/*.mjs, which derive amounts from upstream
-// state rather than accepting them from the browser.
+// the treasury signature (deposit credit, payout settlement) live in the accounts
+// backend behind a user session, and derive amounts from upstream state rather than
+// accepting them from the browser.
 // Unlike the ledger proxy, this stays on the normal (digik) credentials on every
 // network — the wallet trusts its own Keycloak, not the zkpc node's; use
 // WALLET_KEYCLOAK_* if the wallet's issuer ever differs.

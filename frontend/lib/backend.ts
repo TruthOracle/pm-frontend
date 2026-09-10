@@ -176,9 +176,9 @@ export type BackendAvailability = "ok" | "unconfigured" | "unreachable";
  * One probe per page load for the DEFINITIVE answers ("ok", "unconfigured"), shared by
  * every caller so AuthContext, the header and the wallet cards do not each fire their
  * own on mount. "unreachable" is never cached: the promise is dropped as soon as it
- * settles so the next refresh() re-probes — treating an outage as "no backend" would
- * silently route deposits and withdrawals onto the retired legacy rails (§18), which
- * answer 410 only after the CC has moved. Never throws.
+ * settles so the next refresh() re-probes — "no backend" hides the Sign-in button and
+ * the money controls for good, while an outage must keep offering them (paused) and
+ * recover on its own. Never throws.
  */
 let availability: Promise<BackendAvailability> | null = null;
 

@@ -29,9 +29,9 @@ import {
 
 const PRIMARY_NOTE = "The primary wallet owns your in-app balance and cannot change once you have deposited.";
 
-/** Shown before a second wallet is linked: its own funds do not fold into the account (§8.1). */
+/** Shown before a second wallet is linked: only the primary wallet's key trades and withdraws (§8.1). */
 const SECOND_WALLET_NOTE =
-  "A second wallet is deposit-only: shares and CC it already holds stay withdrawable with its own key (Portfolio → In-app wallet → own balance) but cannot be traded from your account. If this is the wallet you trade from, make it the primary instead, or unlink it to trade from it as before.";
+  "A second wallet is deposit-only: it can fund your in-app balance but cannot trade from it or withdraw it — those need the primary wallet's key. If this is the wallet you trade from, make it the primary instead.";
 
 const UNLINK_ERRORS: ErrorSentences = {
   primary_wallet_in_use: "This is your primary wallet: it owns your in-app balance and can't be unlinked.",
@@ -59,7 +59,7 @@ export default function WalletsSection({ me }: { me: MeResponse }) {
 
   const connected = account?.address ?? null;
   const primaryParty = me.capabilities.primaryPartyId ?? me.user.partyId;
-  const hasDeposit = me.wallets.some((w) => w.isPrimary && (moneyIsPositive(w.creditedCC) || moneyIsPositive(w.legacyCreditedCC)));
+  const hasDeposit = me.wallets.some((w) => w.isPrimary && moneyIsPositive(w.creditedCC));
   const hasWallets = me.wallets.some((w) => w.status === "active");
   const wallets = [...me.wallets].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || Number(a.status === "revoked") - Number(b.status === "revoked"));
 
@@ -211,20 +211,12 @@ export default function WalletsSection({ me }: { me: MeResponse }) {
                     <span title="Deposits from this wallet credited to the account's in-app balance">
                       Credited {fmtMoney(w.creditedCC)} CC
                     </span>
-                    {moneyIsPositive(w.legacyCreditedCC) && (
-                      <span title="Deposits made to this party's own wallet before it was linked">
-                        Legacy {fmtMoney(w.legacyCreditedCC)} CC
-                      </span>
-                    )}
-                    {w.ownLedgerWallet && (
+                    {w.ownLedgerWallet && moneyIsPositive(w.ownLedgerWallet.balanceCC) && (
                       <span
                         className="text-slate-700"
-                        title="This party has its own on-ledger wallet. Its balance stays separate from the primary wallet and is only withdrawable with this wallet's key."
+                        title="This party has its own on-ledger wallet, separate from the account's balance. Contact support to have it folded into the account."
                       >
                         Own on-ledger balance {fmtMoney(w.ownLedgerWallet.balanceCC)} CC
-                        {!revoked && moneyIsPositive(w.ownLedgerWallet.balanceCC) && (
-                          <> — connect this wallet and use Portfolio → In-app wallet → “Withdraw own balance”, or unlink it to trade from it</>
-                        )}
                       </span>
                     )}
                     <span>Linked {fmtDateTime(w.verifiedAt)}</span>
