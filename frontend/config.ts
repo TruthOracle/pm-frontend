@@ -75,7 +75,7 @@ export const USE_PARTICIPANT_API = readBoolean(import.meta.env.VITE_USE_PARTICIP
 // Keycloak client credentials are intentionally NOT read here — token minting is
 // server-side only (api/proxy/*.mjs), so the client id/secret live in server-only
 // env (KEYCLOAK_CLIENT_ID / KEYCLOAK_CLIENT_SECRET, no VITE_ prefix) and never reach
-// the browser bundle. See wallet-deploy/README.md → Authentication.
+// the browser bundle. See the enterprise-wallet repository README → Authentication.
 
 export const ENTERPRISE_WALLET_PARTY_ID = readString(
   import.meta.env.VITE_ENTERPRISE_WALLET_PARTY_ID,
@@ -97,3 +97,24 @@ export const MODULE_ADDRESS = readString(
   import.meta.env.VITE_MODULE_ADDRESS,
   "0xbde9b5978954614b28adf8e8c71d919271ccad89a878d4d914249444a31f2b49",
 );
+
+// ---------------------------------------------------------------------------
+// Accounts backend (truthoracle-backend: sign-in, linked wallets, KYC). Everything
+// here is OPTIONAL — with no backend deployed these stay at their defaults and the
+// app runs exactly as before, anonymous and wallet-signed. The browser never learns
+// BACKEND_URL: it calls the same-origin relay below (api/proxy/backend.mjs), which
+// resolves the real host server-side — the same pattern as the ledger/wallet proxies.
+// ---------------------------------------------------------------------------
+export const BACKEND_BASE_URL = trimTrailingSlash(
+  readString(import.meta.env.VITE_BACKEND_PROXY_URL, "/__backend"),
+);
+/** Google Identity Services client id. Empty = no Google button. */
+export const GOOGLE_CLIENT_ID = readString(import.meta.env.VITE_GOOGLE_CLIENT_ID);
+/** Bot username (no "@") for the Telegram Login Widget. Empty = Telegram sign-in hidden. */
+export const TELEGRAM_BOT_USERNAME = readString(import.meta.env.VITE_TELEGRAM_BOT_USERNAME);
+/**
+ * Telegram OIDC only works on hosts whose /__backend/api/v1/auth/telegram/oidc/callback
+ * URL is registered with Telegram, so it is opt-in per deployment; the widget works
+ * wherever the bot's domain is set.
+ */
+export const TELEGRAM_OIDC_ENABLED = readBoolean(import.meta.env.VITE_TELEGRAM_OIDC_ENABLED);

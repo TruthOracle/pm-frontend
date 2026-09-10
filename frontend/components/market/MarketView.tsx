@@ -3,7 +3,9 @@ import { Gavel } from "lucide-react";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useCantonWallet } from "@/wallets";
+import { useAccountWallet } from "@/auth/AuthContext";
 import { useIsAdmin } from "@/lib/useIsAdmin";
+import { shortPartyId } from "@/lib/party";
 import {
   buildBuyParams,
   buildSellParams,
@@ -117,9 +119,21 @@ const MarketView = () => {
   const [attestations, setAttestations] = useState<OutcomeAttestationRecord[]>([]);
   const [busy, setBusy] = useState<string | null>(null); // which action is running
   const { account, signAndSubmitTransaction } = useCantonWallet();
+  const { primaryPartyId: primaryParty, walletState } = useAccountWallet();
   const adminPartyForCC = enterpriseWalletPartyId();
   const isAdmin = useIsAdmin();
   const toast = useToast();
+
+  // Account signed in with a linked, NON-primary wallet connected (ARCHITECTURE §16
+  // state B): the in-app balance lives on the primary party's UserWallet, and every
+  // market choice asserts the wallet's owner is the signer — so this wallet can look at
+  // the account's balance and deposit into it, but not trade from it.
+  const linkedNonPrimary = primaryParty !== null && walletState === "linked";
+  const walletParty = linkedNonPrimary ? primaryParty : (account?.address ?? null);
+  const tradeLockReason = linkedNonPrimary ? `Connect ${shortPartyId(primaryParty)} to trade` : null;
+  // False until the first per-party read settles, so the wallet card does not show
+  // "your first deposit …" for an account whose wallet is merely still loading.
+  const [userDataLoaded, setUserDataLoaded] = useState(false);
 
   // Live clock for the dynamic-L countdown / phase transitions.
   useEffect(() => {
@@ -162,19 +176,22 @@ const MarketView = () => {
       setLpPosition(null);
       setWallet(null);
       setHoldings(null);
+      setUserDataLoaded(false);
       return;
     }
+    setUserDataLoaded(false);
     const [pos, lp, w, h] = await Promise.all([
       fetchUserPosition(account.address, marketIdNum),
       fetchUserLpPosition(account.address, marketIdNum),
-      fetchUserWallet(account.address),
+      fetchUserWallet(walletParty ?? account.address),
       getCantonCoinHoldings(),
     ]);
     setUserPosition(pos);
     setLpPosition(lp);
     setWallet(w);
     setHoldings(h);
-  }, [account?.address, marketIdNum]);
+    setUserDataLoaded(true);
+  }, [account?.address, walletParty, marketIdNum]);
 
   useEffect(() => {
     refreshUserData();
@@ -262,6 +279,16 @@ const MarketView = () => {
 
   /** Guard: every money choice spends from / pays into the in-app wallet. */
   const requireWallet = (needCC?: number): UserWalletRecord | null => {
+    if (tradeLockReason) {
+      toast({
+        title: tradeLockReason,
+        description: "This wallet is linked to your account, but your in-app balance belongs to your primary wallet.",
+        status: "info",
+        duration: 6000,
+        isClosable: true,
+      });
+      return null;
+    }
     if (!wallet) {
       toast({
         title: "Deposit to your in-app wallet first",
@@ -844,14 +871,18 @@ const MarketView = () => {
     setMainTab, subTabBtn, tabHeaderBtn, pillBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs,
     tradeSide, setTradeSide, selectedSide, setSelectedSide, probYes, probNo,
     collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage,
-    buyQuote, sellQuote, swapQuote, account, busy, handleTradeClick, mintMode,
+    // The real account stays in the contexts so the position cards show what the
+    // connected party holds; `tradeLockReason` (state B) is what disables the money
+    // CTAs and labels them — requireWallet() blocks the submit itself either way.
+    buyQuote, sellQuote, swapQuote, account, tradeLockReason, busy, handleTradeClick, mintMode,
     setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge,
     userPosition, holdings, wallet,
   };
   const liquidityContext = {
     setMainTab, subTabBtn, tabHeaderBtn, pillBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity,
     liquidityValue, setLiquidityValue, liquidityQuote, busy, handleProvideLiquidity,
-    lpPosition, market, phase, withdrawPct, setWithdrawPct, handleWithdrawLiquidity, account,
+    lpPosition, market, phase, withdrawPct, setWithdrawPct, handleWithdrawLiquidity,
+    account, tradeLockReason,
   };
   const resolutionContext = {
     market, phase, nowSecs, busy, account, setResolveOutcome, resolveOutcome,
@@ -860,14 +891,22 @@ const MarketView = () => {
     holdings, probYes, probNo, isAdmin, handleVoidMarket,
   };
   const settlementContext = {
-    phase, market, redeemable, busy, account, handleRedeem, lpPosition,
+    phase, market, redeemable, busy, account, tradeLockReason, handleRedeem, lpPosition,
     withdrawPct, setWithdrawPct, handleWithdrawLiquidity, userPosition,
     holdings, probYes, probNo,
   };
 
   // Rendered inside the panels' right column, next to the trade actions it funds.
   const walletSlot = account ? (
-    <InAppWalletCard wallet={wallet} onChanged={refreshAllViews} variant="compact" />
+    <>
+      {tradeLockReason && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+          <span className="font-semibold">{tradeLockReason}.</span> The connected wallet is linked to your account
+          but is not its primary wallet, so it can deposit into the in-app balance below but cannot trade from it.
+        </div>
+      )}
+      <InAppWalletCard wallet={wallet} walletLoaded={userDataLoaded} onChanged={refreshAllViews} variant="compact" />
+    </>
   ) : null;
 
   const resolutionSlot = market.resolutionDescription ? (

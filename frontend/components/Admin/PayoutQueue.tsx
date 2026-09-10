@@ -25,6 +25,7 @@ import {
 } from "@/lib/enterpriseWalletSubmit";
 import { runAdminAutoPayout } from "@/lib/adminAutoPayout";
 import { debugError } from "@/lib/debugLog";
+import { useAuth } from "@/auth/AuthContext";
 
 function truncate(s: string, head = 8, tail = 6) {
     if (s.length <= head + tail + 1) return s;
@@ -35,14 +36,23 @@ function truncate(s: string, head = 8, tail = 6) {
  * Admin payout queue. Lists every PendingPayout the admin party can see
  * (i.e. they're signatory).
  *
- * "Settle" is the normal path: the server reads payee and amount from the contract,
- * sends the CC through the Enterprise Wallet, and exercises MarkPaid — the same
- * race-safe endpoint the automatic flows use, so a stuck payout is retried here with
- * no chance of double-paying. The paste-a-hash Mark Paid remains as the escape hatch
- * for payouts that were genuinely settled out-of-band.
+ * "Settle" is the normal path WITHOUT an accounts backend: the server reads payee and
+ * amount from the contract, sends the CC through the Enterprise Wallet, and exercises
+ * MarkPaid — the same race-safe endpoint the automatic flows use, so a stuck payout is
+ * retried here with no chance of double-paying. Once a backend is configured (§18)
+ * that route answers 410 for everyone: the backend's payout processor settles every
+ * row itself (bond / model-prize in-app within 30 s, withdrawals KYC-gated), and a
+ * second settler with its own command ids would pay twice. The button is therefore
+ * hidden until this queue is ported to POST /admin/payouts/:cid/settle. The
+ * paste-a-hash Mark Paid remains as the escape hatch for payouts that were genuinely
+ * settled out-of-band.
  */
 function PayoutQueue() {
     const { account, signAndSubmitTransaction } = useCantonWallet();
+    const auth = useAuth();
+    // `unavailable` = the relay has no BACKEND_URL; anything else means a backend owns
+    // settlement (loading / unreachable included — better a hidden button than a 410).
+    const legacySettleEnabled = auth.status === "unavailable";
     const [rows, setRows] = useState<PendingPayoutRecord[]>([]);
     const [loading, setLoading] = useState(false);
     const [marking, setMarking] = useState<string | null>(null);
@@ -153,6 +163,13 @@ function PayoutQueue() {
                 Settle sends the CC via the Enterprise Wallet and archives the row in one step (amount and
                 payee come from the contract). Use Mark Paid only for payouts already settled out-of-band.
             </Text>
+            {!legacySettleEnabled && (
+                <Text fontSize="xs" color="amber.300" mb={3}>
+                    An accounts backend is configured: its payout processor settles these rows itself (bond and
+                    model-prize into the in-app balance, withdrawals after identity verification). The legacy
+                    Settle path is retired here to avoid paying twice; Mark Paid stays for out-of-band payments.
+                </Text>
+            )}
             <Text fontSize="sm" color="amber.300" mb={3}>
                 Outstanding: <strong>{total.toFixed(4)} CC</strong> across <strong>{rows.length}</strong> row{rows.length === 1 ? "" : "s"}
             </Text>
@@ -193,16 +210,22 @@ function PayoutQueue() {
                                     />
                                 </Td>
                                 <Td>
-                                    <Button
-                                        size="sm"
-                                        colorScheme="green"
-                                        mr={2}
-                                        onClick={() => settle(r.contractId)}
-                                        isLoading={settling === r.contractId}
-                                        isDisabled={settling !== null || marking !== null}
-                                    >
-                                        Settle
-                                    </Button>
+                                    {legacySettleEnabled ? (
+                                        <Button
+                                            size="sm"
+                                            colorScheme="green"
+                                            mr={2}
+                                            onClick={() => settle(r.contractId)}
+                                            isLoading={settling === r.contractId}
+                                            isDisabled={settling !== null || marking !== null}
+                                        >
+                                            Settle
+                                        </Button>
+                                    ) : (
+                                        <Text as="span" fontSize="xs" color="gray.500" mr={2}>
+                                            {r.reason === "withdraw" ? "Backend (KYC-gated)" : "Backend (in-app)"}
+                                        </Text>
+                                    )}
                                     <Button
                                         size="sm"
                                         variant="outline"

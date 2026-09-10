@@ -24,10 +24,12 @@ type LiquidityContext = {
   setWithdrawPct: any;
   handleWithdrawLiquidity: any;
   account: any;
+  /** State B (§16): the connected wallet is linked but not primary — money CTAs are off with this label. */
+  tradeLockReason?: string | null;
 };
 
 export default function MarketLiquidityPanel({ context, walletSlot }: { context: LiquidityContext; walletSlot?: ReactNode }) {
-  const { setMainTab, tabHeaderBtn, pillBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity, liquidityValue, setLiquidityValue, liquidityQuote, busy, handleProvideLiquidity, lpPosition, market, phase, withdrawPct, setWithdrawPct, handleWithdrawLiquidity, account } = context;
+  const { setMainTab, tabHeaderBtn, pillBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity, liquidityValue, setLiquidityValue, liquidityQuote, busy, handleProvideLiquidity, lpPosition, market, phase, withdrawPct, setWithdrawPct, handleWithdrawLiquidity, account, tradeLockReason = null } = context;
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,.8fr)] lg:items-start">
       <div className="min-w-0 space-y-6">
@@ -97,10 +99,10 @@ export default function MarketLiquidityPanel({ context, walletSlot }: { context:
                   )}
                   <button
                     onClick={handleProvideLiquidity}
-                    disabled={busy !== null || liquidityValue <= 0 || !account}
+                    disabled={busy !== null || liquidityValue <= 0 || !account || tradeLockReason !== null}
                     className="trade-cta"
                   >
-                    {busy === "liquidity" ? "Submitting…" : "Add Liquidity"}
+                    {tradeLockReason ?? (busy === "liquidity" ? "Submitting…" : "Add Liquidity")}
                   </button>
                 </div>
               )
@@ -149,7 +151,8 @@ export default function MarketLiquidityPanel({ context, walletSlot }: { context:
                     </div>
                     <button
                       onClick={handleWithdrawLiquidity}
-                      disabled={busy !== null || withdrawPct <= 0 || (market.isDynamic && phase !== "resolved" && phase !== "voided")}
+                      disabled={busy !== null || withdrawPct <= 0 || tradeLockReason !== null || (market.isDynamic && phase !== "resolved" && phase !== "voided")}
+                      title={tradeLockReason ?? undefined}
                       className="w-full rounded-lg border border-oracle-blue/30 bg-oracle-blue/10 py-3 text-sm font-bold text-oracle-blue hover:bg-oracle-blue/20 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {busy === "withdraw"

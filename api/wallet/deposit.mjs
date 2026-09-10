@@ -27,11 +27,20 @@
  * command-dedup rejects all but one, while a legitimate later deposit sees new state
  * and gets a new id. A best-effort lock (cross-instance when a shared store is
  * configured) cheapens the common race to a fast 409.
+ *
+ * RETIRED once an accounts backend is configured (BACKEND_URL set — see
+ * truthoracle-backend/docs/ARCHITECTURE.md §18). The backend's
+ * POST /in-app-wallet/deposits/reconcile owns this derivation, extended to all of an
+ * account's linked wallets with per-wallet attribution. The two cannot coexist: this
+ * endpoint's "total received from the party" has no way to know which transfers the
+ * backend already attributed, so running both would double-credit. With BACKEND_URL
+ * set every request answers 410 moved_to_backend; the frontend then requires a
+ * signed-in account to deposit. Without it (no backend deployed) nothing below changes.
  */
 
 import { currentOperator } from "../_lib/adminSession.mjs";
 import { fetchUserWallet, templateId } from "../_lib/ledgerClient.mjs";
-import { adminPartyId, appName } from "../_lib/upstream.mjs";
+import { absoluteTarget, adminPartyId, appName } from "../_lib/upstream.mjs";
 import { externalSubmit, totalReceivedFrom, transferHistory } from "../_lib/walletClient.mjs";
 import { acquireLock, hitRateLimit, requestClientKey } from "../_lib/sharedStore.mjs";
 import { createHash } from "node:crypto";
@@ -51,6 +60,10 @@ const MAX_PER_PARTY = 30;
 // Crash ceiling for the cross-instance lock. Generous next to the endpoint's few
 // upstream calls; correctness never depends on it (ledger command-dedup does that).
 const LOCK_TTL_MS = 60_000;
+
+// ARCHITECTURE.md §18: a configured accounts backend owns deposits. Only an absolute
+// URL counts — the same rule api/proxy/backend.mjs applies before forwarding anything.
+const retiredByBackend = () => Boolean(absoluteTarget(process.env.BACKEND_URL));
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -75,6 +88,13 @@ function json(res, status, payload) {
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return json(res, 405, { error: "method not allowed" });
+
+  if (retiredByBackend()) {
+    return json(res, 410, {
+      error: "moved_to_backend",
+      message: "Deposits are reconciled by the TruthOracle backend; sign in and use the in-app wallet.",
+    });
+  }
 
   const admin = adminPartyId();
   if (!admin) return json(res, 503, { error: "VITE_ENTERPRISE_WALLET_PARTY_ID is not configured" });

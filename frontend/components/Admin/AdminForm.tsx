@@ -198,7 +198,7 @@ function AdminForm({}: Props) {
                 toast({
                     title: "Market counter not found",
                     description:
-                        "The participant rejected the counter contract. Re-run `npm run create:contract` and try again.",
+                        "The participant rejected the counter contract. Re-run `npm run create:contract` in the truthoracle-contracts repository and try again.",
                     status: "warning",
                     duration: 8000,
                     isClosable: true,

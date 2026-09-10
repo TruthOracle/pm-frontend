@@ -74,7 +74,7 @@ CANTON_LEDGER_PROXY_TARGET_URL=https://<host>/api/ledger
 ```
 
 Do not include `/v2/packages`, `/v2/state/ledger-end`, or any other endpoint
-suffix. The app and scripts append those paths.
+suffix. The app appends those paths.
 
 `ENTERPRISE_WALLET_PROXY_TARGET_URL` has no fallback default. Unset, every wallet
 call returns `500 "Missing proxy target for enterprise wallet"` — market creation,
@@ -107,19 +107,10 @@ token against the wrong Keycloak, which the participant rejects with an opaque
 
 ## Local `.env`
 
-The aliases above are a Vercel convenience. Locally, keep the `VITE_` spellings —
-`VITE_CANTON_PARTICIPANT_URL`, `VITE_ENTERPRISE_WALLET_URL`, `VITE_KEYCLOAK_URL`,
-`VITE_KEYCLOAK_REALM` — because the `tsx scripts/*.ts` commands read those:
-
-- `ledger:query`, `contracts:active`, `rights:grant`, `dars:upload` read the
-  `VITE_` names only. Setting just an alias locally fails them with
-  `Missing required config`.
-- `create:contract`, `create:account` read `VITE_ENTERPRISE_WALLET_URL`
-  (defaulting to `http://localhost:8080`) and take the Keycloak issuer from
-  `WALLET_KEYCLOAK_URL` → `KEYCLOAK_URL` → `VITE_KEYCLOAK_URL`, so a separate
-  `WALLET_KEYCLOAK_*` client works here when the wallet trusts a different
-  issuer than the Ledger API.
-
-Every script takes the acting party from `VITE_ENTERPRISE_WALLET_PARTY_ID` on
-every network, `--network zkpc` included. `contracts:active` and `rights:grant`
-additionally accept `--party <partyId>` to override it.
+The aliases above are a Vercel convenience; locally either spelling works for the
+proxies and the dev server. The operator scripts (`ledger:query`, `contracts:active`,
+`rights:grant`, `dars:upload`, `create:contract`, `create:account`) moved to the
+`truthoracle-contracts` repository, which has its own `.env` / `.env.example`
+documenting exactly which names each script reads. The treasury wallet deployment is
+the `enterprise-wallet` repository; accounts, KYC and session-gated money flows are
+the `truthoracle-backend` repository.

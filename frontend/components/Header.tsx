@@ -1,9 +1,11 @@
 import { useCantonWallet } from "@/wallets";
 import { WalletSelector } from "./WalletSelector";
+import { AccountMenu } from "@/components/auth/AccountMenu";
+import { useAuth } from "@/auth/AuthContext";
 import { Link, useLocation } from "react-router-dom";
 import { useToast } from "@chakra-ui/react";
 import { cn } from "@/lib/utils";
-import { Coins, Info, Menu, Search, TrendingUp, X } from "lucide-react";
+import { Coins, Info, LogIn, Menu, Search, TrendingUp, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 const NAV_ITEMS = [
@@ -13,6 +15,38 @@ const NAV_ITEMS = [
   { to: "/rewards", label: "Rewards" },
 ];
 const TOPICS = ["Trending", "Politics", "Sports", "Crypto", "Business", "Culture", "Science", "World"];
+
+/**
+ * Account control next to the wallet selector. Nothing at all when the deployment has
+ * no accounts backend (the app then looks exactly as it did before accounts) or while
+ * the first probe is still in flight (no "Sign in" flash for someone who is signed in).
+ * A backend that exists but does not answer shows a disabled "Sign in" — the button is
+ * the affordance that says accounts exist here; AuthProvider retries on its own.
+ * The dialog itself is rendered once by AuthProvider, so this can appear twice
+ * (desktop bar + mobile menu) without doubling it.
+ */
+function AuthControl() {
+  const { status, openLogin } = useAuth();
+  if (status === "authenticated") return <AccountMenu />;
+  if (status === "unreachable") {
+    return (
+      <button
+        type="button"
+        disabled
+        title="The accounts service is not reachable right now; retrying automatically."
+        className="header-utility inline-flex cursor-not-allowed opacity-60"
+      >
+        <LogIn className="h-3.5 w-3.5" /> Sign in
+      </button>
+    );
+  }
+  if (status !== "anonymous") return null;
+  return (
+    <button type="button" onClick={() => openLogin("login")} className="header-utility inline-flex">
+      <LogIn className="h-3.5 w-3.5" /> Sign in
+    </button>
+  );
+}
 
 export function Header() {
   const { account } = useCantonWallet();
@@ -83,6 +117,7 @@ export function Header() {
             )}
             <button onClick={handleGetCantonCoin} className="header-utility hidden xl:inline-flex"><Coins className="h-3.5 w-3.5" /> Get CC</button>
             <div className="header-wallet"><WalletSelector /></div>
+            <div className="hidden sm:flex"><AuthControl /></div>
             <button className="mobile-menu-button lg:hidden" onClick={() => setMobileMenuOpen((open) => !open)} aria-label="Toggle menu">{mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}</button>
           </div>
         </div>
@@ -90,7 +125,7 @@ export function Header() {
           {TOPICS.map((topic, index) => <Link key={topic} to={`/marketplace?category=${topic.toLowerCase()}`} className={cn("topic-link", index === 0 && "topic-link-active")}>{index === 0 && <TrendingUp className="h-3.5 w-3.5" />}{topic}</Link>)}
           <Link to="/faq" className="topic-link !font-semibold !text-emerald-700 hover:!text-emerald-800"><Info className="h-3.5 w-3.5" /> How it works</Link>
         </div></div>
-        {mobileMenuOpen && <div className="mobile-menu lg:hidden"><div className="grid gap-1">{NAV_ITEMS.map(({ to, label }) => <Link key={to} to={to} className={cn("mobile-nav-link", isActive(to) && "text-primary")}>{label}</Link>)}</div><div className="mt-3 border-t border-slate-100 pt-3"><WalletSelector /></div></div>}
+        {mobileMenuOpen && <div className="mobile-menu lg:hidden"><div className="grid gap-1">{NAV_ITEMS.map(({ to, label }) => <Link key={to} to={to} className={cn("mobile-nav-link", isActive(to) && "text-primary")}>{label}</Link>)}</div><div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3"><WalletSelector /><AuthControl /></div></div>}
       </div>
     </header>
   );

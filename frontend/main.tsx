@@ -8,7 +8,6 @@ import { ChakraProvider } from '@chakra-ui/react'
 
 import App from "@/App.tsx";
 import { Toaster } from "@/components/ui/toaster.tsx";
-import { WalletProvider } from "@/components/WalletProvider.tsx";
 import { Capacitor } from "@capacitor/core";
 
 if (Capacitor.isNativePlatform()) {
@@ -17,15 +16,15 @@ if (Capacitor.isNativePlatform()) {
 
 const queryClient = new QueryClient();
 
+// The wallet provider lives in App.tsx (one SDK instance); only app-agnostic providers
+// belong here.
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-      <ChakraProvider>
-            <WalletProvider>
-              <QueryClientProvider client={queryClient}>
-                <App />
-                <Toaster />
-              </QueryClientProvider>
-            </WalletProvider>
-        </ChakraProvider>
+    <ChakraProvider>
+      <QueryClientProvider client={queryClient}>
+        <App />
+        <Toaster />
+      </QueryClientProvider>
+    </ChakraProvider>
   </React.StrictMode>,
 );

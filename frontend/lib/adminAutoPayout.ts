@@ -29,6 +29,16 @@ export interface AutoPayoutResult {
   transferCommandId?: string;
 }
 
+function retiredMessage(text: string): string {
+  try {
+    const data = JSON.parse(text) as { message?: unknown };
+    if (typeof data.message === "string" && data.message) return data.message;
+  } catch {
+    // Not JSON — fall through to the generic sentence.
+  }
+  return "Payout settlement moved to the TruthOracle backend; this legacy path no longer settles it.";
+}
+
 /**
  * Settle one payout. Throws only when the server could not complete the attempt;
  * callers should leave the PendingPayout in place on failure so it can be retried
@@ -46,6 +56,11 @@ export async function runAdminAutoPayout(args: AutoPayoutArgs): Promise<AutoPayo
 
   const text = await res.text();
   if (!res.ok) {
+    // ARCHITECTURE.md §18: with an accounts backend configured this route answers
+    // 410 moved_to_backend for every caller and reason — the backend's payout
+    // processor settles those rows itself. Its message says where settlement now
+    // happens — show that sentence, not the raw envelope.
+    if (res.status === 410) throw new Error(retiredMessage(text));
     throw new Error(`Payout settlement failed (${res.status}): ${text.slice(0, 900)}`);
   }
 

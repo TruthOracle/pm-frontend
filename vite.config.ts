@@ -6,6 +6,7 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import ledgerHandler from "./api/proxy/ledger.mjs";
 import walletHandler from "./api/proxy/wallet.mjs";
 import c8backendHandler from "./api/proxy/c8backend.mjs";
+import backendHandler from "./api/proxy/backend.mjs";
 import newsHandler from "./api/news.mjs";
 import adminNonceHandler from "./api/admin/nonce.mjs";
 import adminSessionHandler from "./api/admin/session.mjs";
@@ -58,6 +59,10 @@ export default defineConfig(({ mode }) => {
       server.middlewares.use(proxyMiddleware("/__proxy/ledger", ledgerHandler));
       server.middlewares.use(proxyMiddleware("/__proxy/wallet", walletHandler));
       server.middlewares.use(proxyMiddleware("/__proxy/c8b", c8backendHandler));
+      // Accounts backend relay (ARCHITECTURE.md §4.1): no token injection — the
+      // browser's own to_session cookie is forwarded, and nothing else. The same
+      // handler serves prod, so its path/header/cookie rules are exercised in dev too.
+      server.middlewares.use(proxyMiddleware("/__backend", backendHandler));
       server.middlewares.use(proxyMiddleware("/api/news", newsHandler));
       // Vercel routes these by filename; `vite dev` needs them wired by hand.
       server.middlewares.use(routeMiddleware("/api/admin/nonce", adminNonceHandler));

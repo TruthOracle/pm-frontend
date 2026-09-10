@@ -168,12 +168,26 @@ export function verifySession(token, instanceToken) {
  *   ADMIN_OPERATORS="a99dd107…::1220880b…=b6f1…hex, 3b9317d2…::1220514795…=9ac4…hex"
  *
  * Pinning the key server-side is what makes the signature challenge mean anything.
- * If the browser supplied its own `publicKey` alongside the signature, an attacker
- * would simply generate a fresh keypair, sign our nonce with it, and claim any party
- * id they liked — the signature would verify perfectly against the key they chose.
- * Deriving the key from the party id instead is not an option either: the `::1220…`
- * suffix is a multihash of Canton's serialized key protobuf, not of the raw key bytes,
- * so it cannot be recomputed from a bare Ed25519 public key.
+ * If the browser supplied its own `publicKey` alongside the signature and nothing
+ * bound that key to the party, an attacker would simply generate a fresh keypair,
+ * sign our nonce with it, and claim any party id they liked.
+ *
+ * CORRECTION — an earlier version of this comment said the key could NOT be derived
+ * from the party id. It can: the `::1220…` suffix IS a fingerprint of the raw
+ * Ed25519 key,
+ *
+ *     hex(0x12 0x20 ‖ sha256(uint32be(12) ‖ rawKey))
+ *
+ * i.e. a sha2-256 multihash over the key prefixed with Canton's HashPurpose 12
+ * (PublicKeyFingerprint) — exactly TopologyWriteService.createFingerprintFromKey in
+ * @canton-network/wallet-sdk, verified against the real operator party. So a
+ * client-supplied key CAN be bound to its party by recomputing the fingerprint, and
+ * that is how truthoracle-backend does self-serve wallet sign-in (with the documented
+ * limitation that a rotated signing key no longer matches the namespace key). This
+ * admin flow keeps the pin regardless: ADMIN_OPERATORS is the operator allowlist,
+ * and pinning the key there is an additional check on top of the party binding —
+ * admin access is tied to exactly the key configured here, not to whatever key the
+ * party can currently prove.
  */
 export function allowedOperators() {
   const raw = process.env.ADMIN_OPERATORS || "";

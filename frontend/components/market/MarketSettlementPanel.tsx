@@ -7,6 +7,8 @@ type SettlementContext = {
   redeemable: any;
   busy: any;
   account: any;
+  /** State B (§16): the connected wallet is linked but not primary — money CTAs are off with this label. */
+  tradeLockReason?: string | null;
   handleRedeem: any;
   lpPosition: any;
   setWithdrawPct: any;
@@ -18,7 +20,7 @@ type SettlementContext = {
 };
 
 export default function MarketSettlementPanel({ context }: { context: SettlementContext }) {
-  const { phase, market, redeemable, busy, account, handleRedeem, lpPosition, setWithdrawPct, handleWithdrawLiquidity, userPosition, holdings, probYes, probNo } = context;
+  const { phase, market, redeemable, busy, account, tradeLockReason = null, handleRedeem, lpPosition, setWithdrawPct, handleWithdrawLiquidity, userPosition, holdings, probYes, probNo } = context;
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
           <div className="flex-1 space-y-4">
@@ -52,7 +54,8 @@ export default function MarketSettlementPanel({ context }: { context: Settlement
                   </div>
                   <button
                     onClick={handleRedeem}
-                    disabled={busy !== null || redeemable <= 0 || !account}
+                    disabled={busy !== null || redeemable <= 0 || !account || tradeLockReason !== null}
+                    title={tradeLockReason ?? undefined}
                     className="trade-cta"
                   >
                     {busy === "redeem"
@@ -80,7 +83,8 @@ export default function MarketSettlementPanel({ context }: { context: Settlement
                     setWithdrawPct(100);
                     handleWithdrawLiquidity();
                   }}
-                  disabled={busy !== null || !account}
+                  disabled={busy !== null || !account || tradeLockReason !== null}
+                  title={tradeLockReason ?? undefined}
                   className="w-full rounded-lg border border-oracle-blue/30 bg-oracle-blue/10 py-3 text-sm font-bold text-oracle-blue hover:bg-oracle-blue/20 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {busy === "withdraw" ? "Withdrawing…" : "Withdraw all liquidity"}

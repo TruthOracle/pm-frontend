@@ -50,7 +50,7 @@ function getDisclosure(
 function adminParty(): string {
   if (!ENTERPRISE_WALLET_PARTY_ID) {
     throw new Error(
-      "VITE_ENTERPRISE_WALLET_PARTY_ID is not set. Set it in .env to the Enterprise Wallet party id (see wallet-deploy/README.md)."
+      "VITE_ENTERPRISE_WALLET_PARTY_ID is not set. Set it in .env to the Enterprise Wallet party id (see the enterprise-wallet repository README)."
     );
   }
   return ENTERPRISE_WALLET_PARTY_ID;

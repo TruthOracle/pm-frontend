@@ -62,7 +62,7 @@ export async function submitViaEnterpriseWallet(
   const partyId = params.actAs?.[0] ?? enterpriseWalletPartyId();
   if (!partyId) {
     throw new Error(
-      "VITE_ENTERPRISE_WALLET_PARTY_ID is not set. Set it in .env (see wallet-deploy/README.md)."
+      "VITE_ENTERPRISE_WALLET_PARTY_ID is not set. Set it in .env (see the enterprise-wallet repository README)."
     );
   }
 

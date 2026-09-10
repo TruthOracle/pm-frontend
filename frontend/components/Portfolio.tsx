@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useCantonWallet } from "@/wallets";
 import Activity from "./Portfolio/Activity";
 import PendingPayouts from "./Portfolio/PendingPayouts";
@@ -6,6 +7,9 @@ import { Briefcase } from "lucide-react";
 
 function Portfolio() {
   useCantonWallet();
+  // A refund or settlement in the payouts table changes the in-app balance shown
+  // above it; bumping the key makes the (self-fetching) card re-read the ledger.
+  const [walletVersion, setWalletVersion] = useState(0);
 
   return (
     <div className="page-container py-10 sm:py-14">
@@ -20,8 +24,8 @@ function Portfolio() {
         </p>
       </div>
       <div className="space-y-6">
-        <InAppWalletCard />
-        <PendingPayouts />
+        <InAppWalletCard reloadKey={walletVersion} />
+        <PendingPayouts onChanged={() => setWalletVersion((v) => v + 1)} />
         <Activity />
       </div>
     </div>

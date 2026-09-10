@@ -57,32 +57,28 @@ The current native shell uses local preview data for the first SwiftUI surfaces.
 The next integration step is to connect `URLSession` services for live news,
 Canton markets, and the native wallet flow without introducing a WebView.
 
+## Repositories
+
+This repository is the web frontend plus its Vercel proxy functions. The rest of the
+platform lives in sibling repositories:
+
+| Repository | Contents |
+|---|---|
+| `truthoracle-canton` (this repo) | React/Vite frontend, `api/` Vercel functions (ledger/wallet proxies, admin auth, deposit + payout settlement) |
+| `truthoracle-backend` | NestJS backend — accounts (Google / Telegram / Canton wallet sign-in), linked wallets, KYC, session-gated deposits and payouts, admin API |
+| `truthoracle-contracts` | Daml package (`daml/`), DAR build/upload and operator scripts (`create:contract`, `ledger:query`, `contracts:active`, `rights:grant`, `create:account`) |
+| `enterprise-wallet` | Self-hosted Cantor8 Enterprise Wallet that signs as the admin / treasury party |
+
 ## DAML Contracts (Canton Network)
 
-TruthOracle uses DAML contracts on the Canton Network in the `daml/` directory:
-
-- **daml/daml/Truthoracle.daml** – Prediction markets (create, buy shares, record result)
-- **daml/daml/Incentives.daml** – Rewards (early participant, creator, winning prediction)
+TruthOracle uses DAML contracts on the Canton Network. They now live in the
+`truthoracle-contracts` repository (`daml/daml/Truthoracle.daml` — markets, pm-AMM
+trades, `UserWallet`, `PendingPayout`; `daml/daml/Incentives.daml` — rewards). Build with
+`npm run dars:build`, test with `npm run dars:test` and deploy with `npm run dars:upload`
+from that repository, then point `VITE_TRUTHORACLE_PACKAGE_ID` / `VITE_TRUTHORACLE_PACKAGE_NAME`
+here at the uploaded package.
 
 Balances and payments use **Canton Coin** (native on Canton Network testnet and mainnet).
-
-### Build DAML
-```bash
-cd daml
-dpm build
-```
-
-### Test DAML
-```bash
-cd daml
-dpm test
-```
-
-### Deploy to Canton Network
-
-Use your Canton participant node and deployment process to upload the Dar and configure parties. See [Canton Network documentation](https://docs.digitalasset.com/canton/) for participant setup and Dar deployment.
-
-Full DAML setup and module details: [daml/README.md](daml/README.md).
 
 ## Our deployments
 
@@ -96,10 +92,11 @@ Front-end: [https://truth-oracle.vercel.app/](https://truth-oracle.vercel.app/)
 - **Architecture Overview:**  
   - [Market Resolution System](https://github.com/Truth-Oracle/truthoracle/tree/main/market-resolution)
   - [ZKP Circuits](https://github.com/Truth-Oracle/truthoracle/tree/main/noir/circuits)
-  - [DAML Smart Contracts](https://github.com/Truth-Oracle/truthoracle/tree/main/daml)
+  - DAML Smart Contracts: the `truthoracle-contracts` repository
 
 - **API Reference:**  
   - [CantonService API](./blockend/cantonService.js) – Functions for interacting with Canton and DAML.
+  - Backend API: `docs/ARCHITECTURE.md` in the `truthoracle-backend` repository.
 
 - **User Interface:**  
   - [UI Components](https://github.com/Truth-Oracle/truthoracle/tree/main/frontend/components)
@@ -112,4 +109,4 @@ Front-end: [https://truth-oracle.vercel.app/](https://truth-oracle.vercel.app/)
 
 ---
 
-**For more details, see the inline documentation and [daml/README.md](daml/README.md).**
+**For more details, see the inline documentation and `daml/README.md` in the `truthoracle-contracts` repository.**

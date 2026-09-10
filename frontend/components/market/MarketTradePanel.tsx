@@ -32,6 +32,8 @@ type TradeContext = {
   sellQuote: any;
   swapQuote: any;
   account: any;
+  /** State B (§16): the connected wallet is linked but not primary — money CTAs are off with this label. */
+  tradeLockReason?: string | null;
   busy: any;
   handleTradeClick: any;
   mintMode: any;
@@ -44,7 +46,7 @@ type TradeContext = {
 };
 
 export default function MarketTradePanel({ context, walletSlot }: { context: TradeContext; walletSlot?: ReactNode }) {
-  const { setMainTab, subTabBtn, tabHeaderBtn, pillBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs, tradeSide, setTradeSide, selectedSide, setSelectedSide, probYes, probNo, collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage, buyQuote, sellQuote, swapQuote, account, busy, handleTradeClick, mintMode, setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge, userPosition, holdings } = context;
+  const { setMainTab, subTabBtn, tabHeaderBtn, pillBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs, tradeSide, setTradeSide, selectedSide, setSelectedSide, probYes, probNo, collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage, buyQuote, sellQuote, swapQuote, account, tradeLockReason = null, busy, handleTradeClick, mintMode, setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge, userPosition, holdings } = context;
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,.8fr)] lg:items-start">
       <div className="min-w-0 space-y-6">
@@ -200,7 +202,9 @@ export default function MarketTradePanel({ context, walletSlot }: { context: Tra
                 )}
 
                 {(() => {
-                  const reason = !account
+                  const reason = tradeLockReason
+                    ? tradeLockReason
+                    : !account
                     ? "Connect wallet"
                     : busy !== null
                       ? "Submitting…"
@@ -275,7 +279,8 @@ export default function MarketTradePanel({ context, walletSlot }: { context: Tra
                 )}
                 <button
                   onClick={() => handleSplitMerge(mintMode === "mint" ? "split" : "merge")}
-                  disabled={busy !== null || splitMergeAmount <= 0 || !account || (mintMode === "merge" && !userPosition)}
+                  disabled={busy !== null || splitMergeAmount <= 0 || !account || tradeLockReason !== null || (mintMode === "merge" && !userPosition)}
+                  title={tradeLockReason ?? undefined}
                   className="trade-cta"
                 >
                   {busy === "splitmerge" ? "Submitting…" : mintMode === "mint" ? "Mint Complete Set" : "Merge Complete Set"}

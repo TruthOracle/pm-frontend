@@ -1,6 +1,6 @@
 /**
  * pm-AMM pricing (Paradigm dynamic pm-AMM, Gaussian score dynamics).
- * Mirrors daml/daml/PmAmmMath.daml so frontend quotes match on-ledger
+ * Mirrors truthoracle-contracts/daml/daml/PmAmmMath.daml so frontend quotes match on-ledger
  * execution (slippage bounds absorb the residual drift).
  *
  *   Invariant:  (y - x)·Φ(z) + L·φ(z) - y = 0,  z = (y - x)/L

@@ -10,6 +10,8 @@ import MarketDetails from "./components/MarketDetails";
 import Rewards from "./components/Rewards";
 import News from "./components/News";
 import { WalletProvider } from "./components/WalletProvider";
+import { AuthProvider } from "@/auth/AuthContext";
+import AccountPage from "@/components/Account/AccountPage";
 import Footer from "@/components/Footer";
 import { useEffect, useLayoutEffect, useState } from "react";
 import { fetchAllPredictionMarkets } from "@/utils/activeContracts";
@@ -123,17 +125,26 @@ function AppContent() {
         <Route path="/admin" element={<AdminRoute />} />
         <Route path="/rewards" element={<Rewards />} />
         <Route path="/news" element={<News />} />
+        <Route path="/account" element={<AccountPage />} />
       </Routes>
     </main>
     <Footer />
   </div>;
 }
 
+/**
+ * Provider order matters: AuthProvider reads the connected wallet (link prompt,
+ * wallet sign-in) and the router (OIDC return on the current URL), so it sits inside
+ * both. This is the ONLY WalletProvider — main.tsx used to wrap App in a second one,
+ * and each instance spun up its own Cantor8 SDK connection.
+ */
 function App() {
   return (
     <WalletProvider>
       <Router>
-        <AppContent />
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
       </Router>
     </WalletProvider>
   );

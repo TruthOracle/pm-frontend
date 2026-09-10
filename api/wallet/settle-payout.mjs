@@ -26,11 +26,26 @@
  *      through but whose MarkPaid didn't resumes at MarkPaid instead of paying again.
  *   3. A best-effort lock (cross-instance when a shared store is configured) turns
  *      most races into an immediate 409 before any upstream work happens.
+ *
+ * RETIRED once an accounts backend is configured (BACKEND_URL set — see
+ * truthoracle-backend/docs/ARCHITECTURE.md §18): 410 moved_to_backend for EVERY caller
+ * and every reason, decided before any upstream call. Two reasons, both about money:
+ *   - withdrawals: the backend's PayoutService is the KYC gate; settling one here
+ *     would be a way around identity verification;
+ *   - bond / model-prize: the backend's payout-settlement.processor settles those
+ *     into the in-app wallet within PAYOUT_SCAN_MS (30 s). Its command ids
+ *     ("settle-<cidHash>") and lock store differ from ours ("payout-<cidHash>"), so
+ *     nothing dedups across the two: this path would read the still-active contract,
+ *     the backend would consume it with SettleToWallet, and our transfer() would then
+ *     send real CC on top of the in-app credit — the user paid twice.
+ * An operator carve-out is deliberately NOT kept: the admin queue moves to
+ * POST /admin/payouts/:cid/settle when it is ported. Without BACKEND_URL nothing
+ * below changes.
  */
 
 import { currentOperator } from "../_lib/adminSession.mjs";
 import { fetchPendingPayout, templateId } from "../_lib/ledgerClient.mjs";
-import { adminPartyId, appName } from "../_lib/upstream.mjs";
+import { absoluteTarget, adminPartyId, appName } from "../_lib/upstream.mjs";
 import { externalSubmit, transfer, transferAlreadySubmitted } from "../_lib/walletClient.mjs";
 import { acquireLock, hitRateLimit, requestClientKey } from "../_lib/sharedStore.mjs";
 import { createHash } from "node:crypto";
@@ -45,6 +60,10 @@ const MAX_PER_CID = 30;
 
 // Crash ceiling for the cross-instance lock; correctness lives in command-dedup.
 const LOCK_TTL_MS = 60_000;
+
+// ARCHITECTURE.md §18: a configured accounts backend owns withdrawals (and every
+// anonymous settlement). Only an absolute URL counts — same rule as api/proxy/backend.mjs.
+const retiredByBackend = () => Boolean(absoluteTarget(process.env.BACKEND_URL));
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -75,6 +94,17 @@ function commandIdsFor(pendingPayoutCid) {
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return json(res, 405, { error: "method not allowed" });
+
+  // With a backend configured this path is closed to everyone (see the header): the
+  // backend settles every payout itself and a second settler would double-pay.
+  // Checked before the rate limit and lock so a retired caller costs nothing upstream.
+  if (retiredByBackend()) {
+    return json(res, 410, {
+      error: "moved_to_backend",
+      message:
+        "Payout settlement moved to the TruthOracle backend: withdrawals settle there after identity verification and bond / model-prize payouts are credited to the in-app balance automatically.",
+    });
+  }
 
   const admin = adminPartyId();
   if (!admin) return json(res, 503, { error: "VITE_ENTERPRISE_WALLET_PARTY_ID is not configured" });
@@ -112,6 +142,7 @@ export default async function handler(req, res) {
     if (!payout) {
       return json(res, 200, { settled: false, reason: "payout not found or already settled" });
     }
+
     if (!payout.user) return json(res, 409, { error: "payout has no payee" });
     if (!(payout.amountCC > 0)) return json(res, 409, { error: "payout amount is not positive" });
 

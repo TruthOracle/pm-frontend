@@ -17,7 +17,11 @@
       "destination": "/api/proxy/c8backend?path=:path*"
     },
     {
-      "source": "/((?!api/|__proxy/|_vercel/|.*\\.).*)",
+      "source": "/__backend/:path*",
+      "destination": "/api/proxy/backend?path=:path*"
+    },
+    {
+      "source": "/((?!api/|__proxy/|__backend/|_vercel/|.*\\.).*)",
       "destination": "/"
     }
   ]
