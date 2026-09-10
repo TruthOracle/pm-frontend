@@ -300,7 +300,7 @@ attests this is deployed.
   backend. Deliberate — there is no user session there, and the endpoint derives its
   own amount, so the worst an anonymous caller can do is trigger someone's legitimate
   credit; the shared-store rate limits cap the upstream work such a caller can burn.
-  [#78](https://github.com/TruthOracle/prediction-market/issues/78) specced the
+  [#78](https://github.com/TruthOracle/pm-frontend/issues/78) specced the
   user-session flow that closes this. It is closed by the accounts backend: set
   `BACKEND_URL` and the endpoint retires (section above) — deposits then require a
   signed-in account and go through the backend's session-authenticated reconcile.

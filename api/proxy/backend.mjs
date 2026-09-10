@@ -46,7 +46,18 @@ const FORWARDED_COOKIES = new Set(["to_session", "to_oidc"]);
 
 // Copied verbatim from the caller. Deliberately absent: authorization, cookie and
 // x-forwarded-* (all rebuilt below), x-admin-instance, host, content-length.
-const FORWARDED_REQUEST_HEADERS = ["content-type", "accept", "origin", "referer", "x-requested-with"];
+// The x-payload-digest pair is the KYC vendor's webhook signature (Sumsub-style names,
+// verified by the backend over the raw body): the documented webhook URL is on the app host,
+// so without these the relay would strip the signature and every webhook would be 401.
+const FORWARDED_REQUEST_HEADERS = [
+  "content-type",
+  "accept",
+  "origin",
+  "referer",
+  "x-requested-with",
+  "x-payload-digest",
+  "x-payload-digest-alg",
+];
 
 // fetch already decoded the body and Node reframes it, so the upstream's framing
 // headers would be wrong. set-cookie is relayed separately (getSetCookie, Domain= off).

@@ -189,6 +189,23 @@ describe("backend proxy: forwarded request headers", () => {
   };
   const req = (headers, socket = { remoteAddress: "127.0.0.1" }) => ({ headers, socket });
 
+  it("forwards the KYC vendor's webhook signature headers (x-payload-digest pair) untouched", () => {
+    delete process.env.BACKEND_PROXY_SECRET;
+    delete process.env.VERCEL;
+    const headers = buildForwardHeaders(
+      req({
+        host: "app.example.com",
+        "content-type": "application/json",
+        "x-payload-digest": "abc123",
+        "x-payload-digest-alg": "HMAC_SHA256_HEX",
+        "x-other-signature": "must not pass",
+      }),
+    );
+    assert.equal(headers["x-payload-digest"], "abc123");
+    assert.equal(headers["x-payload-digest-alg"], "HMAC_SHA256_HEX");
+    assert.equal(headers["x-other-signature"], undefined);
+  });
+
   it("is an allow-list built from scratch, never a copy of req.headers (on Vercel)", () => {
     process.env.BACKEND_PROXY_SECRET = "s3cret";
     process.env.VERCEL = "1";
