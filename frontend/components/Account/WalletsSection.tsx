@@ -33,11 +33,9 @@ const PRIMARY_NOTE = "The primary wallet owns your in-app balance and cannot cha
 const SECOND_WALLET_NOTE =
   "A second wallet is deposit-only: it can fund your in-app balance but cannot trade from it or withdraw it — those need the primary wallet's key. If this is the wallet you trade from, make it the primary instead.";
 
+// Wallets are not sign-in methods (§8.1), so the only refusal is the primary rule (§8.2).
 const UNLINK_ERRORS: ErrorSentences = {
   primary_wallet_in_use: "This is your primary wallet: it owns your in-app balance and can't be unlinked.",
-  last_identity: "This wallet is your only sign-in method. Add another sign-in method before unlinking it.",
-  identity_locked_by_kyc:
-    "This wallet is attached to your identity verification and can't be unlinked while the approval stands.",
 };
 
 const PRIMARY_ERRORS: ErrorSentences = {
@@ -50,8 +48,23 @@ type PendingAction = { kind: "unlink" | "primary"; wallet: Wallet };
 export default function WalletsSection({ me }: { me: MeResponse }) {
   const auth = useAuth();
   const toast = useToast();
-  const { account } = useCantonWallet();
+  const { account, connect } = useCantonWallet();
   const [pending, setPending] = useState<PendingAction | null>(null);
+  const [connecting, setConnecting] = useState(false);
+
+  // Connecting and linking are two clicks on purpose: each opens a wallet popup, and the
+  // browser allows one popup per click (wallets/cantor8/popupGesture.ts). Once connected
+  // the wallet shows as unlinked and the "Link connected wallet" button takes over.
+  const connectWallet = async () => {
+    setConnecting(true);
+    try {
+      await connect();
+    } catch (e) {
+      toast({ title: "Could not connect the wallet", description: authErrorMessage(e), status: "error", duration: 8000, isClosable: true });
+    } finally {
+      setConnecting(false);
+    }
+  };
   const [busy, setBusy] = useState(false);
   const [linking, setLinking] = useState(false);
   const [crediting, setCrediting] = useState(false);
@@ -157,7 +170,17 @@ export default function WalletsSection({ me }: { me: MeResponse }) {
               <RefreshCw className={`h-3.5 w-3.5 ${crediting ? "animate-spin" : ""}`} /> {crediting ? "Checking…" : "Credit pending deposits"}
             </button>
           )}
-          {auth.connectedWalletState === "unlinked" && connected ? (
+          {connected === null ? (
+            <button
+              type="button"
+              onClick={() => void connectWallet()}
+              disabled={connecting}
+              title={`Open the ${WALLET_DISPLAY_NAME} wallet to choose the party to link`}
+              className={primaryBtn}
+            >
+              <WalletIcon className="h-4 w-4" /> {connecting ? "Waiting for your wallet…" : `Connect ${WALLET_DISPLAY_NAME} wallet`}
+            </button>
+          ) : auth.connectedWalletState === "unlinked" ? (
             <button
               type="button"
               onClick={() => void linkConnected()}
@@ -274,7 +297,7 @@ export default function WalletsSection({ me }: { me: MeResponse }) {
         }
         description={
           pending?.kind === "unlink"
-            ? `${shortPartyId(pending.wallet.partyId)} will no longer sign you in or deposit into this account. It stays reserved for this account and can be re-linked later.`
+            ? `${shortPartyId(pending.wallet.partyId)} will no longer deposit into this account. It stays reserved for this account and can be re-linked later; how you sign in does not change.`
             : `${PRIMARY_NOTE} Make sure this is the wallet you will use to withdraw.`
         }
         confirmLabel={pending?.kind === "unlink" ? "Unlink" : "Make primary"}

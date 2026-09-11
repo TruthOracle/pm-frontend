@@ -47,10 +47,10 @@ const BASE: ErrorSentences = {
     "This wallet is already linked to another account. Sign in with that account, or connect a different wallet.",
   wallet_key_mismatch:
     "This wallet's signing key is not its namespace key, so the signature cannot be tied to the party. " +
-    "Parties with a rotated key, or allocated under a participant namespace, cannot sign in yet.",
+    "Parties with a rotated key, or allocated under a participant namespace, cannot be linked yet.",
   signature_invalid:
     "The signature could not be verified for this wallet. Approve the message with the connected party and try again.",
-  challenge_rejected: "The sign-in challenge expired or was already used. Try again.",
+  challenge_rejected: "The wallet challenge expired or was already used. Try again.",
   challenge_purpose_mismatch: "The wallet challenge did not match this action. Try again.",
   no_primary_wallet: "Your account has no primary wallet yet. Link a wallet on the Account page first.",
   primary_wallet_in_use:

@@ -1,6 +1,11 @@
 /**
- * Sign-in / link / re-attach dialog: Google, Telegram (widget + OIDC) and the Canton
- * wallet.
+ * Sign-in / link / re-attach dialog: Google and Telegram (widget + OIDC).
+ *
+ * The account is the person, so the two identity providers are the only ways in
+ * (ARCHITECTURE.md §6–§7; the Kalshi / Polymarket-US model). The Cantor8 wallet is not a
+ * sign-in method: it is a signing key and funding rail that a signed-in person connects
+ * and links afterwards, one popup per click (wallets/cantor8/popupGesture.ts). Operators
+ * sign into /admin with their wallet through AdminGate, which is a separate flow.
  *
  * Rendered once by AuthProvider. The body is mounted only while open so every open
  * gets a fresh Google nonce and a fresh Telegram widget (both are single-shot on the
@@ -22,27 +27,18 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useLocation } from "react-router-dom";
 import { useToast } from "@chakra-ui/react";
-import { Send, Wallet, X } from "lucide-react";
+import { Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useCantonWallet, type CantonAccount } from "@/wallets";
 import { useAuth } from "@/auth/AuthContext";
 import { renderGoogleButton, requestGoogleNonce, signInWithGoogle } from "@/auth/google";
 import { mountTelegramWidget, signInWithTelegramWidget, startTelegramOidc } from "@/auth/telegram";
-import { authErrorMessage, proveWallet, signInWithWallet } from "@/auth/wallet";
+import { authErrorMessage } from "@/auth/wallet";
 import { reattachIdentity } from "@/auth/reattach";
-import { isBackendError } from "@/lib/backend";
-import { shortPartyId } from "@/lib/party";
 import { providerLabel } from "@/components/Account/accountUi";
 import type { Identity, LoginMode, LoginResult } from "@/auth/types";
-import {
-  GOOGLE_CLIENT_ID,
-  TELEGRAM_BOT_USERNAME,
-  TELEGRAM_OIDC_ENABLED,
-  WALLET_DISPLAY_NAME,
-  WALLET_TYPE,
-} from "@/config";
+import { GOOGLE_CLIENT_ID, TELEGRAM_BOT_USERNAME, TELEGRAM_OIDC_ENABLED, WALLET_DISPLAY_NAME } from "@/config";
 
-type Busy = null | "google" | "telegram" | "wallet";
+type Busy = null | "google" | "telegram";
 
 export interface LoginDialogProps {
   open: boolean;
@@ -70,8 +66,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), iframe, [tabindex]:not([tabindex="-1"])';
 
 function LoginDialogBody({ mode, reattach, onClose }: { mode: LoginMode; reattach: Identity | null; onClose: () => void }) {
-  const { refresh, linkConnectedWallet, signOut } = useAuth();
-  const { account, connect, signMessage } = useCantonWallet();
+  const { refresh, signOut } = useAuth();
   const location = useLocation();
   const toast = useToast();
   const linking = mode === "link";
@@ -104,11 +99,6 @@ function LoginDialogBody({ mode, reattach, onClose }: { mode: LoginMode; reattac
     busyRef.current = busy;
   }, [busy]);
 
-  const accountRef = useRef<CantonAccount | null>(account);
-  useEffect(() => {
-    accountRef.current = account;
-  }, [account]);
-
   const provider = reattaching ? reattach.provider : null;
   const showGoogle = Boolean(GOOGLE_CLIENT_ID) && (provider === null || provider === "google");
   const showTelegramWidget = Boolean(TELEGRAM_BOT_USERNAME) && (provider === null || provider === "telegram");
@@ -116,8 +106,7 @@ function LoginDialogBody({ mode, reattach, onClose }: { mode: LoginMode; reattac
   // credential in-page, so only the widget can re-prove a Telegram identity.
   const showTelegramOidc = TELEGRAM_OIDC_ENABLED && provider === null;
   const showTelegram = showTelegramWidget || showTelegramOidc;
-  const showWallet = WALLET_TYPE === "cantor8" && (provider === null || provider === "canton_wallet");
-  const nothingConfigured = !showGoogle && !showTelegram && !showWallet;
+  const nothingConfigured = !showGoogle && !showTelegram;
 
   // Focus + Escape + a Tab trap (aria-modal alone does not keep keyboard focus inside),
   // and give focus back to whatever opened us.
@@ -155,6 +144,7 @@ function LoginDialogBody({ mode, reattach, onClose }: { mode: LoginMode; reattac
    * instead of closing, or null when the outcome matches the request.
    */
   const checkOutcome = (result: LoginResult): string | null => {
+    const method = providerLabel(result.identity.provider);
     if (linking) {
       if (result.mode === "link") return null;
       setDriftedLogin(result);
@@ -165,17 +155,18 @@ function LoginDialogBody({ mode, reattach, onClose }: { mode: LoginMode; reattac
     if (result.mode === "link") {
       toast({
         title: "Already signed in",
-        description: `You were still signed in, so ${providerLabel(result.identity.provider)} was linked to that account instead of starting a new session.`,
+        description: `You were still signed in, so ${method} was linked to that account instead of starting a new session.`,
         status: "info",
         duration: 8000,
         isClosable: true,
       });
     } else if (result.created) {
+      // Naming the method is what stops the accidental second account next time.
       toast({
-        title: "New account created",
-        description: "No account was attached to this sign-in method yet, so one was created. Expected an existing account? Sign out and sign in with the method you used before.",
+        title: `Account created with ${method}`,
+        description: `Sign in with ${method} next time to get back to this account. Expected an existing account? Sign out and sign in with the method you used before — every method opens its own account until you link them under Account → Sign-in methods.`,
         status: "info",
-        duration: 10000,
+        duration: 12000,
         isClosable: true,
       });
     }
@@ -284,67 +275,6 @@ function LoginDialogBody({ mode, reattach, onClose }: { mode: LoginMode; reattac
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showTelegramWidget, reattaching, reattach?.id]);
 
-  /**
-   * The wallet provider stores the account with setState after connect() resolves, so
-   * the value is one render behind the promise; wait for the ref to catch up rather
-   * than reading the closure (AdminGate's "Connect a wallet first" on first click).
-   */
-  const ensureAccount = async (): Promise<CantonAccount> => {
-    if (accountRef.current?.partyId) return accountRef.current;
-    await connect();
-    for (let i = 0; i < 60; i += 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, 50));
-      if (accountRef.current?.partyId) return accountRef.current;
-    }
-    throw new Error("The wallet connected but did not report a party. Try again.");
-  };
-
-  const handleWallet = async () => {
-    setBusy("wallet");
-    setError(null);
-    try {
-      const current = await ensureAccount();
-      if (reattaching) {
-        if (current.partyId !== reattach.subject) {
-          throw new Error(
-            `The connected wallet is ${shortPartyId(current.partyId)}, but the unlinked sign-in method is ${shortPartyId(reattach.subject)}. Connect that wallet to re-attach it.`,
-          );
-        }
-        const proof = await proveWallet({ partyId: current.partyId, publicKey: current.publicKey, signMessage }, "link-wallet");
-        await reattachIdentity(reattach, proof);
-        await reattached();
-        return;
-      }
-      if (linking) {
-        await linkConnectedWallet();
-        onClose();
-        return;
-      }
-      let result: LoginResult;
-      try {
-        result = await signInWithWallet({
-          partyId: current.partyId,
-          publicKey: current.publicKey,
-          signMessage,
-          purpose: "sign-in",
-        });
-      } catch (err) {
-        // Purpose isolation (§7.3): a `sign-in` challenge is refused when the server
-        // sees a session cookie. If we thought we were anonymous, the local state is
-        // the stale party — re-probe before showing the error so the header catches up.
-        if (isBackendError(err, "challenge_rejected") || isBackendError(err, "challenge_purpose_mismatch")) {
-          await refreshRef.current();
-        }
-        throw err;
-      }
-      await finish(result);
-    } catch (err) {
-      setError(authErrorMessage(err));
-    } finally {
-      setBusy(null);
-    }
-  };
-
   const handleTelegramOidc = () => {
     setError(null);
     setBusy("telegram");
@@ -354,7 +284,7 @@ function LoginDialogBody({ mode, reattach, onClose }: { mode: LoginMode; reattac
   };
 
   const handleDriftSignOut = async () => {
-    setBusy("wallet");
+    setBusy("google");
     try {
       await signOut();
       onClose();
@@ -374,16 +304,7 @@ function LoginDialogBody({ mode, reattach, onClose }: { mode: LoginMode; reattac
     ? `Prove ${providerLabel(reattach.provider)} once more and it signs you into this account again. It stayed reserved for this account while unlinked.`
     : linking
       ? "Add another way to sign in to this account. Whatever you link here can sign you in on any device."
-      : "One account keeps your wallets, in-app balance and identity verification together across devices.";
-  const walletLabel = busy === "wallet"
-    ? "Waiting for your wallet…"
-    : reattaching
-      ? `Re-attach ${WALLET_DISPLAY_NAME} wallet`
-      : linking
-        ? `Link ${WALLET_DISPLAY_NAME} wallet`
-        : account?.partyId
-          ? "Sign in with Canton wallet"
-          : "Connect wallet and sign in";
+      : `One account keeps your ${WALLET_DISPLAY_NAME} wallets, in-app balance and identity verification together across devices. You connect your wallet after signing in, when you deposit or trade.`;
 
   return (
     <div
@@ -418,7 +339,7 @@ function LoginDialogBody({ mode, reattach, onClose }: { mode: LoginMode; reattac
           <p className="mt-1 text-sm text-slate-600">{subtitle}</p>
           {reattaching && (
             <p className="mt-1 break-all font-mono text-[11px] text-slate-400">
-              {reattach.provider === "canton_wallet" ? shortPartyId(reattach.subject) : reattach.email ?? reattach.profile.username ?? reattach.subject}
+              {reattach.email ?? reattach.profile.username ?? reattach.subject}
             </p>
           )}
         </div>
@@ -427,7 +348,7 @@ function LoginDialogBody({ mode, reattach, onClose }: { mode: LoginMode; reattac
           <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
             {reattaching
               ? `${providerLabel(reattach.provider)} sign-in is not configured on this deployment, so this method cannot be re-attached here.`
-              : "No sign-in methods are configured on this deployment."}
+              : "No sign-in method is configured on this deployment, so nobody can sign in, deposit or trade. Set VITE_GOOGLE_CLIENT_ID and/or VITE_TELEGRAM_BOT_USERNAME (and the matching backend credentials)."}
           </p>
         ) : null}
 
@@ -466,24 +387,11 @@ function LoginDialogBody({ mode, reattach, onClose }: { mode: LoginMode; reattac
           </Section>
         ) : null}
 
-        {showWallet ? (
-          <Section label={reattaching ? `Re-attach ${WALLET_DISPLAY_NAME} wallet` : linking ? `Link ${WALLET_DISPLAY_NAME} wallet` : "Canton wallet"}>
-            <Button
-              type="button"
-              onClick={handleWallet}
-              disabled={busy !== null}
-              className="w-full rounded-lg bg-slate-900 text-white hover:bg-slate-800"
-            >
-              <Wallet className="h-4 w-4" />
-              {walletLabel}
-            </Button>
-            <p className="mt-2 text-xs text-slate-500">
-              Your wallet will ask you to approve a short message — a signature, not a transaction.
-            </p>
-            {account?.partyId ? (
-              <p className="mt-1 break-all font-mono text-[11px] text-slate-400">Connected as {account.partyId}</p>
-            ) : null}
-          </Section>
+        {!reattaching && !nothingConfigured ? (
+          <p className="text-xs text-slate-500">
+            By continuing you create or open your TruthOracle account. Your {WALLET_DISPLAY_NAME} wallet is connected
+            and linked afterwards — two separate wallet prompts, when you first deposit or trade.
+          </p>
         ) : null}
 
         {error ? (

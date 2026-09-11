@@ -206,6 +206,14 @@ function PendingPayouts({ onChanged }: { onChanged?: () => void | Promise<void> 
       }
       // The UserWallet contract id changes on every trade, so read it right before
       // signing; a stale cid would make the refund fail on-ledger.
+      // These two reads are DELIBERATELY awaited in front of the wallet popup, unlike
+      // deposit and withdraw (lib/inAppWallet.ts): the cancel command cannot be built
+      // without the fresh contract id, and signing a cancel the backend has already
+      // started settling would double-pay. On WebKit an awaited read can cost the click's
+      // user activation, so the popup may be blocked here — that surfaces as the
+      // "browser blocked the wallet popup" sentence and the person retries
+      // (frontend/wallets/cantor8/popupGesture.ts). Correctness first; never reorder these
+      // reads after the signature.
       const w = await fetchUserWallet(r.user);
       if (!w) throw new Error("No in-app wallet found for this party, so there is nothing to refund into.");
       const before = w.balanceCC;

@@ -7,6 +7,8 @@ type SettlementContext = {
   redeemable: any;
   busy: any;
   account: any;
+  /** Anonymous visitor: the position boxes point at sign-in, not at connecting a wallet. */
+  signInFirst?: boolean;
   /** State B (§16): the connected wallet is linked but not primary — money CTAs are off with this label. */
   tradeLockReason?: string | null;
   handleRedeem: any;
@@ -20,7 +22,7 @@ type SettlementContext = {
 };
 
 export default function MarketSettlementPanel({ context }: { context: SettlementContext }) {
-  const { phase, market, redeemable, busy, account, tradeLockReason = null, handleRedeem, lpPosition, setWithdrawPct, handleWithdrawLiquidity, userPosition, holdings, probYes, probNo } = context;
+  const { phase, market, redeemable, busy, account, signInFirst = false, tradeLockReason = null, handleRedeem, lpPosition, setWithdrawPct, handleWithdrawLiquidity, userPosition, holdings, probYes, probNo } = context;
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
           <div className="flex-1 space-y-4">
@@ -93,8 +95,8 @@ export default function MarketSettlementPanel({ context }: { context: Settlement
             )}
           </div>
           <div className="w-full space-y-4 lg:w-80 lg:shrink-0">
-            <YourPositionBox account={account} userPosition={userPosition} holdings={holdings} probYes={probYes} probNo={probNo} />
-            {lpPosition && lpPosition.lpTokens > 0 && <YourLpBox account={account} lpPosition={lpPosition} market={market} />}
+            <YourPositionBox account={account} signInFirst={signInFirst} userPosition={userPosition} holdings={holdings} probYes={probYes} probNo={probNo} />
+            {lpPosition && lpPosition.lpTokens > 0 && <YourLpBox account={account} signInFirst={signInFirst} lpPosition={lpPosition} market={market} />}
           </div>
 
     </div>

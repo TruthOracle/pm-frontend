@@ -24,17 +24,19 @@ type LiquidityContext = {
   setWithdrawPct: any;
   handleWithdrawLiquidity: any;
   account: any;
+  /** Anonymous visitor: the position boxes point at sign-in, not at connecting a wallet. */
+  signInFirst?: boolean;
   /** State B (§16): the connected wallet is linked but not primary — money CTAs are off with this label. */
   tradeLockReason?: string | null;
 };
 
 export default function MarketLiquidityPanel({ context, walletSlot }: { context: LiquidityContext; walletSlot?: ReactNode }) {
-  const { setMainTab, tabHeaderBtn, pillBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity, liquidityValue, setLiquidityValue, liquidityQuote, busy, handleProvideLiquidity, lpPosition, market, phase, withdrawPct, setWithdrawPct, handleWithdrawLiquidity, account, tradeLockReason = null } = context;
+  const { setMainTab, tabHeaderBtn, pillBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity, liquidityValue, setLiquidityValue, liquidityQuote, busy, handleProvideLiquidity, lpPosition, market, phase, withdrawPct, setWithdrawPct, handleWithdrawLiquidity, account, signInFirst = false, tradeLockReason = null } = context;
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,.8fr)] lg:items-start">
       <div className="min-w-0 space-y-6">
         <MarketHistoryChart probability={market.currentPrice} createdAt={market.createdAt} />
-        <YourLpBox account={account} lpPosition={lpPosition} market={market} />
+        <YourLpBox account={account} signInFirst={signInFirst} lpPosition={lpPosition} market={market} />
       </div>
           <div className="space-y-4">
             {walletSlot}

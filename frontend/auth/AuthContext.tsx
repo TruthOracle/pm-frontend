@@ -5,11 +5,16 @@
  * external wallet and the current URL. Children render immediately: the status is
  * `loading` only until the first probe settles, and every anonymous flow keeps working
  * while that happens. When the proxy has no BACKEND_URL the status is `unavailable`
- * and no account affordance is shown anywhere — the app is then exactly the pre-accounts
- * app: read + wallet-signed trading, no deposits or withdrawals. When a backend exists
- * but does not answer the status is `unreachable`: sign-in is offered but disabled and
- * the money rails pause, because "no backend" and "backend down" must never be confused
- * (one hides the controls for good, the other recovers on its own).
+ * and no account affordance is shown anywhere — with no account there is no deposit,
+ * and with no deposit no in-app balance to trade from (ARCHITECTURE §18), so such a
+ * deployment is read-only apart from reading a connected wallet's positions. When a
+ * backend exists but does not answer the status is `unreachable`: sign-in is offered but
+ * disabled and the money rails pause, because "no backend" and "backend down" must never
+ * be confused (one hides the controls for good, the other recovers on its own).
+ *
+ * The account comes first, the wallet second: Google or Telegram opens the account, the
+ * Cantor8 wallet is connected and linked afterwards (each popup on its own click,
+ * wallets/cantor8/popupGesture.ts). Connecting a wallet never signs anyone in.
  *
  * Nothing security-relevant is decided here. The server owns the session; this module
  * only reports what it said and drives the login / link handshakes.
@@ -30,8 +35,16 @@ import { backendFetch, isBackendError, onUnauthenticated, probeBackend } from "@
 import { isTransientBackendError } from "@/lib/backendErrors";
 import { useCantonWallet } from "@/wallets";
 import { LoginDialog } from "@/components/auth/LoginDialog";
-import { LinkWalletPrompt } from "@/components/auth/LinkWalletPrompt";
-import { authCodeMessage, linkWallet } from "./wallet";
+import {
+  CHALLENGE_REUSE_MS,
+  type HeldChallenge,
+  authCodeMessage,
+  challengeIsFresh,
+  linkWallet,
+  linkWalletWithChallenge,
+  requestLinkChallenge,
+  requireWalletPublicKey,
+} from "./wallet";
 import type {
   AuthContextValue,
   AuthStatus,
@@ -134,7 +147,7 @@ function oidcReturnMessage(code: string | null): string {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { account, signMessage } = useCantonWallet();
+  const { account, signMessage, disconnect } = useCantonWallet();
   const location = useLocation();
   const navigate = useNavigate();
   const toast = useToast();
@@ -147,7 +160,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loginOpen, setLoginOpen] = useState(false);
   const [loginMode, setLoginMode] = useState<LoginMode>("login");
   const [reattachTarget, setReattachTarget] = useState<Identity | null>(null);
-  const [promptParty, setPromptParty] = useState<string | null>(null);
 
   // Async handlers (link, sign-in) must see the wallet the person has NOW, not the one
   // captured when the handler was created — connect() resolves before React commits
@@ -273,8 +285,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await refresh();
       throw err;
     }
+    // The wallet belongs to the person who just left: on a shared browser its party
+    // would otherwise greet the next account as "not linked" (409 wallet_already_linked
+    // on link). Best effort — the session is already gone either way.
+    if (accountRef.current) {
+      try {
+        await disconnect();
+      } catch {
+        // Nothing to do: the SDK clears its stored session on its own next start.
+      }
+    }
     await refresh();
-  }, [refresh]);
+  }, [refresh, disconnect]);
 
   const status: AuthStatus = settled ? snapshot.status : "loading";
   const available = status !== "unavailable";
@@ -310,28 +332,82 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
   const closeLogin = useCallback(() => setLoginOpen(false), []);
 
+  // ── Wallet-link challenge, fetched BEFORE the click ─────────────────────────────
+  // The browser grants one popup per click and the wallet popup must be the first thing
+  // the click awaits (wallets/cantor8/popupGesture.ts), so the link challenge is fetched
+  // ahead of time whenever a connected wallet is unlinked, replaced on a fixed local
+  // cadence (CHALLENGE_REUSE_MS, well inside the server's 5-minute TTL and immune to a
+  // wrong browser clock), and consumed by linkConnectedWallet. A ref, not state: nothing
+  // renders from it. `linkAttempt` re-arms the effect after a FAILED attempt consumed the
+  // held challenge; a successful link needs none, because the wallet stops being unlinked.
+  const linkChallengeRef = useRef<HeldChallenge & { partyId: string } | null>(null);
+  const [linkAttempt, setLinkAttempt] = useState(0);
+  const linkChallengeWanted =
+    status === "authenticated" && me !== null && address !== null && connectedWalletState === "unlinked";
+  useEffect(() => {
+    if (!linkChallengeWanted || !address) {
+      linkChallengeRef.current = null;
+      return;
+    }
+    let cancelled = false;
+    let timer: number | undefined;
+    const arm = async () => {
+      const cached = linkChallengeRef.current;
+      if (!(cached && cached.partyId === address && challengeIsFresh(cached))) {
+        try {
+          const challenge = await requestLinkChallenge(address);
+          if (cancelled) return;
+          linkChallengeRef.current = { partyId: address, challenge, receivedAt: Date.now() };
+        } catch {
+          // The click falls back to fetch-then-sign; try again quietly in a while.
+          if (!cancelled) timer = window.setTimeout(() => void arm(), UNREACHABLE_RETRY_MS);
+          return;
+        }
+      }
+      // Replace it on a fixed cadence. A constant delay (never arithmetic on a server
+      // timestamp) cannot degenerate into a zero-delay request loop.
+      timer = window.setTimeout(() => {
+        linkChallengeRef.current = null;
+        void arm();
+      }, CHALLENGE_REUSE_MS);
+    };
+    void arm();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [linkChallengeWanted, address, linkAttempt]);
+
+  /**
+   * Link the connected wallet to the signed-in account. With a prefetched challenge in
+   * hand the wallet popup is the first await, so a click handler that calls this first
+   * keeps its one popup. Without one (first paint, or it went stale) the challenge is
+   * fetched first — fine in Chrome and Firefox, whose 5 s activation window covers it.
+   */
   const linkConnectedWallet = useCallback(async () => {
     if (!available) throw new Error("Accounts are not available on this deployment.");
     const current = accountRef.current;
     if (!current?.address) throw new Error("Connect a wallet first.");
-    await linkWallet({ partyId: current.address, publicKey: current.publicKey, signMessage });
+    const publicKey = requireWalletPublicKey(current.publicKey);
+    // Single-use: take it out of the cache whether or not the signature succeeds.
+    const cached = linkChallengeRef.current;
+    linkChallengeRef.current = null;
+    const prefetched = cached && cached.partyId === current.address && challengeIsFresh(cached) ? cached.challenge : null;
+    try {
+      if (prefetched) {
+        await linkWalletWithChallenge(prefetched, { partyId: current.address, publicKey, signMessage });
+      } else {
+        await linkWallet({ partyId: current.address, publicKey, signMessage });
+      }
+    } catch (err) {
+      // The held challenge was spent (or never existed); arm a fresh one for the retry.
+      // Only on failure: after a successful link the wallet is no longer unlinked, so
+      // re-arming here would fetch one challenge that is immediately thrown away.
+      setLinkAttempt((n) => n + 1);
+      throw err;
+    }
     await refresh();
   }, [available, signMessage, refresh]);
-
-  // The single "link this wallet?" prompt. Keyed on the connected party: shown once per
-  // party per page load, only while signed in (with /me loaded — a degraded session
-  // cannot tell whether the wallet is linked) with that party unlinked, and never on
-  // top of the login dialog (whose own wallet option covers the same action).
-  const promptedRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (status !== "authenticated" || !me || !address || connectedWalletState !== "unlinked" || loginOpen) {
-      setPromptParty(null);
-      return;
-    }
-    if (promptedRef.current.has(address)) return;
-    promptedRef.current.add(address);
-    setPromptParty(address);
-  }, [status, me, address, connectedWalletState, loginOpen]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -376,13 +452,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {/* Exactly one dialog for the whole app, whichever header/page opened it. */}
       {available ? (
         <LoginDialog open={loginOpen} mode={loginMode} reattach={reattachTarget} onClose={closeLogin} />
-      ) : null}
-      {promptParty ? (
-        <LinkWalletPrompt
-          partyId={promptParty}
-          onLink={linkConnectedWallet}
-          onDismiss={() => setPromptParty(null)}
-        />
       ) : null}
     </AuthContext.Provider>
   );

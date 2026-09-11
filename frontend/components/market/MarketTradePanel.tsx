@@ -3,6 +3,7 @@ import { Droplets, TrendingUp } from "lucide-react";
 import MarketHistoryChart from "./MarketHistoryChart";
 import { YourPositionBox } from "./MarketPositionCards";
 import { fmtCC, fmtCountdown } from "./marketHelpers";
+import { WALLET_DISPLAY_NAME } from "@/config";
 
 const SLIPPAGE_OPTIONS = [0.005, 0.01, 0.02];
 
@@ -32,6 +33,13 @@ type TradeContext = {
   sellQuote: any;
   swapQuote: any;
   account: any;
+  /** Anonymous visitor: the position box points at sign-in, not at connecting a wallet. */
+  signInFirst?: boolean;
+  /**
+   * Set whenever trading is not possible yet. With `onClick` the CTA becomes that next
+   * step (sign in, connect the wallet); without one it is a disabled label saying why.
+   */
+  walletCta?: { label: string; onClick?: () => void } | null;
   /** State B (§16): the connected wallet is linked but not primary — money CTAs are off with this label. */
   tradeLockReason?: string | null;
   busy: any;
@@ -46,12 +54,12 @@ type TradeContext = {
 };
 
 export default function MarketTradePanel({ context, walletSlot }: { context: TradeContext; walletSlot?: ReactNode }) {
-  const { setMainTab, subTabBtn, tabHeaderBtn, pillBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs, tradeSide, setTradeSide, selectedSide, setSelectedSide, probYes, probNo, collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage, buyQuote, sellQuote, swapQuote, account, tradeLockReason = null, busy, handleTradeClick, mintMode, setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge, userPosition, holdings } = context;
+  const { setMainTab, subTabBtn, tabHeaderBtn, pillBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs, tradeSide, setTradeSide, selectedSide, setSelectedSide, probYes, probNo, collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage, buyQuote, sellQuote, swapQuote, account, signInFirst = false, tradeLockReason = null, walletCta = null, busy, handleTradeClick, mintMode, setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge, userPosition, holdings } = context;
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,.8fr)] lg:items-start">
       <div className="min-w-0 space-y-6">
         <MarketHistoryChart probability={probYes} createdAt={market.createdAt} />
-        <YourPositionBox account={account} userPosition={userPosition} holdings={holdings} probYes={probYes} probNo={probNo} />
+        <YourPositionBox account={account} signInFirst={signInFirst} userPosition={userPosition} holdings={holdings} probYes={probYes} probNo={probNo} />
       </div>
           <div className="space-y-4">
             {walletSlot}
@@ -202,10 +210,24 @@ export default function MarketTradePanel({ context, walletSlot }: { context: Tra
                 )}
 
                 {(() => {
+                  // Cannot trade yet: the CTA is the next step (enabled) or the reason
+                  // (disabled) — never a Buy button that would fail on submit.
+                  if (walletCta) {
+                    return (
+                      <button
+                        type="button"
+                        onClick={walletCta.onClick}
+                        disabled={!walletCta.onClick}
+                        className="trade-cta"
+                      >
+                        {walletCta.label}
+                      </button>
+                    );
+                  }
                   const reason = tradeLockReason
                     ? tradeLockReason
                     : !account
-                    ? "Connect wallet"
+                    ? `Connect ${WALLET_DISPLAY_NAME} wallet`
                     : busy !== null
                       ? "Submitting…"
                       : !selectedSide

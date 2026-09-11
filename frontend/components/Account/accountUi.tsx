@@ -7,6 +7,7 @@ import { useState, type ReactNode } from "react";
 import { Check, Copy, Wallet } from "lucide-react";
 import { FaGoogle, FaTelegramPlane } from "react-icons/fa";
 import type { IdentityProvider, Money } from "@/auth/types";
+import { WALLET_DISPLAY_NAME } from "@/config";
 import { fmtCC } from "@/components/market/marketHelpers";
 import { Button } from "@/components/ui/button";
 import {
@@ -188,7 +189,7 @@ export function providerLabel(provider: IdentityProvider): string {
     case "telegram":
       return "Telegram";
     case "canton_wallet":
-      return "Canton wallet";
+      return `${WALLET_DISPLAY_NAME} wallet`;
     default:
       return provider;
   }

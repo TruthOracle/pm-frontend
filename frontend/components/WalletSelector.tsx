@@ -1,7 +1,23 @@
-import { useCantonWallet } from "@/wallets";
-import { Copy, LogOut, X } from "lucide-react";
-import { useCallback, useState, useEffect } from "react";
-import { createPortal } from "react-dom";
+/**
+ * Header wallet chip. One control whose label is always the next click, driven by the
+ * same account view (useAccountWallet) as the trade CTA and the in-app wallet card so
+ * the three never disagree (ARCHITECTURE §16 states A/B/C):
+ *
+ *   nothing connected            → "Connect Cantor8 wallet"   (click = connect(), one popup)
+ *   connected, not on the account (C) → amber "abc…xyz · Not linked" ▾  menu: "Link wallet to account"
+ *                                                              (click = signMessage over the
+ *                                                              challenge AuthContext prefetched, one popup)
+ *   connected, primary (A)       → green "abc…xyz · Primary" ▾  balance, copy, disconnect
+ *   connected, deposit-only (B)  → amber "abc…xyz · Deposit only" ▾  + "Connect <primary> to trade"
+ *   connected, no account view   → plain "abc…xyz" ▾           (backend unavailable / unreachable)
+ *
+ * Every popup-opening handler here calls the SDK first (wallets/cantor8/popupGesture.ts).
+ * Rendered by Header's WalletControl only for a signed-in person or a deployment without
+ * an accounts backend — connecting a wallet is never a way to sign in.
+ */
+import { useCallback, useState } from "react";
+import { Copy, Link2, LogOut, Wallet } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -11,38 +27,21 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/use-toast";
+import { useCantonWallet } from "@/wallets";
+import { useAccountWallet, useAuth } from "@/auth/AuthContext";
+import { authErrorMessage } from "@/auth/wallet";
 import { getCantonCoinHoldings, type AmuletHoldings } from "@/view-functions/getAccountBalance";
-import { useQuery } from "@tanstack/react-query";
-import Pusher from "pusher-js";
-import { MODULE_ADDRESS, PUSHER_CLUSTER, PUSHER_KEY, WALLET_DISPLAY_NAME } from "@/config";
+import { WALLET_DISPLAY_NAME } from "@/config";
+import { shortPartyId } from "@/lib/party";
 
-function truncatePartyId(partyId: string, chars = 6): string {
-  if (!partyId || partyId.length <= chars * 2) return partyId;
-  return `${partyId.slice(0, chars)}...${partyId.slice(-chars)}`;
-}
-
-let pusher: Pusher | null = null;
-try {
-  if (PUSHER_KEY && PUSHER_CLUSTER) {
-    pusher = new Pusher(PUSHER_KEY, { cluster: PUSHER_CLUSTER, enabledTransports: ["ws", "wss"] });
-  }
-} catch {
-  // ignore
-}
-
-interface AccountEvent {
-  version: number;
-  event_type: string;
-  event_data: any;
-  timestamp: number;
-}
+type Badge = { text: string; tone: "ok" | "warn" } | null;
 
 export function WalletSelector() {
-  const { account, disconnect, connected, connect } = useCantonWallet();
+  const { account, connected, connect, disconnect } = useCantonWallet();
+  const auth = useAuth();
+  const { me, walletState, primaryPartyId } = useAccountWallet();
   const { toast } = useToast();
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("disconnected");
-  const [events, setEvents] = useState<any[]>([]);
+  const [busy, setBusy] = useState<"connect" | "link" | null>(null);
 
   const { data: holdings } = useQuery<AmuletHoldings>({
     queryKey: ["canton-coin-holdings", account?.address],
@@ -51,91 +50,113 @@ export function WalletSelector() {
     enabled: !!account?.address,
   });
 
-  useEffect(() => {
-    if (connected && account && pusher) {
-      if (pusher.connection.state === "connected") setWsStatus("connected");
-      else setWsStatus("connecting");
-      const channel = pusher.subscribe("account-events");
-      channel.bind("account-event", (data: any) => {
-        setEvents((prev) => [data, ...prev].slice(0, 10));
-      });
-      pusher.connection.bind("state_change", (states: any) => {
-        if (states.current === "connected") setWsStatus("connected");
-        else if (states.current === "disconnected" || states.current === "failed") setWsStatus("disconnected");
-        else if (states.current === "connecting") setWsStatus("connecting");
-      });
-      return () => {
-        channel.unbind_all();
-        channel.unsubscribe();
-        setWsStatus("disconnected");
-      };
-    }
-  }, [connected, account]);
-
-  const formatEvent = (event: AccountEvent) => {
-    const date = new Date(event.timestamp * 1000);
-    const timeString = date.toLocaleTimeString();
-    switch (event.event_type) {
-      case `${MODULE_ADDRESS}::truthoracle::MarketCreated`:
-        return `${timeString} - Created market: ${event.event_data.market_id}`;
-      case `${MODULE_ADDRESS}::truthoracle::buy_shares`:
-        return `${timeString} - Bought shares: ${event.event_data.amount} for market ${event.event_data.market_id}`;
-      case `${MODULE_ADDRESS}::truthoracle::withdraw_payout`:
-        return `${timeString} - Withdrew payout: ${event.event_data.amount} from market ${event.event_data.market_id}`;
-      default:
-        return `${timeString} - ${event.event_type}`;
-    }
-  };
-
-  const closeDialog = useCallback(() => setIsDialogOpen(false), []);
-
+  // connect() is the first statement: the browser grants one popup per click.
   const handleConnect = useCallback(async () => {
+    setBusy("connect");
     try {
       await connect();
-      closeDialog();
-    } catch (err: any) {
-      const msg = err?.details ?? err?.message ?? "Could not connect to Canton wallet";
-      const isNetworkError = /failed to fetch|network|NetworkError/i.test(String(msg));
-      toast({
-        variant: "destructive",
-        title: "Connection failed",
-        description: isNetworkError
-          ? "Could not reach Loop wallet. Check your connection and try again."
-          : msg,
-      });
+    } catch (err) {
+      toast({ variant: "destructive", title: "Could not connect the wallet", description: authErrorMessage(err) });
+    } finally {
+      setBusy(null);
     }
-  }, [connect, closeDialog, toast]);
+  }, [connect, toast]);
 
-  return connected ? (
+  // The link challenge was prefetched by AuthContext, so the popup is the first await.
+  const handleLink = useCallback(async () => {
+    setBusy("link");
+    try {
+      await auth.linkConnectedWallet();
+      toast({ title: "Wallet linked", description: `${shortPartyId(account?.address ?? "")} is now on your account.` });
+    } catch (err) {
+      toast({ variant: "destructive", title: "Could not link the wallet", description: authErrorMessage(err) });
+    } finally {
+      setBusy(null);
+    }
+  }, [auth, account?.address, toast]);
+
+  if (!connected || !account) {
+    return (
+      <Button
+        onClick={() => void handleConnect()}
+        disabled={busy !== null}
+        className="rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+      >
+        <Wallet className="mr-1.5 h-4 w-4" />
+        {busy === "connect" ? "Waiting for your wallet…" : `Connect ${WALLET_DISPLAY_NAME} wallet`}
+      </Button>
+    );
+  }
+
+  // Only a loaded account view can say how this party relates to the account.
+  const accountKnown = auth.status === "authenticated" && me !== null;
+  const badge: Badge = !accountKnown
+    ? null
+    : walletState === "primary"
+      ? { text: "Primary", tone: "ok" }
+      : walletState === "linked"
+        ? { text: "Deposit only", tone: "warn" }
+        : walletState === "unlinked"
+          ? { text: "Not linked", tone: "warn" }
+          : null;
+  const chipClass =
+    badge?.tone === "warn"
+      ? "border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
+      : badge?.tone === "ok"
+        ? "border border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+        : "bg-primary text-primary-foreground hover:bg-primary/90";
+
+  return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <Button className="rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
-          {account ? truncatePartyId(account.address) : "Unknown"}
+        <Button className={`rounded-lg px-4 text-sm font-semibold ${chipClass}`} title={badge ? `${WALLET_DISPLAY_NAME} wallet · ${badge.text}` : `${WALLET_DISPLAY_NAME} wallet`}>
+          {shortPartyId(account.address)}
+          {badge ? <span className="ml-2 text-xs font-bold uppercase tracking-wide opacity-80">· {badge.text}</span> : null}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80" style={{ zIndex: 1101 }}>
+        {walletState === "unlinked" && accountKnown ? (
+          <>
+            <div className="px-4 py-2">
+              <p className="text-sm font-semibold text-amber-900">This wallet is not on your account yet</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Link it to deposit from it. Your wallet will ask you to approve a short message — a signature, not a
+                transaction.
+              </p>
+            </div>
+            <DropdownMenuItem
+              onSelect={() => void handleLink()}
+              disabled={busy !== null}
+              className="mx-2 mb-1 flex cursor-pointer gap-2 rounded-md bg-primary text-primary-foreground focus:bg-primary/90 focus:text-primary-foreground"
+            >
+              <Link2 className="h-4 w-4" /> {busy === "link" ? "Waiting for your wallet…" : "Link wallet to account"}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
         <div className="px-4 py-2">
           <p className="text-sm font-medium">{WALLET_DISPLAY_NAME} wallet · Canton Coin</p>
-          <p className="text-2xl font-bold">
-            {(holdings?.balance ?? 0).toFixed(2)} CC
-          </p>
-          <p className="text-xs text-gray-400">
-            ≈ ${(holdings?.balanceUsd ?? 0).toFixed(2)} USD
-          </p>
+          <p className="text-2xl font-bold">{(holdings?.balance ?? 0).toFixed(2)} CC</p>
+          <p className="text-xs text-gray-400">≈ ${(holdings?.balanceUsd ?? 0).toFixed(2)} USD</p>
           {(holdings?.lockedBalance ?? 0) > 0 && (
-            <p className="text-xs text-amber-400 mt-1">
+            <p className="mt-1 text-xs text-amber-400">
               Locked: {(holdings?.lockedBalance ?? 0).toFixed(2)} CC (≈ ${(holdings?.lockedBalanceUsd ?? 0).toFixed(2)})
             </p>
           )}
-          <p className="text-xs text-gray-500 mt-2">
-            Balance in your connected {WALLET_DISPLAY_NAME} wallet. Trading spends your in-app
-            wallet balance — deposit from here to top it up.
+          <p className="mt-2 text-xs text-gray-500">
+            Balance in your connected {WALLET_DISPLAY_NAME} wallet. Trading spends your in-app wallet balance — deposit
+            from here to top it up.
           </p>
+          {walletState === "linked" && primaryPartyId ? (
+            <p className="mt-2 text-xs text-amber-700">
+              Deposit-only wallet: connect {shortPartyId(primaryPartyId)} to trade or withdraw.
+            </p>
+          ) : null}
         </div>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={() => {
-            navigator.clipboard.writeText(account?.address || "");
+            void navigator.clipboard.writeText(account.address);
             toast({ title: "Address copied", description: "Your party ID has been copied to clipboard" });
           }}
           className="flex gap-2"
@@ -143,55 +164,10 @@ export function WalletSelector() {
           <Copy className="h-4 w-4" /> Copy party ID
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <div className="px-4 py-2">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium">Recent Activity</p>
-            <span
-              className={`text-xs px-2 py-1 rounded ${
-                wsStatus === "connected" ? "bg-green-100 text-green-800" : wsStatus === "connecting" ? "bg-yellow-100 text-yellow-800" : "bg-red-100 text-red-800"
-              }`}
-            >
-              {wsStatus}
-            </span>
-          </div>
-          <div className="max-h-32 overflow-y-auto">
-            {events.length > 0 ? (
-              events.map((event, index) => (
-                <p key={index} className="text-sm text-muted-foreground py-1 border-b last:border-0">
-                  {formatEvent(event.data)}
-                </p>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">No recent activity</p>
-            )}
-          </div>
-        </div>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={disconnect} className="gap-2">
+        <DropdownMenuItem onSelect={() => void disconnect()} className="gap-2">
           <LogOut className="h-4 w-4" /> Disconnect
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-  ) : (
-    <>
-      <Button onClick={() => setIsDialogOpen(true)} className="rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
-        Connect Wallet
-      </Button>
-      {isDialogOpen && createPortal(
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/35 p-4 backdrop-blur-sm" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsDialogOpen(false); }}>
-          <div className="relative grid w-full max-w-lg gap-4 rounded-lg border bg-background p-6 shadow-lg" role="dialog" aria-modal="true" aria-labelledby="connect-wallet-title">
-            <button type="button" onClick={() => setIsDialogOpen(false)} className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100" aria-label="Close">
-              <X className="h-4 w-4" />
-            </button>
-            <h2 id="connect-wallet-title" className="text-center text-lg font-semibold leading-snug">Connect to Cantor8 Network</h2>
-            <div className="flex flex-col gap-4 pt-4">
-              <p className="text-center text-sm text-muted-foreground">Connect your Cantor8 wallet (e.g. Splice Wallet) to use TruthOracle.</p>
-              <Button size="lg" onClick={handleConnect} className="w-full">Connect Cantor8 Wallet</Button>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
-    </>
   );
 }

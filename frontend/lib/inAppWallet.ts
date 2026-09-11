@@ -284,7 +284,12 @@ export async function depositToInAppWallet(args: DepositArgs): Promise<DepositOu
   }
   if (!(args.amountCC > 0)) throw new Error("Deposit amount must be positive");
 
-  const before = await fetchUserWallet(args.userParty);
+  // The balance we compare against afterwards is READ WITHOUT AWAITING here: the wallet
+  // popup must open in the click's user activation, and a browser grants that only while
+  // nothing has been awaited in front of it (frontend/wallets/cantor8/popupGesture.ts —
+  // WebKit in particular does not carry the gesture through `response.json()`). Advisory
+  // only: a failed read just means the balance target falls back to zero.
+  const beforePromise = fetchUserWallet(args.userParty).catch(() => null);
 
   // 1. Real CC to the treasury — the user's only signature.
   await args.transferCC({
@@ -305,6 +310,7 @@ export async function depositToInAppWallet(args: DepositArgs): Promise<DepositOu
   }
 
   // 3. Wait until the participant shows the credited balance.
+  const before = await beforePromise;
   const target = (before?.balanceCC ?? 0) + args.amountCC;
   const reached = (w: UserWalletRecord | null) => (w?.balanceCC ?? 0) >= target - 1e-6;
   const wallet = await waitForUserWallet(args.userParty, reached);
@@ -382,16 +388,20 @@ export async function settlePayoutWithBackend(pendingPayoutCid: string): Promise
 export async function withdrawFromInAppWallet(args: WithdrawArgs): Promise<WithdrawResult> {
   if (!(args.amountCC > 0)) throw new Error("Withdrawal amount must be positive");
 
-  const beforeCids = new Set(
-    (await fetchPendingPayouts(args.userParty))
-      .filter((p) => p.user === args.userParty)
-      .map((p) => p.contractId),
-  );
+  // Which payouts existed BEFORE this withdrawal, so the new one can be told apart.
+  // Started but not awaited: the wallet popup must open inside the click's user
+  // activation, which an awaited read in front of it would spend
+  // (frontend/wallets/cantor8/popupGesture.ts). An empty set on failure is safe — step 2
+  // then falls back to matching on amount.
+  const beforePromise = fetchPendingPayouts(args.userParty)
+    .then((list) => new Set(list.filter((p) => p.user === args.userParty).map((p) => p.contractId)))
+    .catch(() => new Set<string>());
 
   // 1. User signs Withdraw (debit + PendingPayout, atomically).
   await args.signAndSubmitTransaction(
     buildWalletWithdrawParams(args.userParty, args.walletContractId, args.amountCC),
   );
+  const beforeCids = await beforePromise;
 
   // 2. Find the fresh "withdraw" payout on the participant.
   const deadline = Date.now() + 15_000;

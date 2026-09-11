@@ -1,4 +1,6 @@
 import { useCantonWallet } from "@/wallets";
+import { useAccountWallet } from "@/auth/AuthContext";
+import { WALLET_DISPLAY_NAME } from "@/config";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -63,6 +65,7 @@ function statusLabel(market: PredictionMarketRecord | null): string {
 
 function Activity() {
   const { account } = useCantonWallet();
+  const { signInRequired } = useAccountWallet();
   const [rows, setRows] = useState<ActivityRow[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -112,7 +115,11 @@ function Activity() {
         <div className="px-6 py-8 text-center text-sm text-slate-500">Loading positions...</div>
       ) : rows.length === 0 ? (
         <div className="px-6 py-8 text-center text-sm text-slate-500">
-          {account ? "No positions yet. Trade on a market to see it here." : "Connect a wallet to see your positions."}
+          {account
+            ? "No positions yet. Trade on a market to see it here."
+            : signInRequired
+              ? `Sign in, then connect your ${WALLET_DISPLAY_NAME} wallet to see your positions.`
+              : `Connect your ${WALLET_DISPLAY_NAME} wallet to see your positions.`}
         </div>
       ) : (
         <div className="overflow-x-auto">

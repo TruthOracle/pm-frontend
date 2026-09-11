@@ -6,10 +6,11 @@
  * and only this account (a session of the original `user_id`) may bring it back. The
  * route demands a FRESH proof for that provider — "body is the same as the matching
  * login route":
- *   google         { credential, nonce }            (GIS ID token echoing a server nonce)
- *   telegram       the Login Widget's user object   (server verifies `hash`)
- *   canton_wallet  { challengeId, partyId, publicKey, signature, kind }
- *                  from a `link-wallet` challenge issued to this session
+ *   google     { credential, nonce }            (GIS ID token echoing a server nonce)
+ *   telegram   the Login Widget's user object   (server verifies `hash`)
+ * Wallets are not sign-in methods (§7.3 is linking only): an unlinked wallet is re-linked
+ * from the Wallets section by connecting it and signing a fresh link challenge, which
+ * reactivates its row on the server.
  * The dialog therefore renders the ordinary provider button/widget for that provider
  * and hands the credential here instead of to the login route. The response's
  * identity id is checked against the one asked for so a server that re-attached
@@ -17,9 +18,8 @@
  */
 import { backendFetch } from "@/lib/backend";
 import type { Identity, TelegramWidgetUser } from "./types";
-import type { WalletProof } from "./wallet";
 
-export type ReattachProof = { credential: string; nonce: string } | TelegramWidgetUser | WalletProof;
+export type ReattachProof = { credential: string; nonce: string } | TelegramWidgetUser;
 
 export async function reattachIdentity(identity: Identity, proof: ReattachProof): Promise<Identity> {
   const res = await backendFetch<{ identity: Identity }>(

@@ -6,6 +6,7 @@ import { RepeatIcon } from "@chakra-ui/icons";
 import { useEffect, useState } from "react";
 import { getUserRewards, getRewardMarkets, getClaimedMarkets } from "../../blockend/cantonService";
 import { debugError, debugLog } from "@/lib/debugLog";
+import { WALLET_DISPLAY_NAME } from "@/config";
 
 const Rewards = () => {
   const { account, signAndSubmitTransaction } = useCantonWallet();
@@ -60,7 +61,7 @@ const Rewards = () => {
     if (!account) {
       toast({
         title: "Error",
-        description: "Please connect your Canton wallet first",
+        description: `Connect your ${WALLET_DISPLAY_NAME} wallet first`,
         status: "error",
         duration: 3000,
         isClosable: true,

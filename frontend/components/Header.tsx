@@ -5,6 +5,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { Link, useLocation } from "react-router-dom";
 import { useToast } from "@chakra-ui/react";
 import { cn } from "@/lib/utils";
+import { WALLET_DISPLAY_NAME } from "@/config";
 import { Coins, Info, LogIn, Menu, Search, TrendingUp, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -48,8 +49,23 @@ function AuthControl() {
   );
 }
 
+/**
+ * The wallet control follows the account: an anonymous visitor sees only "Sign in" —
+ * connecting a wallet is not signing in, and every money action needs an account first
+ * (ARCHITECTURE §18) — while a signed-in person, or a deployment without an accounts
+ * backend, gets the connect / party menu. Hidden while the first probe is in flight so
+ * it does not flash for someone about to be recognised, and kept during a backend outage
+ * so a depositor can still trade from the wallet.
+ */
+function WalletControl() {
+  const { status } = useAuth();
+  if (status === "anonymous" || status === "loading") return null;
+  return <WalletSelector />;
+}
+
 export function Header() {
   const { account } = useCantonWallet();
+  const { status: authStatus } = useAuth();
   const location = useLocation();
   const toast = useToast();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -84,11 +100,18 @@ export function Header() {
     return () => window.removeEventListener("mousedown", handleOutsideClick);
   }, [searchOpen, searchQuery]);
 
+  // CC lands in the external wallet, so the advice is whatever the person's next step is:
+  // sign in (no account yet), connect (account but no wallet), or use the faucet.
   const handleGetCantonCoin = (e: React.MouseEvent) => {
     e.preventDefault();
+    const needsSignIn = authStatus === "anonymous";
     toast({
-      title: account ? "Canton Coin" : "Connect wallet first",
-      description: account ? "Use the network faucet or transfer to get Canton Coin on testnet." : "Connect your wallet to receive Canton Coin.",
+      title: account ? "Canton Coin" : needsSignIn ? "Sign in first" : `Connect your ${WALLET_DISPLAY_NAME} wallet first`,
+      description: account
+        ? "Use the network faucet or transfer to get Canton Coin on testnet."
+        : needsSignIn
+          ? `Sign in, then connect your ${WALLET_DISPLAY_NAME} wallet — Canton Coin is sent to that wallet.`
+          : `Canton Coin is sent to your ${WALLET_DISPLAY_NAME} wallet, so connect it first.`,
       status: "info", duration: 4000, isClosable: true,
     });
   };
@@ -116,7 +139,7 @@ export function Header() {
               <button className="search-trigger hidden md:flex" onClick={() => setSearchOpen(true)} aria-label="Search markets"><Search className="h-4 w-4" /><span>Search markets</span><kbd>/</kbd></button>
             )}
             <button onClick={handleGetCantonCoin} className="header-utility hidden xl:inline-flex"><Coins className="h-3.5 w-3.5" /> Get CC</button>
-            <div className="header-wallet"><WalletSelector /></div>
+            <div className="header-wallet"><WalletControl /></div>
             <div className="hidden sm:flex"><AuthControl /></div>
             <button className="mobile-menu-button lg:hidden" onClick={() => setMobileMenuOpen((open) => !open)} aria-label="Toggle menu">{mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}</button>
           </div>
@@ -125,7 +148,7 @@ export function Header() {
           {TOPICS.map((topic, index) => <Link key={topic} to={`/marketplace?category=${topic.toLowerCase()}`} className={cn("topic-link", index === 0 && "topic-link-active")}>{index === 0 && <TrendingUp className="h-3.5 w-3.5" />}{topic}</Link>)}
           <Link to="/faq" className="topic-link !font-semibold !text-emerald-700 hover:!text-emerald-800"><Info className="h-3.5 w-3.5" /> How it works</Link>
         </div></div>
-        {mobileMenuOpen && <div className="mobile-menu lg:hidden"><div className="grid gap-1">{NAV_ITEMS.map(({ to, label }) => <Link key={to} to={to} className={cn("mobile-nav-link", isActive(to) && "text-primary")}>{label}</Link>)}</div><div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3"><WalletSelector /><AuthControl /></div></div>}
+        {mobileMenuOpen && <div className="mobile-menu lg:hidden"><div className="grid gap-1">{NAV_ITEMS.map(({ to, label }) => <Link key={to} to={to} className={cn("mobile-nav-link", isActive(to) && "text-primary")}>{label}</Link>)}</div><div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3"><WalletControl /><AuthControl /></div></div>}
       </div>
     </header>
   );

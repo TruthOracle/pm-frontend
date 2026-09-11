@@ -1,9 +1,10 @@
 /**
- * Sign-in methods: every identity attached to the account (§6). Unlinking is a
- * revocation, not a deletion — the row stays, so the same Google/Telegram/wallet can
- * never create a second account, and an unlinked row is re-attached from THIS list
- * with a fresh proof (POST /me/identities/:id/reattach, auth/reattach.ts), never by
- * signing in with it (that fails closed with identity_unlinked).
+ * Sign-in methods: every identity attached to the account (§6) — Google and Telegram.
+ * Wallets are not sign-in methods; they live in WalletsSection (§8). Unlinking is a
+ * revocation, not a deletion — the row stays, so the same Google/Telegram can never
+ * create a second account, and an unlinked row is re-attached from THIS list with a
+ * fresh proof (POST /me/identities/:id/reattach, auth/reattach.ts), never by signing in
+ * with it (that fails closed with identity_unlinked).
  */
 import { useState } from "react";
 import { useToast } from "@chakra-ui/react";
@@ -22,20 +23,15 @@ import {
   providerLabel,
   smallBtn,
 } from "./accountUi";
-import { shortPartyId } from "@/lib/party";
 
 const UNLINK_ERRORS: ErrorSentences = {
   last_identity: "You can't unlink your only sign-in method. Add another sign-in method first.",
   identity_locked_by_kyc:
     "This sign-in method is attached to your identity verification and can't be unlinked while the approval stands.",
-  // DELETE /me/identities/:id and DELETE /wallets/:id share IdentityService.unlink (§6.5),
-  // so the primary wallet's sign-in identity answers with the wallet rule.
-  primary_wallet_in_use: "This is your primary wallet: it owns your in-app balance and can't be unlinked.",
 };
 
-/** What identifies this identity to a human: email, @username, or the party. */
+/** What identifies this identity to a human: email, @username, name, or the raw subject. */
 function identityHandle(identity: Identity): string {
-  if (identity.provider === "canton_wallet") return shortPartyId(identity.subject);
   if (identity.email) return identity.email;
   if (identity.profile.username) return `@${identity.profile.username}`;
   return identity.profile.name ?? identity.subject;
@@ -50,7 +46,6 @@ export default function IdentitiesSection({ me }: { me: MeResponse }) {
 
   const active = me.identities.filter((i) => i.status === "active");
   const unlinked = me.identities.filter((i) => i.status !== "active");
-  const primaryParty = me.capabilities.primaryPartyId ?? me.user.partyId;
 
   const unlink = async () => {
     if (!target) return;
@@ -72,9 +67,6 @@ export default function IdentitiesSection({ me }: { me: MeResponse }) {
   const unlinkBlock = (identity: Identity): string | null => {
     if (identity.kycLocked) return UNLINK_ERRORS.identity_locked_by_kyc ?? null;
     if (active.length <= 1) return UNLINK_ERRORS.last_identity ?? null;
-    if (identity.provider === "canton_wallet" && primaryParty !== null && identity.subject === primaryParty) {
-      return UNLINK_ERRORS.primary_wallet_in_use ?? null;
-    }
     return null;
   };
 

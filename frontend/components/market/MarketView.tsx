@@ -3,7 +3,9 @@ import { Gavel } from "lucide-react";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useCantonWallet } from "@/wallets";
-import { useAccountWallet } from "@/auth/AuthContext";
+import { useAccountWallet, useAuth } from "@/auth/AuthContext";
+import { authErrorMessage } from "@/auth/wallet";
+import { WALLET_DISPLAY_NAME } from "@/config";
 import { useIsAdmin } from "@/lib/useIsAdmin";
 import { shortPartyId } from "@/lib/party";
 import {
@@ -118,8 +120,9 @@ const MarketView = () => {
   const [resolveSource, setResolveSource] = useState<string>("");
   const [attestations, setAttestations] = useState<OutcomeAttestationRecord[]>([]);
   const [busy, setBusy] = useState<string | null>(null); // which action is running
-  const { account, signAndSubmitTransaction } = useCantonWallet();
-  const { primaryPartyId: primaryParty, walletState } = useAccountWallet();
+  const { account, connect, signAndSubmitTransaction } = useCantonWallet();
+  const { primaryPartyId: primaryParty, walletState, signInRequired } = useAccountWallet();
+  const auth = useAuth();
   const adminPartyForCC = enterpriseWalletPartyId();
   const isAdmin = useIsAdmin();
   const toast = useToast();
@@ -131,6 +134,37 @@ const MarketView = () => {
   const linkedNonPrimary = primaryParty !== null && walletState === "linked";
   const walletParty = linkedNonPrimary ? primaryParty : (account?.address ?? null);
   const tradeLockReason = linkedNonPrimary ? `Connect ${shortPartyId(primaryParty)} to trade` : null;
+
+  // The trade CTA is the next step, not a dead button — and it never opens a wallet popup
+  // for someone whose account state is unknown. The account comes first (a UserWallet
+  // exists only for an account that deposited, ARCHITECTURE §18), then the wallet.
+  // Ordered by what has to be true first; `disabled` states say why rather than inviting
+  // a click that cannot work.
+  const walletCta: { label: string; onClick?: () => void } | null =
+    auth.status === "loading"
+      ? { label: "Checking your account…" }
+      : auth.status === "unavailable"
+        ? { label: "Trading is disabled on this deployment" }
+        : signInRequired
+          ? { label: "Sign in to trade", onClick: () => auth.openLogin() }
+          : auth.status === "unreachable" && !auth.me
+            ? { label: "Accounts service unreachable" }
+            : account
+              ? null
+              : {
+                  label: `Connect ${WALLET_DISPLAY_NAME} wallet`,
+                  onClick: () =>
+                    void connect().catch((e: unknown) =>
+                      toast({ title: "Could not connect the wallet", description: authErrorMessage(e), status: "error", duration: 8000, isClosable: true }),
+                    ),
+                };
+  const noWalletToast = () => {
+    if (walletCta?.onClick) {
+      walletCta.onClick();
+      return;
+    }
+    toast({ title: walletCta?.label ?? `Connect ${WALLET_DISPLAY_NAME} wallet to trade`, status: "info", duration: 4000, isClosable: true });
+  };
   // False until the first per-party read settles, so the wallet card does not show
   // "your first deposit …" for an account whose wallet is merely still loading.
   const [userDataLoaded, setUserDataLoaded] = useState(false);
@@ -319,10 +353,14 @@ const MarketView = () => {
 
   const handleTradeClick = async () => {
     if (!market || phase !== "trading") return;
-    if (!account) {
-      toast({ title: "Connect a wallet to trade", status: "info", duration: 4000, isClosable: true });
+    // walletCta is non-null for every state that cannot trade yet (probe in flight,
+    // anonymous, no wallet connected, no accounts backend) — including an anonymous
+    // visitor whose wallet the SDK restored from a previous session.
+    if (walletCta) {
+      noWalletToast();
       return;
     }
+    if (!account) return;
     if (!selectedSide) return;
     const sideArg: OutcomeArg = selectedSide === "yes" ? "Yes" : "No";
 
@@ -484,10 +522,14 @@ const MarketView = () => {
 
   const handleSplitMerge = async (action: "split" | "merge") => {
     if (!market || (phase !== "trading" && phase !== "liquidity_period")) return;
-    if (!account) {
-      toast({ title: "Connect wallet first", status: "info", duration: 4000, isClosable: true });
+    // walletCta is non-null for every state that cannot trade yet (probe in flight,
+    // anonymous, no wallet connected, no accounts backend) — including an anonymous
+    // visitor whose wallet the SDK restored from a previous session.
+    if (walletCta) {
+      noWalletToast();
       return;
     }
+    if (!account) return;
     const amt = splitMergeAmount;
     if (amt <= 0) {
       toast({ title: "Enter an amount", status: "info", duration: 3000, isClosable: true });
@@ -874,7 +916,7 @@ const MarketView = () => {
     // The real account stays in the contexts so the position cards show what the
     // connected party holds; `tradeLockReason` (state B) is what disables the money
     // CTAs and labels them — requireWallet() blocks the submit itself either way.
-    buyQuote, sellQuote, swapQuote, account, tradeLockReason, busy, handleTradeClick, mintMode,
+    buyQuote, sellQuote, swapQuote, account, signInFirst: signInRequired, tradeLockReason, walletCta, busy, handleTradeClick, mintMode,
     setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge,
     userPosition, holdings, wallet,
   };
@@ -882,22 +924,23 @@ const MarketView = () => {
     setMainTab, subTabBtn, tabHeaderBtn, pillBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity,
     liquidityValue, setLiquidityValue, liquidityQuote, busy, handleProvideLiquidity,
     lpPosition, market, phase, withdrawPct, setWithdrawPct, handleWithdrawLiquidity,
-    account, tradeLockReason,
+    account, signInFirst: signInRequired, tradeLockReason,
   };
   const resolutionContext = {
     market, phase, nowSecs, busy, account, setResolveOutcome, resolveOutcome,
     handleResolveT0, attestations, handleResolveWithAttestations, resolveSource,
     setResolveSource, handlePropose, handleChallenge, handleFinalize, userPosition,
-    holdings, probYes, probNo, isAdmin, handleVoidMarket,
+    holdings, probYes, probNo, isAdmin, handleVoidMarket, signInFirst: signInRequired,
   };
   const settlementContext = {
-    phase, market, redeemable, busy, account, tradeLockReason, handleRedeem, lpPosition,
+    phase, market, redeemable, busy, account, signInFirst: signInRequired, tradeLockReason, handleRedeem, lpPosition,
     withdrawPct, setWithdrawPct, handleWithdrawLiquidity, userPosition,
     holdings, probYes, probNo,
   };
 
-  // Rendered inside the panels' right column, next to the trade actions it funds.
-  const walletSlot = account ? (
+  // Rendered inside the panels' right column, next to the trade actions it funds. The
+  // card itself decides what a visitor without a wallet sees (sign in, or connect).
+  const walletSlot = (
     <>
       {tradeLockReason && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
@@ -907,7 +950,7 @@ const MarketView = () => {
       )}
       <InAppWalletCard wallet={wallet} walletLoaded={userDataLoaded} onChanged={refreshAllViews} variant="compact" />
     </>
-  ) : null;
+  );
 
   const resolutionSlot = market.resolutionDescription ? (
     <div className="rounded-xl border border-primary/20 border-l-4 border-l-primary bg-card p-5 shadow-sm">

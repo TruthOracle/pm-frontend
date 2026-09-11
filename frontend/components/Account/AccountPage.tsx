@@ -13,6 +13,7 @@ import { useLocation } from "react-router-dom";
 import { Box, Center, Spinner } from "@chakra-ui/react";
 import { LogIn, RefreshCw, ShieldCheck, UserRound } from "lucide-react";
 import { useAuth } from "@/auth/AuthContext";
+import { WALLET_DISPLAY_NAME } from "@/config";
 import { BACKEND_UNREACHABLE_SENTENCE } from "@/lib/backendErrors";
 import KycPanel from "@/components/kyc/KycPanel";
 import ProfileSection from "./ProfileSection";
@@ -76,8 +77,9 @@ export default function AccountPage() {
       <Shell>
         <h1 className="font-jbm text-xl font-bold text-slate-950">Accounts are not enabled on this deployment</h1>
         <p className="mt-3 text-sm text-slate-600">
-          This TruthOracle instance runs without an accounts backend. Trading, deposits and withdrawals work
-          directly from your connected wallet, exactly as before.
+          This TruthOracle instance runs without an accounts backend, so nobody can sign in, deposit or withdraw
+          here, and with no in-app balance to trade from the markets are read-only. Reading positions from a
+          connected {WALLET_DISPLAY_NAME} wallet still works.
         </p>
       </Shell>
     );
@@ -101,8 +103,8 @@ export default function AccountPage() {
       <Shell>
         <h1 className="font-jbm text-xl font-bold text-slate-950">Your TruthOracle account</h1>
         <p className="mt-3 text-sm text-slate-600">
-          An account ties your sign-in methods and Canton wallets together: deposit from any linked wallet into
-          one in-app balance, verify your identity once to withdraw, and see where you are signed in.
+          An account ties your sign-in methods and {WALLET_DISPLAY_NAME} wallets together: deposit from any linked
+          wallet into one in-app balance, verify your identity once to withdraw, and see where you are signed in.
         </p>
         <button type="button" onClick={() => auth.openLogin()} className={`${primaryBtn} mt-6 w-full justify-center py-2.5`}>
           <LogIn className="h-4 w-4" /> Sign in

@@ -63,14 +63,14 @@ export function InAppWalletCard({
   /** "row" spans wide layouts (Portfolio); "compact" stacks for narrow sidebars (market page). */
   variant?: "row" | "compact";
 }) {
-  const { account, transferCC, signAndSubmitTransaction } = useCantonWallet();
+  const { account, connect, transferCC, signAndSubmitTransaction } = useCantonWallet();
   const auth = useAuth();
   const { me, walletState, accountParty, accountMode, signInRequired, linkRequired, backendPaused } = useAccountWallet();
   const toast = useToast();
   const [selfWallet, setSelfWallet] = useState<UserWalletRecord | null>(null);
   const [selfLoaded, setSelfLoaded] = useState(false);
   const [amount, setAmount] = useState<string>("");
-  const [busy, setBusy] = useState<"deposit" | "withdraw" | "link" | "credit" | null>(null);
+  const [busy, setBusy] = useState<"connect" | "deposit" | "withdraw" | "link" | "credit" | null>(null);
   // A transfer reached the treasury but the credit did not show: offer a credit-only retry.
   const [creditPending, setCreditPending] = useState<string | null>(null);
   // Compact variant: which action's amount form is open (collapsed by default).
@@ -110,8 +110,6 @@ export function InAppWalletCard({
     }
     await onChanged?.();
   }, [managed, accountParty, onChanged]);
-
-  if (!account) return null;
 
   const amt = Number(amount);
   const balance = wallet?.balanceCC ?? 0;
@@ -352,6 +350,25 @@ export function InAppWalletCard({
     }
   };
 
+  // Connecting and linking are two clicks on purpose: each opens a wallet popup and the
+  // browser allows one popup per click (wallets/cantor8/popupGesture.ts).
+  const handleConnect = async () => {
+    setBusy("connect");
+    try {
+      await connect();
+    } catch (e) {
+      toast({
+        title: "Could not connect the wallet",
+        description: authErrorMessage(e),
+        status: "error",
+        duration: 8000,
+        isClosable: true,
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const handleLink = async () => {
     setBusy("link");
     try {
@@ -390,6 +407,8 @@ export function InAppWalletCard({
   );
 
   if (auth.status === "unavailable") {
+    // The pre-accounts app: nothing to say until a wallet is connected.
+    if (!account) return null;
     return shell(
       <>
         {header}
@@ -401,6 +420,8 @@ export function InAppWalletCard({
     );
   }
 
+  // The account comes first, the wallet second (ARCHITECTURE §18): an anonymous visitor
+  // is asked to sign in whether or not a wallet happens to be connected.
   if (signInRequired) {
     return shell(
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
@@ -414,6 +435,30 @@ export function InAppWalletCard({
           className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
         >
           <LogIn className="h-3.5 w-3.5" /> Sign in
+        </button>
+      </div>,
+    );
+  }
+
+  // Signed in, no wallet connected yet: the next step is the wallet. One click, one
+  // popup; linking follows as its own click once the party is known.
+  if (!account) {
+    if (auth.status !== "authenticated") return null;
+    return shell(
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div>
+          {header}
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            Connect your {WALLET_DISPLAY_NAME} wallet to deposit CC into your in-app balance and trade.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void handleConnect()}
+          disabled={busy !== null}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+        >
+          <Wallet className="h-3.5 w-3.5" /> {busy === "connect" ? "Waiting for your wallet…" : `Connect ${WALLET_DISPLAY_NAME} wallet`}
         </button>
       </div>,
     );

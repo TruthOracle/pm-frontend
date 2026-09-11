@@ -253,12 +253,17 @@ export interface WalletChallenge {
   expiresAt: string;
 }
 
-export type WalletChallengePurpose = "sign-in" | "link-wallet" | "admin-sign-in";
+/**
+ * Wallets are not a user sign-in method: a challenge either links a wallet to the
+ * signed-in account (`link-wallet`, POST /wallets/link-challenge) or signs an operator
+ * into the admin API (`admin-sign-in`, POST /auth/admin/challenge — the backend admin
+ * flow; the /admin page in this app uses its own nonce route).
+ */
+export type WalletChallengePurpose = "link-wallet" | "admin-sign-in";
 
-/** POST /wallets/link */
+/** POST /wallets/link — a wallet row only; linking creates no identity (§8.1). */
 export interface WalletLinkResult {
   wallet: Wallet;
-  identity: Identity;
 }
 
 /**
