@@ -38,9 +38,11 @@ export const WALLET_TYPE =
  */
 export const WALLET_DISPLAY_NAME = WALLET_TYPE === "canton" ? "Canton" : "Cantor8";
 
+// Default: truthoracle-v13 2.0.0 (UserWallet.depositRefs), uploaded to the zkpc
+// MainNet participant on 2026-09-16. 1.0.0 was 0a786ef1…775b837.
 export const TRUTHORACLE_PACKAGE_ID = readString(
   import.meta.env.VITE_TRUTHORACLE_PACKAGE_ID,
-  "0a786ef1027354cb70a1cd78331680bf34054a642520dc0eb94c9ac4f775b837",
+  "ddeffbe7e09a4f19cafdb7e2e3cab77c4f5bbe814e718c923447e4371475ced9",
 );
 export const TRUTHORACLE_PACKAGE_NAME = readString(
   import.meta.env.VITE_TRUTHORACLE_PACKAGE_NAME,

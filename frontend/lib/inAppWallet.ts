@@ -42,12 +42,40 @@ export interface DepositArgs {
   }) => Promise<{ txId: string }>;
 }
 
+export interface DepositResult {
+  /** Latest wallet record seen (null if none exists yet). */
+  wallet: UserWalletRecord | null;
+  /** True once the wallet reflects this deposit. False = CC sent, credit still pending. */
+  credited: boolean;
+}
+
+// The server credits only what the ledger shows the user has sent. The popup reports
+// "sent" before the participant has indexed the transaction, so the first reconcile
+// can legitimately find nothing — keep asking for a while.
+const RECONCILE_WINDOW_MS = 60_000;
+const RECONCILE_INTERVAL_MS = 4_000;
+
+async function reconcileDeposit(userPartyId: string): Promise<number> {
+  const res = await fetch("/api/wallet/deposit", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userPartyId }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Deposit reconciliation failed (${res.status}): ${text.slice(0, 900)}`);
+  }
+  const body = (await res.json().catch(() => ({}))) as { credited?: number };
+  return Number(body?.credited ?? 0);
+}
+
 /**
- * Run a deposit end-to-end. Returns the updated wallet record (null only if
- * the participant hasn't surfaced the credit within the polling window — the
- * credit is still committed on-ledger in that case).
+ * Run a deposit end-to-end. Resolves once the wallet reflects the deposit, or —
+ * after the reconcile window — with `credited: false` while the CC is already in
+ * the treasury and the credit is picked up by a later reconcile.
  */
-export async function depositToInAppWallet(args: DepositArgs): Promise<UserWalletRecord | null> {
+export async function depositToInAppWallet(args: DepositArgs): Promise<DepositResult> {
   const admin = enterpriseWalletPartyId();
   if (!admin) {
     throw new Error("VITE_ENTERPRISE_WALLET_PARTY_ID is not set — can't address the treasury.");
@@ -64,25 +92,29 @@ export async function depositToInAppWallet(args: DepositArgs): Promise<UserWalle
     metadata: { kind: "truthoracle_deposit", amount_cc: String(args.amountCC) },
   });
 
-  // 2. Ask the server to reconcile. It re-derives what is owed from the treasury's
-  //    transfer history minus the wallet's on-ledger depositedCC, so the amount we
-  //    just transferred is never something the browser asserts. This replaced a
-  //    direct admin-signed credit through the open wallet proxy, which let anyone
-  //    mint balance by POSTing a credit they never paid for.
-  const res = await fetch("/api/wallet/deposit", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userPartyId: args.userParty }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Deposit reconciliation failed (${res.status}): ${text.slice(0, 900)}`);
+  // 2. Ask the server to reconcile. It credits exactly the transfers the LEDGER shows
+  //    from this party that the wallet has not recorded yet, so the amount we just
+  //    transferred is never something the browser asserts. This replaced a direct
+  //    admin-signed credit through the open wallet proxy, which let anyone mint
+  //    balance by POSTing a credit they never paid for. Retry while the participant
+  //    catches up with the transfer the popup just reported.
+  const target = (before?.balanceCC ?? 0) + args.amountCC;
+  const reached = (w: UserWalletRecord | null) => (w?.balanceCC ?? 0) >= target - 1e-6;
+  const deadline = Date.now() + RECONCILE_WINDOW_MS;
+  for (;;) {
+    const creditedCC = await reconcileDeposit(args.userParty);
+    if (creditedCC > 0) break;
+    // Nothing outstanding: either an earlier call already credited it, or the
+    // participant has not indexed the transfer yet.
+    const current = await fetchUserWallet(args.userParty);
+    if (reached(current)) return { wallet: current, credited: true };
+    if (Date.now() >= deadline) return { wallet: current, credited: false };
+    await new Promise((r) => setTimeout(r, RECONCILE_INTERVAL_MS));
   }
 
   // 3. Wait until the participant shows the credited balance.
-  const target = (before?.balanceCC ?? 0) + args.amountCC;
-  return waitForUserWallet(args.userParty, (w) => (w?.balanceCC ?? 0) >= target - 1e-6);
+  const wallet = await waitForUserWallet(args.userParty, reached);
+  return { wallet, credited: reached(wallet) };
 }
 
 export interface WithdrawArgs {

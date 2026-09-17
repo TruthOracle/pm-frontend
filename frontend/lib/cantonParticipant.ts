@@ -322,12 +322,18 @@ export class CantonParticipantClient {
       const synchronizerId =
         (jsActive?.synchronizerId as string | undefined) ??
         (jsActive?.synchronizer_id as string | undefined);
+      // Package-id form of the package the contract was CREATED under. A
+      // DisclosedContract must name that package, not the app's configured one:
+      // the participant decodes the blob and rejects a mismatch with INVALID_ARGUMENT.
+      const templateIdActual =
+        (entry?.templateId as string | undefined) ?? (entry?.template_id as string | undefined);
       if (contractId && typeof contractId === "string") {
         results.push({
           contractId,
           contract_id: contractId,
           payload: payload as Record<string, unknown>,
           contract: payload as Record<string, unknown>,
+          templateId: templateIdActual,
           createdEventBlob,
           synchronizerId,
         });

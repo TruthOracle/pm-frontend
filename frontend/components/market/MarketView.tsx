@@ -222,11 +222,15 @@ const MarketView = () => {
   const effectiveL = market ? marketEffectiveL(ammState(market), nowSecs) : 0;
   const currentPoolValue = market ? poolValue(market.currentPrice, effectiveL) : 0;
 
+  // The disclosed templateId must be the package the market was CREATED under (as the
+  // ledger reports it), not the configured package: a pre-upgrade market is still a
+  // 1.0.0 contract and the participant rejects a mismatching disclosure. Only the
+  // exercise targets the configured package.
   const disclosedForMarket = (): DisclosedContractArg[] =>
     market?.contractId && market.createdEventBlob
       ? [
           {
-            templateId: templateId("Truthoracle", "PredictionMarket"),
+            templateId: market.templateId ?? templateId("Truthoracle", "PredictionMarket"),
             contractId: market.contractId,
             createdEventBlob: market.createdEventBlob,
             synchronizerId: market.synchronizerId,

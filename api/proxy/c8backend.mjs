@@ -7,23 +7,48 @@
  * authorises with it. With no authority of our own to protect, the guard here is
  * only a path allowlist of the read-only endpoints the frontend actually uses, so
  * the deployment does not become an open relay to arbitrary backend paths.
+ *
+ * MainNet has one wallet-backend per Cantor8 validator (digik, zkpc, cache): the
+ * popup at wallet.cantor8.tech ships all three, and a session token is only valid
+ * at the backend of the validator hosting the account. The SDK hardcodes digik, so
+ * an account on another validator got 401 on every read and the SDK tore the
+ * session down right after connect. The relay therefore tries each mainnet backend
+ * until one accepts the token and remembers the match per token.
  */
 
-const IS_MAINNET = (process.env.VITE_APP_NETWORK || "").trim().toLowerCase() === "mainnet";
+import { createHash } from "node:crypto";
 
-/** Env override first (server-only), then the verified per-network default. */
-function target() {
+/**
+ * Read at request time, not import time: under `vite dev` this module is imported
+ * at the top of vite.config.ts BEFORE the config mirrors .env into process.env, so
+ * an import-time check always saw "" and pointed a mainnet app at the devnet backend
+ * (every read 401ed and the SDK tore the session down right after connect).
+ */
+const isMainnet = () => (process.env.VITE_APP_NETWORK || "").trim().toLowerCase() === "mainnet";
+
+export const MAINNET_BACKENDS = [
+  "https://wallet-backend.main.digik.cantor8.tech",
+  "https://wallet-backend.main.zkpc.cantor8.tech",
+  "https://wallet-backend.main.cache.cantor8.tech",
+];
+const DEVNET_BACKEND = "https://wallet-backend.dev.digik.cantor8.tech";
+
+/** Env override first (server-only, single host), then the per-network defaults. */
+function targets() {
   const override = (process.env.C8_WALLET_BACKEND_URL || "").trim().replace(/\/$/, "");
-  if (/^https?:\/\//i.test(override)) return override;
-  return IS_MAINNET
-    ? "https://wallet-backend.main.digik.cantor8.tech"
-    : "https://wallet-backend.dev.digik.cantor8.tech";
+  if (/^https?:\/\//i.test(override)) return [override];
+  return isMainnet() ? MAINNET_BACKENDS : [DEVNET_BACKEND];
 }
 
-// GET-only reads from frontend/lib/cantor8Status.ts and getAccountBalance.ts.
+// GET-only reads from frontend/lib/cantor8Status.ts and getAccountBalance.ts, plus
+// the SDK's own session-restore / balance polling (routed here at build time).
 const ALLOWED = [
   /^healthz$/,
   /^api\/balance$/,
+  // Per-contract holdings and the backend's holding-bucket state: read-only
+  // diagnostics for "insufficient unreserved holdings" (all Amulets reserved).
+  /^api\/holdings$/,
+  /^api\/holding-buckets\/status$/,
   /^api\/command\/[^/]+\/status$/,
   /^api\/transfer\/status$/,
   /^api\/transfer\/history$/,
@@ -31,6 +56,36 @@ const ALLOWED = [
 
 export function allowedPath(path) {
   return ALLOWED.some((re) => re.test(path));
+}
+
+/** Backend that last accepted a given token, so later reads skip the probing. */
+const WINNER_TTL_MS = 10 * 60 * 1000;
+const WINNER_MAX = 500;
+const winners = new Map();
+
+function tokenKey(authorization) {
+  return createHash("sha256").update(authorization).digest("hex");
+}
+
+function rememberWinner(authorization, target) {
+  if (winners.size >= WINNER_MAX) winners.delete(winners.keys().next().value);
+  winners.set(tokenKey(authorization), { target, expires: Date.now() + WINNER_TTL_MS });
+}
+
+function knownWinner(authorization) {
+  const hit = winners.get(tokenKey(authorization));
+  if (!hit) return null;
+  if (hit.expires <= Date.now()) {
+    winners.delete(tokenKey(authorization));
+    return null;
+  }
+  return hit.target;
+}
+
+/** `preferred` first (when it is one of `list`), then the rest in their given order. */
+export function orderTargets(list, preferred) {
+  if (!preferred || !list.includes(preferred)) return [...list];
+  return [preferred, ...list.filter((t) => t !== preferred)];
 }
 
 function proxyPath(req) {
@@ -60,19 +115,36 @@ export default async function handler(req, res) {
     return;
   }
 
-  // Only what the backend needs: the caller's own bearer and the decimals flag.
-  // Cookies (our admin session) must never leak upstream.
+  // Only what the backend needs: the caller's own bearer, the decimals flag, and the
+  // dApp name the SDK sends with every call. Cookies (our admin session) must never
+  // leak upstream.
   const headers = {};
-  if (typeof req.headers.authorization === "string") headers.authorization = req.headers.authorization;
-  if (typeof req.headers["x-feat-decimals"] === "string") {
-    headers["x-feat-decimals"] = req.headers["x-feat-decimals"];
+  const authorization = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
+  if (authorization) headers.authorization = authorization;
+  for (const name of ["x-feat-decimals", "x-app-name"]) {
+    if (typeof req.headers[name] === "string") headers[name] = req.headers[name];
   }
 
-  const upstream = await fetch(`${target()}/${path}${proxyQuery(req)}`, {
-    method: "GET",
-    headers,
-    redirect: "manual",
-  });
+  // Without a token every backend answers the same 401, so only probe when there is
+  // one to authorise with.
+  const candidates = authorization
+    ? orderTargets(targets(), knownWinner(authorization))
+    : targets().slice(0, 1);
+
+  let upstream = null;
+  let target = candidates[0];
+  for (let i = 0; i < candidates.length; i++) {
+    target = candidates[i];
+    upstream = await fetch(`${target}/${path}${proxyQuery(req)}`, {
+      method: "GET",
+      headers,
+      redirect: "manual",
+    });
+    const last = i === candidates.length - 1;
+    if (upstream.status !== 401 || last) break;
+    await upstream.arrayBuffer().catch(() => {});
+  }
+  if (authorization && upstream.ok) rememberWinner(authorization, target);
 
   res.statusCode = upstream.status;
   upstream.headers.forEach((value, key) => {
@@ -81,5 +153,7 @@ export default async function handler(req, res) {
       res.setHeader(key, value);
     }
   });
+  // Which validator's backend answered — visible in the browser's Network tab.
+  res.setHeader("x-c8-relay-upstream", new URL(target).host);
   res.end(Buffer.from(await upstream.arrayBuffer()));
 }

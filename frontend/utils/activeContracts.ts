@@ -1,7 +1,9 @@
 import { createParticipantClient } from "@/lib/cantonParticipant";
 import { TRUTHORACLE_PACKAGE_ID, TRUTHORACLE_PACKAGE_NAME } from "@/constants";
 import { ENTERPRISE_WALLET_PARTY_ID } from "@/config";
-import { debugWarn } from "@/lib/debugLog";
+import { debugLog, debugWarn } from "@/lib/debugLog";
+import { getC8Provider } from "@/wallets/cantor8/c8Provider";
+import type { ScannerContract } from "@cantor8/wallet-connect-sdk";
 
 const TRUTHORACLE_MODULE = "Truthoracle";
 const INCENTIVES_MODULE = "Incentives";
@@ -36,12 +38,13 @@ function getPayload(item: unknown): Record<string, unknown> {
   return (c.payload ?? c.contract ?? c) as Record<string, unknown>;
 }
 
-/** Pull the optional disclosed-contract fields (only present when includeCreatedEventBlob was set). */
+/** Pull the optional disclosed-contract fields (blob only present when includeCreatedEventBlob was set). */
 function getDisclosure(
   item: unknown,
-): { createdEventBlob?: string; synchronizerId?: string } {
+): { templateId?: string; createdEventBlob?: string; synchronizerId?: string } {
   const c = item as Record<string, unknown>;
   return {
+    templateId: typeof c.templateId === "string" ? c.templateId : undefined,
     createdEventBlob: typeof c.createdEventBlob === "string" ? c.createdEventBlob : undefined,
     synchronizerId: typeof c.synchronizerId === "string" ? c.synchronizerId : undefined,
   };
@@ -81,6 +84,78 @@ function optionalEnum(v: unknown): string | null {
   if (v == null) return null;
   const tag = enumTag(v);
   return tag || null;
+}
+
+// ---------------------------------------------------------------------------
+// Cantor8 Scanner reads (wallet SDK ≥0.6.0 `getActiveContracts`)
+//
+// The participant proxy authenticates as OUR Keycloak client, which can read as
+// the Enterprise Wallet party but not as an external Cantor8 party — so a
+// `filtersByParty[userParty]` query comes back empty for end users on mainnet.
+// The wallet SDK reads the same contracts from the Cantor8 Scanner with the
+// user's own wallet token, so anything the user is a stakeholder of (their
+// UserWallet: `observer owner`) is returned wherever the party is hosted.
+// ---------------------------------------------------------------------------
+
+/** Scanner template filter — package-id form, per the SDK 0.6.0 README. */
+function scannerTemplateId(moduleName: string, entityName: string): string {
+  return `${TRUTHORACLE_PACKAGE_ID}:${moduleName}:${entityName}`;
+}
+
+/** Module:Entity match on either Scanner template column, whatever the package version. */
+function scannerRowIsTemplate(row: ScannerContract, moduleName: string, entityName: string): boolean {
+  const suffix = `:${moduleName}:${entityName}`;
+  return (
+    (typeof row.template_id === "string" && row.template_id.endsWith(suffix)) ||
+    (typeof row.template_id_named === "string" && row.template_id_named.endsWith(suffix))
+  );
+}
+
+/** Each distinct Scanner failure is warned once — these readers poll, and a stale session would otherwise spam the console. */
+const scannerWarned = new Set<string>();
+
+/**
+ * Active `<module>:<entity>` contracts visible to `partyId`, read from the Cantor8
+ * Scanner through the wallet SDK. Rows come back in the same `{ contractId, payload }`
+ * shape as `queryActiveContracts` so the parsers are shared.
+ *
+ * Returns null (not []) when the Scanner path is unavailable so callers can fall
+ * back to the participant: no Cantor8 provider mounted (VITE_WALLET_TYPE=canton),
+ * wallet not connected, `partyId` isn't the connected primary account, the session
+ * predates SDK 0.6.0 (no Scanner URL — the user must disconnect and reconnect), or
+ * the request itself failed.
+ */
+async function scanActiveContracts(
+  partyId: string,
+  moduleName: string,
+  entityName: string,
+): Promise<ContractInfo[] | null> {
+  const c8 = getC8Provider();
+  if (!c8) return null;
+  let rows: ScannerContract[];
+  try {
+    rows = await c8.getActiveContracts({
+      partyId,
+      templateIds: [scannerTemplateId(moduleName, entityName)],
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!scannerWarned.has(msg)) {
+      scannerWarned.add(msg);
+      debugWarn(`[scanner] ${moduleName}:${entityName} read failed, falling back to the participant: ${msg}`, e);
+    }
+    return null;
+  }
+  debugLog(`[scanner] ${moduleName}:${entityName} rows=${rows.length}`, rows[0]);
+  const out: ContractInfo[] = [];
+  for (const row of rows) {
+    if (typeof row?.contract_id !== "string" || !row.contract_id) continue;
+    if (!scannerRowIsTemplate(row, moduleName, entityName)) continue;
+    const args = row.create_args;
+    if (!args || typeof args !== "object" || Array.isArray(args)) continue;
+    out.push({ contractId: row.contract_id, payload: args as Record<string, unknown> });
+  }
+  return out;
 }
 
 export type MarketStatus = "Trading" | "Proposed" | "Resolved" | "Voided";
@@ -134,6 +209,16 @@ export interface PredictionMarketRecord {
   resolvedAt: number | null;
   proposal: ProposalRecord | null;
   policy: ResolutionPolicyRecord;
+  /**
+   * Template id in package-id form, exactly as the ledger returned it — the package
+   * the contract was CREATED under. A DisclosedContract must carry this id, not the
+   * app's configured TRUTHORACLE_PACKAGE_ID: a market created under 1.0.0 is still a
+   * 1.0.0 contract after the 2.0.0 upload, and the participant rejects a disclosure
+   * whose templateId disagrees with the decoded blob ("Mismatch between
+   * DisclosedContract.template_id and ... created_event_blob"). The exercise itself
+   * keeps targeting the configured package (that is the upgrade path).
+   */
+  templateId?: string;
   /** Base64 created-event blob, needed to build a DisclosedContract for parties that can't see the cid directly. */
   createdEventBlob?: string;
   /** Synchronizer the contract lives on; required alongside createdEventBlob on a disclosed contract. */
@@ -176,9 +261,10 @@ function parseMarket(item: unknown): PredictionMarketRecord | null {
   const cid = getContractId(item);
   if (!cid) return null;
   const p = getPayload(item);
-  const { createdEventBlob, synchronizerId } = getDisclosure(item);
+  const { templateId: actualTemplateId, createdEventBlob, synchronizerId } = getDisclosure(item);
   return {
     contractId: cid,
+    templateId: actualTemplateId,
     marketId: num(p.marketId),
     question: asString(p.question),
     imageUrl: asString(p.imageUrl),
@@ -527,12 +613,33 @@ export interface UserWalletRecord {
   withdrawnCC: number;
 }
 
+function parseUserWallet(contractId: string, p: Record<string, unknown>): UserWalletRecord {
+  return {
+    contractId,
+    admin: asString(p.admin),
+    owner: asString(p.owner),
+    balanceCC: num(p.balanceCC),
+    depositedCC: num(p.depositedCC),
+    withdrawnCC: num(p.withdrawnCC),
+  };
+}
+
 /**
  * Fetch the party's in-app UserWallet (or null if they never deposited).
  * The owner is an observer, so querying as the user surfaces their wallet;
  * querying as the admin surfaces every wallet (treasury reconciliation).
+ *
+ * Reads the Cantor8 Scanner through the wallet SDK first (see scanActiveContracts —
+ * the participant proxy can't read as an external Cantor8 party, which left the
+ * in-app balance blank on mainnet), then falls back to the participant when the
+ * Scanner path is unavailable or has no wallet for the party.
  */
 export async function fetchUserWallet(partyId: string): Promise<UserWalletRecord | null> {
+  const scanned = await scanActiveContracts(partyId, TRUTHORACLE_MODULE, "UserWallet");
+  if (scanned) {
+    const mine = scanned.find((c) => c.payload?.owner === partyId);
+    if (mine) return parseUserWallet(mine.contractId, mine.payload ?? {});
+  }
   try {
     const client = createParticipantClient();
     const list = await client.queryActiveContracts(
@@ -544,14 +651,7 @@ export async function fetchUserWallet(partyId: string): Promise<UserWalletRecord
       if (!cid) continue;
       const p = getPayload(item);
       if (p.owner !== partyId) continue;
-      return {
-        contractId: cid,
-        admin: asString(p.admin),
-        owner: asString(p.owner),
-        balanceCC: num(p.balanceCC),
-        depositedCC: num(p.depositedCC),
-        withdrawnCC: num(p.withdrawnCC),
-      };
+      return parseUserWallet(cid, p);
     }
     return null;
   } catch (e) {
