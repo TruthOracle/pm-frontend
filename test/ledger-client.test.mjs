@@ -59,3 +59,70 @@ describe("filterTemplateId (active-contracts filters)", () => {
     );
   });
 });
+
+import { incomingTransfersFromTrees } from "../api/_lib/ledgerClient.mjs";
+
+/**
+ * Fixtures mirror the JSON Ledger API's /v2/updates/trees shape as observed on the
+ * zkpc MainNet participant for a Cantor8 → treasury Canton Coin transfer.
+ */
+const ADMIN = "f482e75f::1220admin";
+const SENDER = "a99dd107::1220user";
+const AMULET_PKG = "9e3c2b::Splice.Amulet:Amulet".replace("9e3c2b::", "9e3c2b:");
+const PREAPPROVAL_TPL = "9e3c2b:Splice.AmuletRules:TransferPreapproval";
+
+function tree({ offset, updateId, recordTime, events }) {
+  const eventsById = {};
+  events.forEach((ev, i) => { eventsById[String(i)] = ev; });
+  return { update: { TransactionTree: { value: { offset, updateId, recordTime, eventsById } } } };
+}
+const exercised = (templateId, choice, choiceArgument) => ({ ExercisedTreeEvent: { value: { templateId, choice, choiceArgument, actingParties: [] } } });
+const createdAmulet = (owner, initialAmount) => ({ CreatedTreeEvent: { value: { templateId: AMULET_PKG, createArgument: { owner, amount: { initialAmount } } } } });
+
+const depositTx = (offset, updateId, amount) =>
+  tree({
+    offset,
+    updateId,
+    recordTime: "2026-09-16T10:00:00.000000Z",
+    events: [
+      exercised(PREAPPROVAL_TPL, "TransferPreapproval_SendV2", { sender: SENDER, amount }),
+      exercised(AMULET_PKG, "Archive", {}),
+      createdAmulet(ADMIN, amount),
+      createdAmulet(SENDER, "28.6173547276"),
+    ],
+  });
+
+describe("incomingTransfersFromTrees", () => {
+  it("attributes the receiver's new Amulet to the sender of the transfer exercise", () => {
+    const rows = incomingTransfersFromTrees([depositTx(6102227, "u1", "20.0000000000")], ADMIN);
+    assert.deepEqual(rows, [
+      { updateId: "u1", offset: 6102227, recordTime: "2026-09-16T10:00:00.000000Z", sender: SENDER, amountCC: 20 },
+    ]);
+  });
+
+  it("uses what arrived (the receiver's Amulets), summing several outputs", () => {
+    const tx = tree({ offset: 1, updateId: "u2", recordTime: "t", events: [
+      exercised("9e3c2b:Splice.AmuletRules:AmuletRules", "AmuletRules_Transfer", { transfer: { sender: SENDER } }),
+      createdAmulet(ADMIN, "1.5"), createdAmulet(ADMIN, "2.5"), createdAmulet(SENDER, "7"),
+    ] });
+    assert.equal(incomingTransfersFromTrees([tx], ADMIN)[0].amountCC, 4);
+  });
+
+  it("skips the receiver's own outbound transfers and Amulets created without a transfer", () => {
+    const outbound = tree({ offset: 2, updateId: "u3", recordTime: "t", events: [
+      exercised(PREAPPROVAL_TPL, "TransferPreapproval_SendV2", { sender: ADMIN, amount: "5" }),
+      createdAmulet(ADMIN, "95"), // change back to the sender
+    ] });
+    const minted = tree({ offset: 3, updateId: "u4", recordTime: "t", events: [createdAmulet(ADMIN, "10")] });
+    const rewards = tree({ offset: 4, updateId: "u5", recordTime: "t", events: [
+      exercised("9e3c2b:Splice.Round:OpenMiningRound", "AmuletRules_Mint", { sender: SENDER }),
+      createdAmulet(ADMIN, "10"),
+    ] });
+    assert.deepEqual(incomingTransfersFromTrees([outbound, minted, rewards], ADMIN), []);
+  });
+
+  it("tolerates unrelated updates and missing shapes", () => {
+    assert.deepEqual(incomingTransfersFromTrees([{ update: { Reassignment: {} } }, null, {}], ADMIN), []);
+    assert.deepEqual(incomingTransfersFromTrees(undefined, ADMIN), []);
+  });
+});

@@ -77,20 +77,32 @@ export function InAppWalletCard({
       isClosable: false,
     });
     try {
-      const updated = await depositToInAppWallet({
+      const { wallet: updated, credited } = await depositToInAppWallet({
         userParty: account.address,
         amountCC: amt,
         transferCC,
       });
       setAmount("");
       await reload();
-      toast({
-        title: "Deposit credited",
-        description: `In-app balance: ${fmtCC(updated?.balanceCC ?? balance + amt)} CC.`,
-        status: "success",
-        duration: 6000,
-        isClosable: true,
-      });
+      if (credited) {
+        toast({
+          title: "Deposit credited",
+          description: `In-app balance: ${fmtCC(updated?.balanceCC ?? balance + amt)} CC.`,
+          status: "success",
+          duration: 6000,
+          isClosable: true,
+        });
+      } else {
+        // The CC transfer went through (the popup confirmed it); only the in-app credit
+        // has not landed yet. Never claim a balance the ledger does not show.
+        toast({
+          title: "Deposit sent, credit pending",
+          description: `${fmtCC(amt)} CC reached the treasury but the in-app balance has not updated yet. It is credited automatically on the next reconcile — try again in a minute.`,
+          status: "warning",
+          duration: 10000,
+          isClosable: true,
+        });
+      }
     } catch (e) {
       toast({
         title: "Deposit failed",

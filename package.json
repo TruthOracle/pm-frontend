@@ -30,7 +30,7 @@
     "@canton-network/core-wallet-dapp-rpc-client": "^0.22.0",
     "@canton-network/core-wallet-ui-components": "^0.23.0",
     "@canton-network/wallet-sdk": "^0.20.0",
-    "@cantor8/wallet-connect-sdk": "^0.5.1",
+    "@cantor8/wallet-connect-sdk": "^0.6.0",
     "@capacitor/core": "^8.5.0",
     "@capacitor/ios": "^8.5.0",
     "@chakra-ui/icons": "^2.2.4",

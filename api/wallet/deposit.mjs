@@ -9,35 +9,40 @@
  * authenticated nobody, anyone could POST a credit for any amount without ever moving
  * CC — an unlimited mint. The amount is now derived, never accepted:
  *
- *     credit = (total Amulet received by the treasury from this user)
- *            - (the user's on-ledger depositedCC)
+ *     credit = sum of the user's Canton Coin transfers INTO the treasury that the
+ *              ledger shows and the user's UserWallet has not yet recorded
  *
- * Both sides come from authoritative sources the browser cannot influence: the
- * wallet's own transfer history, and the ledger. That makes the endpoint idempotent
- * by construction — replaying it computes a delta of zero and credits nothing — and
- * self-healing, since a credit lost to a crash between the transfer and the submit is
- * simply picked up by the next call.
+ * Both sides are ledger facts the browser cannot influence: the transfer exercises
+ * and the Amulets they created (ledgerClient.incomingTransfersFromLedger), and the
+ * txRefs already recorded on the UserWallet (v13 2.0.0 depositRefs). Every credit
+ * names the update ids it covers, and the Deposit choice rejects a repeated ref, so
+ * the endpoint is idempotent by construction and self-healing: a credit lost to a
+ * crash between the transfer and the submit is picked up by the next call.
+ *
+ * This used to read the Enterprise Wallet's transfer history instead. On MainNet
+ * that endpoint returns nothing (HTTP 500 without a limit, [] with one) even for the
+ * funded treasury, so deposits were never credited — see api/_lib/ledgerClient.mjs.
  *
  * SEQUENTIAL replays are idempotent; CONCURRENT ones need more care. Two racing calls
- * read the same state and derive the same owed amount. On the Deposit path the ledger
- * arbitrates — the choice consumes the wallet contract, so the loser aborts — but
- * UserWallet has no contract key, so two racing CreateCommands would mint two wallets,
- * each credited in full. The commandId is therefore DERIVED from the exact state the
- * command was computed against: racing duplicates submit the same id and ledger
- * command-dedup rejects all but one, while a legitimate later deposit sees new state
- * and gets a new id. A best-effort lock (cross-instance when a shared store is
- * configured) cheapens the common race to a fast 409.
+ * read the same state and derive the same credit. On the Deposit path the ledger
+ * arbitrates — the choice consumes the wallet contract and rejects a repeated txRef —
+ * but UserWallet has no contract key, so two racing CreateCommands would mint two
+ * wallets, each credited in full. The commandId is therefore DERIVED from the exact
+ * state the command was computed against (see depositPlan.mjs): racing duplicates
+ * submit the same id and ledger command-dedup rejects all but one, while a legitimate
+ * later deposit sees new transfers and gets a new id. A best-effort lock
+ * (cross-instance when a shared store is configured) cheapens the common race to a
+ * fast 409.
+ *
+ * Requires the v13 2.0.0 package (UserWallet.depositRefs) on the target participant.
  */
 
 import { currentOperator } from "../_lib/adminSession.mjs";
-import { fetchUserWallet, templateId } from "../_lib/ledgerClient.mjs";
+import { fetchUserWallet, incomingTransfersFromLedger, templateId } from "../_lib/ledgerClient.mjs";
 import { adminPartyId, appName } from "../_lib/upstream.mjs";
-import { externalSubmit, totalReceivedFrom, transferHistory } from "../_lib/walletClient.mjs";
+import { externalSubmit } from "../_lib/walletClient.mjs";
 import { acquireLock, hitRateLimit, requestClientKey } from "../_lib/sharedStore.mjs";
-import { createHash } from "node:crypto";
-
-// CC carries 10 decimal places; anything under this is rounding noise, not a deposit.
-const DUST_CC = 1e-9;
+import { planDeposit } from "../_lib/depositPlan.mjs";
 
 // The endpoint is unauthenticated (no user sessions yet) and each call costs upstream
 // work — a transfer-history fetch, a ledger read, possibly a submit. The limits only
@@ -110,34 +115,26 @@ export default async function handler(req, res) {
   }
 
   try {
-    const [history, existing] = await Promise.all([
-      transferHistory(admin),
+    const [transfers, existing] = await Promise.all([
+      incomingTransfersFromLedger(admin),
       fetchUserWallet(admin, userPartyId),
     ]);
 
-    const totalIn = totalReceivedFrom(history, admin, userPartyId);
+    const plan = planDeposit({ transfers, userPartyId, existing });
     const alreadyCredited = existing?.depositedCC ?? 0;
-    const owed = totalIn - alreadyCredited;
 
-    if (owed <= DUST_CC) {
+    if (!plan.credit) {
       return json(res, 200, {
         credited: 0,
-        totalTransferredIn: totalIn,
+        totalTransferredIn: plan.seenCC,
         alreadyCredited,
         walletContractId: existing?.contractId ?? null,
         balanceCC: existing?.balanceCC ?? 0,
-        note: "nothing outstanding — in-app balance already matches transfers received",
+        note: "nothing outstanding — every transfer the ledger shows from this party is already credited",
       });
     }
 
-    const amount = owed.toFixed(10);
-    // Derived from the exact state this command was computed against (see header):
-    // concurrent duplicates collide on the id, a genuine later deposit does not.
-    const stateHash = createHash("sha256")
-      .update(`${userPartyId}|${existing?.contractId ?? "create"}|${amount}|${alreadyCredited}`)
-      .digest("hex")
-      .slice(0, 40);
-    const commandId = `deposit-${stateHash}`;
+    const { amount, txRef, commandId } = plan.credit;
     const commands = existing
       ? [
           {
@@ -145,15 +142,14 @@ export default async function handler(req, res) {
               templateId: templateId("UserWallet"),
               contractId: existing.contractId,
               choice: "Deposit",
-              choiceArgument: { amountCC: amount, txRef: `reconcile:${commandId}` },
+              choiceArgument: { amountCC: amount, txRef },
             },
           },
         ]
       : [
           {
-            // No depositRefs here: v13 1.0.0 has no such field, and on 2.0.0 an
-            // omitted Optional defaults to None — the wallet records refs from its
-            // first Deposit exercise onward (see ADMIN_AUTH.md, deposit audit trail).
+            // First deposit creates the wallet with the covering ref already recorded,
+            // so a replay against the new contract is rejected on-ledger like any other.
             CreateCommand: {
               templateId: templateId("UserWallet"),
               createArguments: {
@@ -162,6 +158,7 @@ export default async function handler(req, res) {
                 balanceCC: amount,
                 depositedCC: amount,
                 withdrawnCC: "0.0000000000",
+                depositRefs: [txRef],
               },
             },
           },
@@ -171,15 +168,16 @@ export default async function handler(req, res) {
 
     console.log(
       `[deposit] credited ${amount} CC to ${userPartyId}` +
-        ` (transfersIn=${totalIn}, wasCredited=${alreadyCredited}` +
+        ` (${plan.pending.length} ledger transfer(s), seen=${plan.seenCC}, wasCredited=${alreadyCredited}` +
         `${operator ? `, by operator ${operator.partyId}` : ""})`,
     );
 
     return json(res, 200, {
       credited: Number(amount),
-      totalTransferredIn: totalIn,
+      totalTransferredIn: plan.seenCC,
       alreadyCredited,
       commandId,
+      transfers: plan.pending.map((t) => ({ updateId: t.updateId, recordTime: t.recordTime, amountCC: t.amountCC })),
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

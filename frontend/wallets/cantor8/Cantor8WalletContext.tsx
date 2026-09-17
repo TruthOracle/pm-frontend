@@ -1,6 +1,12 @@
 /**
  * Cantor8 Wallet – C8WalletProvider implementation.
- * Uses @cantor8/wallet-connect-sdk (>=0.5.0) for the Cantor8 wallet.
+ * Uses @cantor8/wallet-connect-sdk (>=0.6.0) for the Cantor8 wallet.
+ *
+ * Reads: SDK 0.6.0 added `getActiveContracts` / `getLedgerUpdates`, which query the
+ * Cantor8 Scanner directly with the wallet's own bearer token. The provider instance
+ * is registered in ./c8Provider so utils/activeContracts.ts can read the connected
+ * party's contracts that way (in-app UserWallet balance) — our participant proxy has
+ * no read rights for external Cantor8 parties.
  *
  * Transaction submission: the connected C8 party is an external / self-custody party — the
  * wallet's participant prepares, signs, and executes via the `signAndExecute({ note,
@@ -21,6 +27,7 @@ import type {
   ConnectOptions,
 } from "../types";
 import { debugLog, debugWarn } from "@/lib/debugLog";
+import { registerC8Provider, setC8Accounts } from "./c8Provider";
 
 const Cantor8WalletContext = createContext<CantonWalletContextValue | null>(null);
 
@@ -62,6 +69,21 @@ function accountFromPayload(accounts?: AccountInfoPayload[] | null): CantonAccou
   return { address: first.partyId, partyId: first.partyId, publicKey: first.publicKey };
 }
 
+/**
+ * Scanner reads (`getActiveContracts`) use the Scanner URL the wallet attaches to the
+ * account at connect time. A session created by an older SDK carries no such URL, and
+ * every Scanner read throws until the user disconnects and reconnects — say so once,
+ * in production too, because the in-app balance stays blank until they do.
+ */
+function noteScannerSupport(accounts?: AccountInfoPayload[] | null): void {
+  const first = accounts?.[0];
+  if (!first?.partyId) return;
+  if (first.validator?.scannerApiUrl) return;
+  debugWarn(
+    "[Cantor8] session has no Scanner URL (created before SDK 0.6.0) — disconnect and reconnect the wallet to enable in-app balance reads",
+  );
+}
+
 export function Cantor8WalletProvider({ children }: { children: React.ReactNode }) {
   const [account, setAccount] = useState<CantonAccount | null>(null);
   const network = useRef<CantonNetworkInfo>({ networkId: resolveNetwork(), ledgerApi: undefined }).current;
@@ -79,6 +101,8 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     const refreshAccount = async () => {
       try {
         const { accounts } = await wallet.getAccounts();
+        noteScannerSupport(accounts);
+        setC8Accounts(accounts);
         setAccount(accountFromPayload(accounts));
       } catch (e) {
         debugWarn("[Cantor8] getAccounts failed", e);
@@ -105,12 +129,14 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
 
     wallet.on("disconnected", (e) => {
       debugLog("[Cantor8] event=disconnected:", e);
+      setC8Accounts(null);
       setAccount(null);
     });
 
     // accountChanged delivers the updated account list directly.
     wallet.on("accountChanged", (e) => {
       debugLog("[Cantor8] event=accountChanged:", e);
+      setC8Accounts(e.accounts);
       setAccount(accountFromPayload(e.accounts));
     });
 
@@ -119,6 +145,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     });
 
     walletRef.current = wallet;
+    registerC8Provider(wallet);
 
     // Restore account if already connected (e.g. page refresh)
     wallet
@@ -131,6 +158,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     return () => {
       window.removeEventListener("message", onRawPopupMessage);
       walletRef.current = null;
+      registerC8Provider(null);
     };
   }, [network]);
 
@@ -143,6 +171,8 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     // Fetch account after connect (in case the "connected" event hasn't landed yet).
     try {
       const { accounts } = await wallet.getAccounts();
+      noteScannerSupport(accounts);
+      setC8Accounts(accounts);
       const connected = accountFromPayload(accounts);
       if (connected) {
         setAccount(connected);
@@ -156,6 +186,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     if (walletRef.current) {
       await walletRef.current.disconnect();
     }
+    setC8Accounts(null);
     setAccount(null);
   }, []);
 
