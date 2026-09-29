@@ -39,8 +39,10 @@ VITE_ENTERPRISE_WALLET_PARTY_ID=20a2514bea1b4dd382f116c1e580197d::12205811d9301b
 VITE_ENTERPRISE_WALLET_APP_NAME=truthoracle
 ```
 
-`VITE_ENTERPRISE_WALLET_PARTY_ID` is the one with no working default: without it
-the marketplace queries and admin gating throw.
+`VITE_TRUTHORACLE_PACKAGE_ID` and `VITE_ENTERPRISE_WALLET_PARTY_ID` have no
+default: without them ledger commands, the marketplace queries and admin gating
+throw. The browser falls back to `truthoracle-v16` for the package name, but the
+server-side ledger client does not, so set it too.
 
 Only `VITE_APP_NETWORK=mainnet` is special-cased — any other value, `testnet`
 included, behaves as devnet.
