@@ -1175,17 +1175,17 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null }
           {showResolveTab && <MarketResolutionPanel context={resolutionContext} />}
           {showSettleTab && <MarketSettlementPanel context={settlementContext} />}
 
-          <section className="k-card p-5">
+          <section className="k-criteria">
             <div className="mb-2 flex items-center gap-2">
               <Gavel className="h-4 w-4 text-primary" />
-              <h2 className="k-section-title">Rules</h2>
+              <h2 className="k-section-title">Resolution criteria</h2>
             </div>
             {market.resolutionDescription ? (
-              <p className="whitespace-pre-line text-sm leading-6 text-slate-700">{market.resolutionDescription}</p>
+              <p className="k-criteria-text">{market.resolutionDescription}</p>
             ) : (
               <p className="text-sm text-slate-500">No resolution criteria were written for this market.</p>
             )}
-            <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3 text-xs">
+            <div className="k-criteria-meta">
               <span className="font-semibold text-slate-950">Resolution policy</span>
               {tiers.map((t) => (
                 <span key={t} className="k-chip-soft">{t}</span>

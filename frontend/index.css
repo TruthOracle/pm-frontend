@@ -425,6 +425,16 @@
   .chart-legend-item-off { @apply text-slate-400; }
   .chart-legend-item-selected { @apply bg-emerald-50/70 hover:bg-emerald-50; }
   .chart-legend-swatch { @apply inline-block h-2.5 w-2.5 shrink-0 rounded-sm; }
+  .chart-legend-compact { @apply mt-2 flex flex-wrap gap-x-2 gap-y-1; }
+  .chart-legend-compact .chart-legend-item { @apply w-auto px-1.5 py-1; }
+  .k-criteria { @apply k-card p-5; border-left: 4px solid #16c784; background: linear-gradient(90deg, rgba(22, 199, 132, 0.08) 0%, rgba(22, 199, 132, 0) 36%), #fff; }
+  .k-criteria-text { @apply whitespace-pre-line text-[15px] leading-7 text-slate-800; }
+  .k-criteria-meta { @apply mt-3 flex flex-wrap items-center gap-1.5 border-t border-emerald-100 pt-3 text-xs text-slate-500; }
+  .outcome-link { @apply inline-flex min-w-0 items-center gap-1 text-sm font-semibold text-slate-950 underline-offset-4 decoration-2 hover:text-primary hover:underline; }
+  .outcome-link svg { @apply opacity-40 transition-opacity; }
+  .outcome-link:hover svg { @apply opacity-100; }
+  .outcome-market-link { @apply inline-flex min-h-[2.5rem] shrink-0 items-center gap-0.5 rounded-md px-2 text-xs font-semibold text-slate-500 ring-1 ring-transparent transition-colors hover:bg-white hover:text-slate-950 hover:ring-slate-200 sm:min-h-[2rem]; }
+  .outcome-row .pill-yes, .outcome-row .pill-no { @apply min-h-[2.5rem] sm:min-h-0; }
   .chart-legend-name { @apply min-w-0 flex-1 truncate font-medium text-slate-800; }
   .chart-legend-item-off .chart-legend-name { @apply text-slate-400; }
   .chart-legend-value { @apply font-bold text-slate-950; font-variant-numeric: tabular-nums; }

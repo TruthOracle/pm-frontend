@@ -4,6 +4,7 @@ import type { PredictionMarketRecord } from "@/utils/activeContracts";
 import { marketSource } from "@/lib/marketsApi";
 import MarketCard from "./MarketCard";
 import EventCard from "./EventCard";
+import TrendingEventHero from "./TrendingEventHero";
 import PriceChart from "@/components/charts/PriceChart";
 import { useEventsList } from "@/lib/marketQueries";
 import { compactCC, formatPercent, priceDelta } from "@/lib/chartData";
@@ -73,6 +74,9 @@ function Homepage() {
   // Trending events for the grid below the hero (index only; the ledger fallback shows markets).
   const indexed = markets.some((m) => m.seriesTicker !== undefined);
   const trendingEvents = useEventsList({ withNestedMarkets: true, sort: "trending", status: "all", limit: 6 }, indexed);
+  // The hero is event-based (like the marketplace cards) whenever the index is there; the
+  // single-market hero below is the ledger-only fallback.
+  const topEvent = indexed ? trendingEvents.data?.items.find((e) => (e.markets ?? []).some((m) => !m.archived)) ?? null : null;
 
   return (
     <div className="pb-20">
@@ -103,7 +107,9 @@ function Homepage() {
           </Link>
         </div>
         <div className="featured-grid">
-          {lead ? (
+          {topEvent ? (
+            <TrendingEventHero event={topEvent} />
+          ) : lead && !(indexed && trendingEvents.isLoading) ? (
             <div className="featured-market-card">
               <div key={lead.marketId} className="market-swap">
                 <div className="flex items-center justify-between">
@@ -144,9 +150,9 @@ function Homepage() {
               </div>
             </div>
           ) : (
-            <div className="featured-market-card featured-market-loading" aria-label="Loading featured market">
+            <div className="featured-market-card featured-market-loading" aria-label="Loading trending event">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <span>Loading trending market</span>
+              <span>Loading trending event</span>
             </div>
           )}
           <aside className="signal-panel">

@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ChevronRight, Clock, Gavel, Layers, ShieldCheck } from "lucide-react";
+import { ArrowUpRight, ChevronRight, Clock, Gavel, Layers, ShieldCheck } from "lucide-react";
 import EventPriceChart from "@/components/charts/EventPriceChart";
 import Sparkline from "@/components/charts/Sparkline";
 import TradeFeed from "@/components/TradeFeed";
@@ -85,6 +85,16 @@ export default function EventView() {
   const close = event.closeTime ? new Date(event.closeTime) : null;
   const settled = event.status === "settled";
   const yesSum = markets.filter((m) => m.status === "Trading").reduce((acc, m) => acc + toNumber(m.currentPrice), 0);
+  // Event-wide figures: the backend's aggregates when it sends them, else summed over the markets.
+  const sum = (pick: (m: ApiMarket) => number) => markets.reduce((acc, m) => acc + pick(m), 0);
+  const stats = {
+    volume: toNumber(event.volumeCC),
+    volume24h: event.volume24hCC !== undefined ? toNumber(event.volume24hCC) : sum((m) => toNumber(m.volume24hCC)),
+    openInterest: event.openInterestCC !== undefined ? toNumber(event.openInterestCC) : sum((m) => toNumber(m.openInterest.total)),
+    liquidity: event.liquidityCC !== undefined ? toNumber(event.liquidityCC) : sum((m) => toNumber(m.liquidityCC)),
+    trades: sum((m) => m.tradeCount ?? 0),
+    trading: markets.filter((m) => m.status === "Trading").length,
+  };
 
   return (
     <div className="page-container space-y-5 py-6">
@@ -118,18 +128,45 @@ export default function EventView() {
           </div>
           <h1 className="text-2xl font-bold leading-tight tracking-[-0.02em] text-slate-950 sm:text-[28px]">{event.title}</h1>
           {event.subTitle && <p className="mt-1 text-base text-slate-600">{event.subTitle}</p>}
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-medium text-slate-500">
-            <span className="k-num"><span className="text-slate-950">{compactCC(event.volumeCC)}</span> volume</span>
-            {event.volume24hCC !== undefined && <span className="k-num"><span className="text-slate-950">{compactCC(event.volume24hCC)}</span> 24h</span>}
-            {event.openInterestCC !== undefined && <span className="k-num"><span className="text-slate-950">{compactCC(event.openInterestCC, "")}</span> open interest</span>}
-            <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{settled ? "Settled" : close ? `closes ${close.toLocaleDateString(undefined, { month: "short", day: "numeric" })} · ${timeLeft(event.closeTime)}` : "no markets yet"}</span>
-          </div>
         </div>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
         <div className="min-w-0 space-y-5">
           {markets.length > 0 && <EventPriceChart eventTicker={event.ticker} markets={markets} selectedTicker={selected} onSelect={(t) => select(t)} height={300} />}
+
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6" aria-label="Event statistics">
+            <div className="k-stat">
+              <div className="k-stat-label">Volume</div>
+              <div className="k-stat-value k-num">{compactCC(stats.volume, "")}</div>
+              <div className="k-stat-sub">CC lifetime · {markets.length} market{markets.length === 1 ? "" : "s"}</div>
+            </div>
+            <div className="k-stat">
+              <div className="k-stat-label">Volume 24h</div>
+              <div className="k-stat-value k-num">{compactCC(stats.volume24h, "")}</div>
+              <div className="k-stat-sub">CC across the event</div>
+            </div>
+            <div className="k-stat">
+              <div className="k-stat-label">Open interest</div>
+              <div className="k-stat-value k-num">{compactCC(stats.openInterest, "")}</div>
+              <div className="k-stat-sub">shares outstanding</div>
+            </div>
+            <div className="k-stat">
+              <div className="k-stat-label">Liquidity</div>
+              <div className="k-stat-value k-num">{compactCC(stats.liquidity, "")}</div>
+              <div className="k-stat-sub">pool value, all markets</div>
+            </div>
+            <div className="k-stat">
+              <div className="k-stat-label">Trades</div>
+              <div className="k-stat-value k-num">{stats.trades}</div>
+              <div className="k-stat-sub">{stats.trading} market{stats.trading === 1 ? "" : "s"} trading</div>
+            </div>
+            <div className="k-stat">
+              <div className="k-stat-label">{settled ? "Settled" : "Closes"}</div>
+              <div className="k-stat-value k-num">{close ? close.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}</div>
+              <div className="k-stat-sub"><Clock className="mr-1 inline h-3 w-3" />{settled ? "all markets settled" : close ? `${timeLeft(event.closeTime)} left` : "no markets yet"}</div>
+            </div>
+          </div>
 
           <section className="k-card overflow-hidden">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
@@ -152,8 +189,11 @@ export default function EventView() {
                     <li key={m.marketId} className={cn("outcome-row flex-wrap sm:flex-nowrap border-t border-slate-100 first:border-t-0", active && "outcome-row-selected")} onClick={() => select(m.ticker)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") select(m.ticker); }}>
                       <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="truncate text-sm font-semibold text-slate-950">{outcomeLabel(m)}</span>
-                          <Link to={`/markets/${m.ticker}`} onClick={(e) => e.stopPropagation()} className="hidden font-mono text-[11px] text-slate-400 hover:text-slate-950 sm:inline">{m.ticker}</Link>
+                          <Link to={`/markets/${m.ticker}`} onClick={(e) => e.stopPropagation()} className="outcome-link" title={`Open the ${outcomeLabel(m)} market page`}>
+                            <span className="truncate">{outcomeLabel(m)}</span>
+                            <ArrowUpRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                          </Link>
+                          <span className="hidden font-mono text-[11px] text-slate-400 lg:inline">{m.ticker}</span>
                         </div>
                         {outcomeLabel(m) !== m.question && <div className="truncate text-xs text-slate-500">{m.question}</div>}
                         <div className="mt-1.5 flex items-center gap-2">
@@ -167,14 +207,15 @@ export default function EventView() {
                           {delta && !done && <div className={cn("k-num mt-0.5 text-[11px] font-semibold", delta.direction === "up" ? "delta-up" : delta.direction === "down" ? "delta-down" : "delta-flat")}>{delta.text}</div>}
                         </div>
                         <Sparkline closes={m.sparkline?.closes} className="hidden md:inline-block" />
-                        {done ? (
-                          <Link to={`/markets/${m.ticker}`} onClick={(e) => e.stopPropagation()} className="quiet-link text-xs">View</Link>
-                        ) : (
+                        {!done && (
                           <div className="flex shrink-0 gap-1.5">
                             <button type="button" className={cn("pill-yes", active && side === "yes" && "ring-2 ring-oracle-yes/40")} onClick={(e) => { e.stopPropagation(); select(m.ticker, "yes"); }}>Yes {formatCents(p)}</button>
                             <button type="button" className={cn("pill-no", active && side === "no" && "ring-2 ring-oracle-no/40")} onClick={(e) => { e.stopPropagation(); select(m.ticker, "no"); }}>No {formatCents(1 - p)}</button>
                           </div>
                         )}
+                        <Link to={`/markets/${m.ticker}`} onClick={(e) => e.stopPropagation()} className="outcome-market-link" aria-label={`Open the ${outcomeLabel(m)} market page`}>
+                          Market <ChevronRight className="h-3.5 w-3.5" />
+                        </Link>
                       </div>
                     </li>
                   );
@@ -183,27 +224,32 @@ export default function EventView() {
             )}
           </section>
 
-          <section className="k-card p-5">
+          <section className="k-criteria">
             <div className="mb-2 flex items-center gap-2">
               <Gavel className="h-4 w-4 text-primary" />
-              <h2 className="k-section-title">Rules</h2>
+              <h2 className="k-section-title">Resolution criteria</h2>
             </div>
-            {event.description && <p className="mb-3 text-sm leading-6 text-slate-700">{event.description}</p>}
+            {event.description && <p className="k-criteria-text mb-1">{event.description}</p>}
             {markets.length > 0 ? (
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y divide-emerald-100/80">
                 {markets.map((m) => (
-                  <li key={m.marketId} className="py-2.5 text-sm">
-                    <div className="font-semibold text-slate-950">{outcomeLabel(m)}</div>
-                    <p className="mt-0.5 whitespace-pre-line text-[13px] leading-5 text-slate-600">{m.resolutionDescription || "No resolution criteria written."}</p>
-                    <div className="mt-1 text-[11px] text-slate-400">Closes {new Date(m.expiresAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · <Link to={`/markets/${m.ticker}`} className="hover:text-slate-950">market page</Link></div>
+                  <li key={m.marketId} className="py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <Link to={`/markets/${m.ticker}`} className="outcome-link text-sm font-semibold text-slate-950">
+                        <span className="truncate">{outcomeLabel(m)}</span>
+                        <ArrowUpRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      </Link>
+                      <span className="k-num shrink-0 text-[11px] text-slate-500">closes {new Date(m.expiresAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                    </div>
+                    <p className="k-criteria-text mt-1">{m.resolutionDescription || "No resolution criteria were written for this market."}</p>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-slate-500">Rules appear with the first market.</p>
+              <p className="text-sm text-slate-500">Resolution criteria appear with the first market.</p>
             )}
             {event.settlementSources.length > 0 && (
-              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 text-xs">
+              <div className="k-criteria-meta">
                 <span className="inline-flex items-center gap-1 font-semibold text-slate-950"><ShieldCheck className="h-3.5 w-3.5 text-primary" /> Settlement sources</span>
                 {event.settlementSources.map((s) => (
                   <span key={`${s.name}-${s.url}`}>

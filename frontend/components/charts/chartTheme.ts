@@ -1,5 +1,7 @@
 /** Shared recharts styling so every chart reads as one system (light theme, slate greys). */
-export const CHART_GRID = "#e8edf3";
+export const CHART_GRID = "#eef2f6";
+/** Faint horizontal reference lines at the y ticks; false leaves only the right-hand labels. */
+export const SHOW_GRID = true;
 export const CHART_AXIS = "#8a9bb0";
 export const CHART_CURSOR = "#334155";
 export const YES_COLOR = "#16c784";

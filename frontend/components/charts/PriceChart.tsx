@@ -12,7 +12,8 @@ import { candlesToPoints, formatAxisTime, formatPercent, formatPointTime, window
 import { useMarketCandles } from "@/lib/marketQueries";
 import { cn } from "@/lib/utils";
 import TimeframeTabs from "./TimeframeTabs";
-import { AXIS_TICK_STYLE, CHART_CURSOR, CHART_GRID, NO_COLOR, PERCENT_TICKS, YES_COLOR, percentTick, tickInterval } from "./chartTheme";
+import { AXIS_TICK_STYLE, CHART_CURSOR, CHART_GRID, NO_COLOR, PERCENT_TICKS, SHOW_GRID, YES_COLOR, percentTick } from "./chartTheme";
+import { CHART_MARGIN, InsideXTick, X_AXIS_PADDING, Y_AXIS_WIDTH } from "./axis";
 
 export interface PriceChartProps {
   marketRef: string | number;
@@ -94,27 +95,29 @@ export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesL
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={points} margin={{ top: 12, right: 8, bottom: 0, left: 0 }}>
+            <AreaChart data={points} margin={CHART_MARGIN}>
               <defs>
                 <linearGradient id={`price-fill-${String(marketRef)}`} x1="0" x2="0" y1="0" y2="1">
                   <stop offset="0%" stopColor={lineColor} stopOpacity={0.22} />
                   <stop offset="100%" stopColor={lineColor} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid stroke={CHART_GRID} vertical={false} strokeDasharray="0" />
+              {SHOW_GRID && <CartesianGrid stroke={CHART_GRID} strokeWidth={1} vertical={false} />}
               <XAxis
                 dataKey="t"
                 type="number"
                 domain={["dataMin", "dataMax"]}
                 scale="time"
+                padding={X_AXIS_PADDING}
                 tickFormatter={(v: number) => formatAxisTime(v, tf)}
-                tick={AXIS_TICK_STYLE}
+                tick={<InsideXTick />}
+                tickMargin={6}
                 axisLine={false}
                 tickLine={false}
-                minTickGap={48}
-                interval={tickInterval(points.length)}
+                minTickGap={56}
+                interval="preserveStartEnd"
               />
-              <YAxis domain={[0, 1]} ticks={PERCENT_TICKS} tickFormatter={percentTick} tick={AXIS_TICK_STYLE} axisLine={false} tickLine={false} width={40} orientation="right" />
+              <YAxis domain={[0, 1]} ticks={PERCENT_TICKS} tickFormatter={percentTick} tick={AXIS_TICK_STYLE} tickMargin={4} axisLine={false} tickLine={false} width={Y_AXIS_WIDTH} orientation="right" />
               <Tooltip content={<TooltipBody tf={tf} />} cursor={{ stroke: CHART_CURSOR, strokeDasharray: "3 4", strokeWidth: 1 }} isAnimationActive={false} />
               <Area type="monotone" dataKey="price" stroke={lineColor} strokeWidth={2.25} fill={`url(#price-fill-${String(marketRef)})`} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: "#fff", fill: lineColor }} isAnimationActive={false} />
               {last && <ReferenceDot x={last.t} y={last.price} r={4.5} fill={lineColor} stroke="#fff" strokeWidth={2} />}
