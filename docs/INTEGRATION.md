@@ -106,8 +106,9 @@ All commands are built in `frontend/utils/cantonCommands.ts` using the Ledger AP
 
 ### Available command builders:
 
-- **`buildInitMarketParams(partyId, question, imageURL, description, option1, option2, liquidityParam, marketCounterContractId)`**  
-  Exercise `MarketCounter.CreateMarket` to create a new prediction market.
+- Market creation has no browser-side builder any more: the operator console posts to the
+  accounts backend (`POST /admin/markets`), which validates the catalog identity and has the
+  Enterprise Wallet exercise `MarketCounter.CreateMarket` as the treasury.
 
 - **`buildBuySharesParams(partyId, predictionMarketContractId, option, numShares, cost, existingPositionContractId, disclosedContracts?)`**  
   Exercise `PredictionMarket.Trade` to buy shares (option 1 or 2). Pass `disclosedContracts` (built from the active `PredictionMarketRecord`'s `createdEventBlob` and `synchronizerId`) when the buyer is an external/self-custody party whose participant can't see the cid directly — without it, the wallet's prepare call fails to resolve the contract.
@@ -152,11 +153,11 @@ If the Loop/Canton API returns a 500 error for active-contracts, verify:
 
 ## UI Integration
 
-### Admin Form (Create Market)
+### Operator console (Create Market)
 
-1. On mount, fetches `MarketCounter` contract ID via `fetchMarketCounterContractId()`
-2. When user submits the form, calls `buildInitMarketParams(..., marketCounterCid)` 
-3. Calls `signAndSubmitTransaction(params)` which uses Loop wallet or participant API based on `VITE_USE_PARTICIPANT_API`
+1. `components/Admin/CreateMarketForm.tsx` collects the event, the ticker suffix, the question, the Yes / No labels, the pm-AMM seed and the resolution policy
+2. Submits `POST /admin/markets` to the accounts backend under a backend operator session (`lib/backendAdmin.ts`)
+3. The backend checks the event and the ticker against the catalog, then the Enterprise Wallet signs `MarketCounter.CreateMarket`; the market appears once the indexer sees it
 
 ### Bet Buy Card (Trade)
 

@@ -1,9 +1,9 @@
 /**
  * Operator console for the market catalog (truthoracle-backend docs/MARKETS.md §2–§4, §8):
- * series and events, the treasury-signed market factory (a market inside an event, with its
- * ticker and Yes / No labels on-ledger) and the trading halt. Everything here calls the backend's admin API, so it needs a backend
- * operator session (a wallet-signed challenge, ARCHITECTURE §7.4) — separate from the older
- * `to_admin` relay session the rest of /admin uses.
+ * series and events, the treasury-signed market factory (CreateMarketForm — the only way a
+ * market is created from this UI) and the trading halt. Everything here calls the backend's
+ * admin API, so it needs a backend operator session (a wallet-signed challenge, ARCHITECTURE
+ * §7.4) — separate from the older `to_admin` relay session the payout queue still uses.
  */
 import { useCallback, useEffect, useState } from "react";
 import { useToast } from "@chakra-ui/react";
@@ -12,7 +12,6 @@ import { authErrorMessage } from "@/auth/wallet";
 import { probeBackend, type BackendAvailability } from "@/lib/backend";
 import {
   createEvent,
-  createMarketViaBackend,
   createSeries,
   fetchBackendAdminSession,
   setTradingHalt,
@@ -24,6 +23,7 @@ import {
 import { fetchEvents, fetchExchangeStatus, fetchSeriesList } from "@/lib/marketsApi";
 import { toNumber, type ApiEvent, type ApiExchangeStatus, type ApiSeries } from "@/lib/marketsTypes";
 import { WALLET_DISPLAY_NAME } from "@/config";
+import CreateMarketForm, { type Run } from "./CreateMarketForm";
 
 const FREQUENCIES: ApiSeries["frequency"][] = ["one_off", "daily", "weekly", "monthly", "quarterly", "annual", "custom"];
 
@@ -185,12 +185,12 @@ export default function CatalogPanel() {
         <EventsCard series={series} events={events} busy={busy} run={run} />
       </div>
 
-      <CreateMarketCard events={events} series={series} busy={busy} run={run} />
+      <Card title="Create a market inside an event (treasury-signed)">
+        <CreateMarketForm events={events} series={series} busy={busy} run={run} />
+      </Card>
     </div>
   );
 }
-
-type Run = (what: string, fn: () => Promise<unknown>, done: string) => Promise<boolean>;
 
 function HaltCard({ exchange, busy, onSet }: { exchange: ApiExchangeStatus | null; busy: string | null; onSet: (active: boolean, reason: string, resume: string) => Promise<boolean> }) {
   const [reason, setReason] = useState("");
@@ -334,7 +334,7 @@ function SeriesCard({ series, busy, run }: { series: ApiSeries[]; busy: string |
 }
 
 function EventsCard({ series, events, busy, run }: { series: ApiSeries[]; events: ApiEvent[]; busy: string | null; run: Run }) {
-  const [form, setForm] = useState({ ticker: "", seriesTicker: "", title: "", subTitle: "", mutuallyExclusive: true, strikeDate: "" });
+  const [form, setForm] = useState({ ticker: "", seriesTicker: "", title: "", subTitle: "", imageUrl: "", mutuallyExclusive: true, strikeDate: "" });
   const submit = async () => {
     const ok = await run(
       "Create event",
@@ -344,12 +344,13 @@ function EventsCard({ series, events, busy, run }: { series: ApiSeries[]; events
           seriesTicker: form.seriesTicker,
           title: form.title,
           subTitle: form.subTitle || undefined,
+          imageUrl: form.imageUrl.trim() || undefined,
           mutuallyExclusive: form.mutuallyExclusive,
           strikeDate: form.strikeDate ? new Date(form.strikeDate).toISOString() : null,
         }),
       `Event ${form.ticker.toUpperCase()} created`,
     );
-    if (ok) setForm({ ticker: "", seriesTicker: form.seriesTicker, title: "", subTitle: "", mutuallyExclusive: true, strikeDate: "" });
+    if (ok) setForm({ ticker: "", seriesTicker: form.seriesTicker, title: "", subTitle: "", imageUrl: "", mutuallyExclusive: true, strikeDate: "" });
   };
   return (
     <Card title={`Events (${events.length})`}>
@@ -403,6 +404,10 @@ function EventsCard({ series, events, busy, run }: { series: ApiSeries[]; events
           <label className={label}>Strike date (optional)</label>
           <input className={field} type="datetime-local" value={form.strikeDate} onChange={(e) => setForm({ ...form, strikeDate: e.target.value })} />
         </div>
+        <div className="sm:col-span-2">
+          <label className={label}>Image URL (optional — the default image of every market in this event)</label>
+          <input className={field} value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} placeholder="https://…" />
+        </div>
         <label className="flex items-center gap-2 self-end pb-2 text-sm text-slate-700">
           <input type="checkbox" checked={form.mutuallyExclusive} onChange={(e) => setForm({ ...form, mutuallyExclusive: e.target.checked })} />
           Mutually exclusive (one market resolves Yes)
@@ -410,134 +415,6 @@ function EventsCard({ series, events, busy, run }: { series: ApiSeries[]; events
       </div>
       <button type="button" className={`${btn} mt-3`} disabled={busy !== null || !form.ticker || !form.title || !form.seriesTicker} onClick={() => void submit()}>
         Create event
-      </button>
-    </Card>
-  );
-}
-
-function CreateMarketCard({ events, series, busy, run }: { events: ApiEvent[]; series: ApiSeries[]; busy: string | null; run: Run }) {
-  const open = events.filter((e) => !e.archived);
-  const [form, setForm] = useState({
-    eventTicker: "",
-    suffix: "",
-    question: "",
-    yesSubTitle: "",
-    noSubTitle: "",
-    resolutionDescription: "",
-    expiresAt: "",
-    initialProbability: 50,
-    initialValueCC: 100,
-    feeBps: 30,
-    isDynamic: true,
-    liquidityPeriodMinutes: 5,
-    operatorResolution: true,
-    sources: "",
-  });
-  const event = open.find((e) => e.ticker === form.eventTicker);
-  const category = event ? (series.find((s) => s.ticker === event.seriesTicker)?.category ?? "") : "";
-  const ticker = form.eventTicker && form.suffix ? `${form.eventTicker}-${form.suffix.toUpperCase()}` : "";
-  const submit = async () => {
-    const ok = await run(
-      "Create market",
-      () =>
-        createMarketViaBackend({
-          eventTicker: form.eventTicker,
-          ticker,
-          question: form.question,
-          yesSubTitle: form.yesSubTitle || undefined,
-          noSubTitle: form.noSubTitle || undefined,
-          resolutionDescription: form.resolutionDescription || undefined,
-          category: category || undefined,
-          expiresAt: new Date(form.expiresAt).toISOString(),
-          isDynamic: form.isDynamic,
-          liquidityPeriodSecs: form.isDynamic ? Math.max(0, Math.round(form.liquidityPeriodMinutes * 60)) : 0,
-          initialProbability: (Math.min(99, Math.max(1, form.initialProbability)) / 100).toFixed(4),
-          initialValueCC: String(form.initialValueCC),
-          feeBps: form.feeBps,
-          policy: { operatorResolution: form.operatorResolution, sources: form.sources.split(",").map((s) => s.trim()).filter(Boolean) },
-        }),
-      `CreateMarket submitted for ${ticker} — it appears once the indexer sees it`,
-    );
-    if (ok) setForm({ ...form, suffix: "", question: "", yesSubTitle: "", noSubTitle: "" });
-  };
-  const valid = form.eventTicker && form.suffix && form.question && form.expiresAt && form.initialValueCC > 0;
-  return (
-    <Card title="Create a market inside an event (treasury-signed)">
-      <p className="mb-3 text-xs text-slate-500">
-        The backend builds <code className="font-mono">MarketCounter.CreateMarket</code> with the ticker, event and side labels on-ledger (mandatory on truthoracle-v15) and submits
-        it through the Enterprise Wallet. Same ticker twice collides on the ledger's command dedup.
-      </p>
-      <div className="grid gap-2 sm:grid-cols-3">
-        <div>
-          <label className={label}>Event</label>
-          <select className={field} value={form.eventTicker} onChange={(e) => setForm({ ...form, eventTicker: e.target.value })}>
-            <option value="">Select an event…</option>
-            {open.map((e) => (
-              <option key={e.ticker} value={e.ticker}>
-                {e.ticker} — {e.title}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className={label}>Ticker suffix → {ticker || "…"}</label>
-          <input className={field} value={form.suffix} onChange={(e) => setForm({ ...form, suffix: e.target.value.toUpperCase() })} placeholder="CUT25" />
-        </div>
-        <div>
-          <label className={label}>Expiry (trading stops)</label>
-          <input className={field} type="datetime-local" value={form.expiresAt} onChange={(e) => setForm({ ...form, expiresAt: e.target.value })} />
-        </div>
-        <div className="sm:col-span-3">
-          <label className={label}>Question</label>
-          <input className={field} value={form.question} onChange={(e) => setForm({ ...form, question: e.target.value })} placeholder="Will the Fed cut by at least 25 bps in March 2026?" />
-        </div>
-        <div>
-          <label className={label}>Yes label</label>
-          <input className={field} value={form.yesSubTitle} onChange={(e) => setForm({ ...form, yesSubTitle: e.target.value })} placeholder="Cut ≥ 25 bps" />
-        </div>
-        <div>
-          <label className={label}>No label</label>
-          <input className={field} value={form.noSubTitle} onChange={(e) => setForm({ ...form, noSubTitle: e.target.value })} placeholder="Smaller or none" />
-        </div>
-        <div>
-          <label className={label}>Category</label>
-          <input className={field} value={category} readOnly placeholder="from the series" />
-        </div>
-        <div className="sm:col-span-3">
-          <label className={label}>Resolution criteria</label>
-          <input className={field} value={form.resolutionDescription} onChange={(e) => setForm({ ...form, resolutionDescription: e.target.value })} placeholder="FOMC statement, target range upper bound" />
-        </div>
-        <div>
-          <label className={label}>Initial probability (%)</label>
-          <input className={field} type="number" min={1} max={99} value={form.initialProbability} onChange={(e) => setForm({ ...form, initialProbability: Number(e.target.value) })} />
-        </div>
-        <div>
-          <label className={label}>Initial pool value (CC)</label>
-          <input className={field} type="number" min={1} step="any" value={form.initialValueCC} onChange={(e) => setForm({ ...form, initialValueCC: Number(e.target.value) })} />
-        </div>
-        <div>
-          <label className={label}>Fee (bps)</label>
-          <input className={field} type="number" min={0} max={1000} value={form.feeBps} onChange={(e) => setForm({ ...form, feeBps: Number(e.target.value) })} />
-        </div>
-        <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input type="checkbox" checked={form.isDynamic} onChange={(e) => setForm({ ...form, isDynamic: e.target.checked })} /> Dynamic pm-AMM
-        </label>
-        {form.isDynamic && (
-          <div>
-            <label className={label}>Liquidity period (min)</label>
-            <input className={field} type="number" min={0} value={form.liquidityPeriodMinutes} onChange={(e) => setForm({ ...form, liquidityPeriodMinutes: Number(e.target.value) })} />
-          </div>
-        )}
-        <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input type="checkbox" checked={form.operatorResolution} onChange={(e) => setForm({ ...form, operatorResolution: e.target.checked })} /> T0 operator resolution
-        </label>
-        <div className="sm:col-span-3">
-          <label className={label}>Allowlisted source URIs (comma-separated)</label>
-          <input className={field} value={form.sources} onChange={(e) => setForm({ ...form, sources: e.target.value })} placeholder="https://…" />
-        </div>
-      </div>
-      <button type="button" className={`${btn} mt-3`} disabled={busy !== null || !valid} onClick={() => void submit()}>
-        {busy === "Create market" ? "Submitting…" : "Create market on-ledger"}
       </button>
     </Card>
   );

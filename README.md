@@ -24,12 +24,16 @@ active contracts:
   index. The local `lib/marketPricing.ts` mirror still drives the live quote box.
 - The header banner reflects `GET /exchange/status`: an operator trading halt disables the
   trade controls (redemptions stay available).
-- `/admin` gains the catalog console (`components/Admin/CatalogPanel.tsx`): a backend operator
+- `/admin` is the operator console (`components/Admin/CatalogPanel.tsx`): a backend operator
   session (wallet-signed challenge, `POST /auth/admin`), series and events, the treasury-signed
-  market factory (`POST /admin/markets`, on-ledger ticker / event / side labels) and the trading
-  halt. Every `PredictionMarket` of `truthoracle-v15` carries its ticker, event ticker and the two
-  side labels as mandatory contract fields, so the browser-side `CreateMarket` form requires the
-  tickers too (labels default to Yes / No) and nothing is assigned off-ledger afterwards.
+  market factory (`components/Admin/CreateMarketForm.tsx` → `POST /admin/markets`) and the
+  trading halt. The factory is the only way this UI creates a market: pick an event, give the
+  ticker suffix, the question, the Yes / No labels, the pm-AMM seed and the resolution policy;
+  the backend refuses an unknown event or a taken ticker before the Enterprise Wallet signs
+  `CreateMarket`. Every `PredictionMarket` of `truthoracle-v15` carries its ticker, event ticker
+  and the two side labels as mandatory contract fields (labels default to Yes / No); the market
+  image defaults to the event's image. The older browser-built `CreateMarket` form that went
+  through the wallet relay is gone.
 
 Without a backend the app stays what it was: markets from the participant, no events, no
 candles (the market chart only draws the prices this tab observed — nothing is fabricated).
