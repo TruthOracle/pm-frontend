@@ -6,6 +6,13 @@
  * wallet's participant prepares, signs, and executes via the `signAndExecute({ note,
  * partyId, commandId, commandsJson, disclosedContracts })` API. Resolution flows through
  * events (`txInitiated` / `txChanged`).
+ *
+ * Every method that needs the wallet's approval (connect, signMessage, transferCC,
+ * signAndSubmitTransaction) opens a popup, and the browser allows ONE popup per click —
+ * callers must give each its own button and call it first thing in the handler
+ * (popupGesture.ts has the rules). When a popup is blocked anyway, the SDK crashes with a
+ * TypeError and leaves its transport wedged; `guardPopup` translates the crash into
+ * `WalletPopupBlockedError` and resets the transport so the next click can open a popup.
  */
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { C8WalletProvider } from "@cantor8/wallet-connect-sdk";
@@ -21,6 +28,7 @@ import type {
   ConnectOptions,
 } from "../types";
 import { debugLog, debugWarn } from "@/lib/debugLog";
+import { isSdkPopupBlockedFailure, translateWalletError } from "./popupGesture";
 
 const Cantor8WalletContext = createContext<CantonWalletContextValue | null>(null);
 
@@ -134,23 +142,63 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     };
   }, [network]);
 
-  const connect = useCallback(async (_options?: ConnectOptions) => {
-    const wallet = walletRef.current;
-    if (!wallet) {
-      throw new Error("Cantor8 wallet not initialized");
-    }
-    await wallet.connect();
-    // Fetch account after connect (in case the "connected" event hasn't landed yet).
+  /**
+   * After a blocked popup SDK 0.5.0 keeps `popup === null` in its transport, and every
+   * later request on that provider posts into nothing and never settles. `disconnect()`
+   * is the only public call that destroys and resets the transport (it also clears the
+   * stored session, so the person reconnects on the next click — an honest cost for a
+   * state the SDK cannot otherwise leave). Verified against the bundle on 2026-09-11.
+   */
+  const resetAfterBlockedPopup = useCallback(async (wallet: C8WalletProvider) => {
     try {
-      const { accounts } = await wallet.getAccounts();
-      const connected = accountFromPayload(accounts);
-      if (connected) {
-        setAccount(connected);
-      }
+      await wallet.disconnect();
     } catch (e) {
-      debugWarn("[Cantor8] getAccounts after connect failed", e);
+      debugWarn("[Cantor8] reset after blocked popup failed", e);
     }
+    setAccount(null);
   }, []);
+
+  /**
+   * Run one popup-opening SDK call: translate the SDK's failure into an Error the UI can
+   * show (popupGesture.ts) and, when the popup was blocked, reset the transport so the
+   * next click works. Every popup-opening method below goes through this.
+   */
+  const guardPopup = useCallback(
+    async <T,>(wallet: C8WalletProvider, run: () => Promise<T>): Promise<T> => {
+      try {
+        return await run();
+      } catch (err) {
+        if (isSdkPopupBlockedFailure(err)) {
+          debugWarn("[Cantor8] popup blocked by the browser", err);
+          await resetAfterBlockedPopup(wallet);
+        }
+        throw translateWalletError(err);
+      }
+    },
+    [resetAfterBlockedPopup],
+  );
+
+  const connect = useCallback(
+    async (_options?: ConnectOptions) => {
+      const wallet = walletRef.current;
+      if (!wallet) {
+        throw new Error("Cantor8 wallet not initialized");
+      }
+      // The popup opens synchronously inside connect(): keep this the first await.
+      await guardPopup(wallet, () => wallet.connect());
+      // Fetch account after connect (in case the "connected" event hasn't landed yet).
+      try {
+        const { accounts } = await wallet.getAccounts();
+        const connected = accountFromPayload(accounts);
+        if (connected) {
+          setAccount(connected);
+        }
+      } catch (e) {
+        debugWarn("[Cantor8] getAccounts after connect failed", e);
+      }
+    },
+    [guardPopup],
+  );
 
   const disconnect = useCallback(async () => {
     if (walletRef.current) {
@@ -224,12 +272,13 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
         debugLog(
           "[Cantor8] signAndExecute payload:\n" + JSON.stringify(signAndExecuteInput, null, 2),
         );
-        wallet
-          .signAndExecute(signAndExecuteInput)
+        // The popup opens synchronously inside signAndExecute(): it runs before any await
+        // in this method, so a click handler that calls us first keeps its gesture.
+        guardPopup(wallet, () => wallet.signAndExecute(signAndExecuteInput))
           .then((result) => {
             debugLog("[Cantor8] signAndExecute resolved:", result);
           })
-          .catch((err) => {
+          .catch((err: unknown) => {
             debugLog("[Cantor8] signAndExecute rejected:", err);
             finish(() => reject(err instanceof Error ? err : new Error(String(err))));
           });
@@ -242,7 +291,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
         cleanup.push(() => clearTimeout(timer));
       });
     },
-    [account],
+    [account, guardPopup],
   );
 
   /**
@@ -257,23 +306,28 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
       if (!account?.partyId) throw new Error("Cantor8 wallet not connected (no partyId)");
       if (!(amount > 0)) throw new Error("Transfer amount must be positive");
 
-      const result = await wallet.send({
-        senderPartyId: account.partyId,
-        instrumentId: "Amulet",
-        amount,
-        receiverPartyId: to,
-        ...(memo ? { memo } : {}),
-        ...(metadata ? { metadata } : {}),
-      });
+      // The popup opens synchronously inside send(): keep this the first await.
+      const result = await guardPopup(wallet, () =>
+        wallet.send({
+          senderPartyId: account.partyId,
+          instrumentId: "Amulet",
+          amount,
+          receiverPartyId: to,
+          ...(memo ? { memo } : {}),
+          ...(metadata ? { metadata } : {}),
+        }),
+      );
       return { txId: result?.txId ?? "" };
     },
-    [account],
+    [account, guardPopup],
   );
 
   /**
    * Sign a plain string with the connected party's key (SDK 0.5.0 `signMessage`).
-   * Only the admin login challenge uses this; the popup prompts for approval, and
-   * the returned string is opaque here — the server decides whether it verifies.
+   * The wallet-link and operator challenges use this; the popup prompts for approval,
+   * and the returned string is opaque here — the server decides whether it verifies.
+   * The popup opens synchronously inside the SDK call, so a click handler that calls
+   * this first (with the challenge already in hand) keeps its one popup allowance.
    */
   const signMessage = useCallback(
     async (message: string, partyId?: string): Promise<string> => {
@@ -281,9 +335,9 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
       if (!wallet) throw new Error("Cantor8 wallet not initialized");
       const signer = partyId ?? account?.partyId;
       if (!signer) throw new Error("Cantor8 wallet not connected (no partyId)");
-      return wallet.signMessage(message, signer);
+      return guardPopup(wallet, () => wallet.signMessage(message, signer));
     },
-    [account],
+    [account, guardPopup],
   );
 
   const wallets: CantonWalletItem[] | null = account

@@ -36,7 +36,7 @@ const faqData: FAQItemProps[] = [
   {
     question: "How do I start using TruthOracle?",
     answer:
-      "To start using TruthOracle, you'll need a compatible cryptocurrency wallet. Simply connect your wallet to our platform, deposit some funds, and start creating or participating in prediction markets.",
+      "Sign in with Google or Telegram to create your account — that account holds your balance and your identity verification. Then connect your Cantor8 wallet and link it to the account: the wallet signs your trades and is where deposits come from and withdrawals go. Deposit some Canton Coin and you can trade.",
   },
   {
     question: "What cryptocurrencies are supported on TruthOracle?",

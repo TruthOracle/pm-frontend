@@ -1,5 +1,6 @@
 import { YourLpBox, YourPositionBox } from "./MarketPositionCards";
 import { fmtCC } from "./marketHelpers";
+import { formatDateTimeUTC } from "@/lib/time";
 
 type SettlementContext = {
   phase: any;
@@ -7,6 +8,10 @@ type SettlementContext = {
   redeemable: any;
   busy: any;
   account: any;
+  /** Anonymous visitor: the position boxes point at sign-in, not at connecting a wallet. */
+  signInFirst?: boolean;
+  /** State B (§16): the connected wallet is linked but not primary — money CTAs are off with this label. */
+  tradeLockReason?: string | null;
   handleRedeem: any;
   lpPosition: any;
   setWithdrawPct: any;
@@ -18,7 +23,7 @@ type SettlementContext = {
 };
 
 export default function MarketSettlementPanel({ context }: { context: SettlementContext }) {
-  const { phase, market, redeemable, busy, account, handleRedeem, lpPosition, setWithdrawPct, handleWithdrawLiquidity, userPosition, holdings, probYes, probNo } = context;
+  const { phase, market, redeemable, busy, account, signInFirst = false, tradeLockReason = null, handleRedeem, lpPosition, setWithdrawPct, handleWithdrawLiquidity, userPosition, holdings, probYes, probNo } = context;
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
           <div className="flex-1 space-y-4">
@@ -31,7 +36,7 @@ export default function MarketSettlementPanel({ context }: { context: Settlement
                 <div className="flex justify-between"><span>Final probability</span><span>{(probYes * 100).toFixed(1)}% Yes</span></div>
                 <div className="flex justify-between"><span>Total volume</span><span>{fmtCC(market.totalVolumeCC, 2)} CC</span></div>
                 {market.resolvedAt && (
-                  <div className="flex justify-between"><span>Settled</span><span>{new Date(market.resolvedAt * 1000).toLocaleString()}</span></div>
+                  <div className="flex justify-between"><span>Settled</span><span>{formatDateTimeUTC(market.resolvedAt * 1000)}</span></div>
                 )}
               </div>
             </div>
@@ -52,7 +57,8 @@ export default function MarketSettlementPanel({ context }: { context: Settlement
                   </div>
                   <button
                     onClick={handleRedeem}
-                    disabled={busy !== null || redeemable <= 0 || !account}
+                    disabled={busy !== null || redeemable <= 0 || !account || tradeLockReason !== null}
+                    title={tradeLockReason ?? undefined}
                     className="trade-cta"
                   >
                     {busy === "redeem"
@@ -80,7 +86,8 @@ export default function MarketSettlementPanel({ context }: { context: Settlement
                     setWithdrawPct(100);
                     handleWithdrawLiquidity();
                   }}
-                  disabled={busy !== null || !account}
+                  disabled={busy !== null || !account || tradeLockReason !== null}
+                  title={tradeLockReason ?? undefined}
                   className="w-full rounded-lg border border-oracle-blue/30 bg-oracle-blue/10 py-3 text-sm font-bold text-oracle-blue hover:bg-oracle-blue/20 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {busy === "withdraw" ? "Withdrawing…" : "Withdraw all liquidity"}
@@ -89,8 +96,8 @@ export default function MarketSettlementPanel({ context }: { context: Settlement
             )}
           </div>
           <div className="w-full space-y-4 lg:w-80 lg:shrink-0">
-            <YourPositionBox account={account} userPosition={userPosition} holdings={holdings} probYes={probYes} probNo={probNo} />
-            {lpPosition && lpPosition.lpTokens > 0 && <YourLpBox account={account} lpPosition={lpPosition} market={market} />}
+            <YourPositionBox account={account} signInFirst={signInFirst} userPosition={userPosition} holdings={holdings} probYes={probYes} probNo={probNo} />
+            {lpPosition && lpPosition.lpTokens > 0 && <YourLpBox account={account} signInFirst={signInFirst} lpPosition={lpPosition} market={market} />}
           </div>
 
     </div>

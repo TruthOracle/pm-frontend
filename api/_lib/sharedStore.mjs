@@ -5,8 +5,8 @@
  * warm instance. When an Upstash-compatible Redis REST endpoint is configured this
  * module makes them fleet-wide; without one it degrades to the previous per-instance
  * behaviour rather than failing. Callers can treat every function as best-effort —
- * the invariants that guard money do NOT live here (they are closed by ledger
- * command-dedup on deterministic ids, see api/wallet/*.mjs).
+ * the invariants that guard money do NOT live here (money moves only in the accounts
+ * backend, which closes its races with ledger command-dedup on deterministic ids).
  *
  * Config (either pair; Vercel KV and Upstash use the same REST protocol):
  *   KV_REST_API_URL + KV_REST_API_TOKEN            (Vercel KV / Marketplace)

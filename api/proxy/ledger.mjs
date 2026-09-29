@@ -18,7 +18,7 @@ const TARGET_ENV = IS_MAINNET
 //
 // ACCESS: read-only query paths are public; everything else needs an admin session
 // (see ../_lib/proxyGuard.mjs). The injected token holds ParticipantAdmin — the same
-// authority scripts/grant-rights.ts relies on — so an open /v2/users/*/rights would
+// authority truthoracle-contracts/scripts/grant-rights.ts relies on — so an open /v2/users/*/rights would
 // let anyone grant themselves act-as on any party hosted here.
 const AUTH_PREFIXES = IS_MAINNET
   ? ["ZKPC_KEYCLOAK"]

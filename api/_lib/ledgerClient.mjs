@@ -117,7 +117,7 @@ export async function fetchPendingPayout(adminParty, contractId) {
   const rows = await activeContracts(adminParty, "PendingPayout");
   for (const row of rows) {
     if (row.contractId !== contractId) continue;
-    // Field names mirror daml/daml/Truthoracle.daml:215 — the payee is `user`.
+    // Field names mirror truthoracle-contracts/daml/daml/Truthoracle.daml (PendingPayout) — the payee is `user`.
     return {
       contractId: row.contractId,
       user: String(row.payload?.user ?? ""),

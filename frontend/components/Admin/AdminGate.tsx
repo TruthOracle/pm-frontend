@@ -6,11 +6,13 @@
  * button rather than a silent redirect. That also makes a failed login debuggable
  * instead of looking like a broken link.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Box, Center, Spinner } from "@chakra-ui/react";
 import { useCantonWallet } from "@/wallets";
+import { WALLET_DISPLAY_NAME } from "@/config";
 import { useAdminSession } from "@/lib/useIsAdmin";
-import { signInAsAdmin, signOutAsAdmin } from "@/lib/adminSession";
+import { type AdminNonce, NONCE_REUSE_MS, adminNonceIsFresh, fetchAdminNonce, signInAsAdmin, signOutAsAdmin } from "@/lib/adminSession";
+import { authErrorMessage } from "@/auth/wallet";
 
 /** "expires in 7h 59m 30s" — a live countdown, so the operator sees it moving. */
 function expiryLabel(expiresAt: number): string {
@@ -50,18 +52,79 @@ export default function AdminGate({ children }: { children: React.ReactNode }) {
     return () => clearInterval(id);
   }, [session.authenticated, session.expiresAt]);
 
-  const signIn = async () => {
+  // Connect and sign are two clicks on purpose: each opens a wallet popup and the browser
+  // allows one popup per click (frontend/wallets/cantor8/popupGesture.ts). The old
+  // one-click "Connect wallet and sign in" had the second popup blocked and also read
+  // `account` from a stale closure right after connect().
+  const connectWallet = async () => {
     setError(null);
     setBusy(true);
     try {
-      if (!connected || !account?.partyId) await connect();
-      const partyId = account?.partyId;
-      if (!partyId) throw new Error("Connect a wallet first.");
-      await signInAsAdmin({ partyId, signMessage });
+      await connect();
+    } catch (e) {
+      setError(authErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // The sign-in nonce is fetched BEFORE the click so the wallet popup is the first thing
+  // the click awaits; single-use and 5 min, so it is replaced before it goes stale and
+  // after every attempt (`nonceAttempt`).
+  const nonceRef = useRef<AdminNonce | null>(null);
+  const [nonceAttempt, setNonceAttempt] = useState(0);
+  const needNonce = !loading && !session.authenticated && session.configured && connected && Boolean(account?.partyId);
+  useEffect(() => {
+    if (!needNonce) {
+      nonceRef.current = null;
+      return;
+    }
+    let cancelled = false;
+    let timer: number | undefined;
+    const arm = async () => {
+      if (!adminNonceIsFresh(nonceRef.current)) {
+        try {
+          const nonce = await fetchAdminNonce();
+          if (cancelled) return;
+          nonceRef.current = nonce;
+        } catch {
+          // The click falls back to fetch-then-sign; try again quietly in a while.
+          if (!cancelled) timer = window.setTimeout(() => void arm(), 15_000);
+          return;
+        }
+      }
+      // Fixed local cadence: arithmetic on a server timestamp could land on NaN or zero
+      // and turn this into a request loop.
+      timer = window.setTimeout(() => {
+        nonceRef.current = null;
+        void arm();
+      }, NONCE_REUSE_MS);
+    };
+    void arm();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [needNonce, nonceAttempt]);
+
+  const signIn = async () => {
+    // Rendered only while connected, so this reads the current party, not a stale one.
+    const partyId = account?.partyId;
+    if (!partyId) {
+      setError("Connect a wallet first.");
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    const nonce = nonceRef.current;
+    nonceRef.current = null; // single-use, whatever happens next
+    try {
+      await signInAsAdmin({ partyId, signMessage, nonce });
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(authErrorMessage(e));
     } finally {
+      setNonceAttempt((n) => n + 1);
       setBusy(false);
     }
   };
@@ -124,26 +187,37 @@ export default function AdminGate({ children }: { children: React.ReactNode }) {
       <h1 className="font-jbm text-xl font-bold text-slate-950">Operator sign-in</h1>
       <p className="mt-3 text-sm text-slate-600">
         Admin actions are authorised by signing a one-time challenge with your operator
-        wallet. Your wallet will ask you to approve a short message — this is a signature,
-        not a transaction, and moves no funds.
+        wallet. Two steps, each in its own wallet popup: connect the {WALLET_DISPLAY_NAME} wallet,
+        then approve a short message — a signature, not a transaction, and it moves no funds.
       </p>
 
       {account?.partyId ? (
         <p className="mt-4 break-all font-mono text-xs text-slate-500">
-          Connected as {account.partyId}
+          Step 1 done — connected as {account.partyId}
         </p>
       ) : (
-        <p className="mt-4 text-xs text-slate-500">No wallet connected yet.</p>
+        <p className="mt-4 text-xs text-slate-500">Step 1 of 2: no wallet connected yet.</p>
       )}
 
-      <button
-        type="button"
-        onClick={signIn}
-        disabled={busy}
-        className="mt-6 w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {busy ? "Waiting for your wallet…" : connected ? "Sign in as operator" : "Connect wallet and sign in"}
-      </button>
+      {connected && account?.partyId ? (
+        <button
+          type="button"
+          onClick={() => void signIn()}
+          disabled={busy}
+          className="mt-6 w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {busy ? "Waiting for your wallet…" : "Step 2 of 2: sign in as operator"}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => void connectWallet()}
+          disabled={busy}
+          className="mt-6 w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {busy ? "Waiting for your wallet…" : `Connect ${WALLET_DISPLAY_NAME} wallet`}
+        </button>
+      )}
 
       {error ? (
         <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">

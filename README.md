@@ -3,6 +3,43 @@ TruthOracle is a cutting-edge decentralized prediction market platform built on 
 
 The platform can be seen at - [truthoracle-omega.vercel.app](https://truthoracle-omega.vercel.app/)
 
+## Markets like an exchange (series → events → markets)
+
+With the accounts backend deployed, the app reads markets, candles and the catalog from its
+ledger index (`truthoracle-backend/docs/MARKETS.md`) instead of polling the participant's
+active contracts:
+
+- `/marketplace` lists **events** (one question, N binary pm-AMM markets) with their legs'
+  Yes / No prices, filtered by the series' category (`?category=`, `?series=`, `?q=` — the
+  header topics and search box drive them); a Markets view lists every market.
+- `/events/:ticker` is the event page: the legs table (Yes price, 24 h change, volume, open
+  interest, trade buttons) and one chart with every leg's Yes price.
+- `/market/:idOrTicker` is the market page. The chart is the backend's candlesticks (1 min ·
+  1 h · 1 d, line or candles, volume bars, OHLC tooltip); the header shows the ticker, the
+  event and the two side labels; the stats show 24 h volume, open interest and the pool's
+  liquidity. A trade goes through `POST /markets/:market/orders/prepare`: the backend assembles
+  the exact ExerciseCommand (active market version + disclosed blob, the account's UserWallet
+  and Position contract ids — reads a browser cannot do as an external party on mainnet) and
+  the Cantor8 wallet signs it; the page then waits on `GET /ledger/wait` and reloads from the
+  index. The local `lib/marketPricing.ts` mirror still drives the live quote box.
+- The header banner reflects `GET /exchange/status`: an operator trading halt disables the
+  trade controls (redemptions stay available).
+- `/admin` is the operator console (`components/Admin/CatalogPanel.tsx`): a backend operator
+  session (wallet-signed challenge, `POST /auth/admin`), series and events, the treasury-signed
+  market factory (`components/Admin/CreateMarketForm.tsx` → `POST /admin/markets`) and the
+  trading halt. The factory is the only way this UI creates a market: pick an event, give the
+  ticker suffix, the question, the Yes / No labels, the pm-AMM seed and the resolution policy;
+  the backend refuses an unknown event or a taken ticker before the Enterprise Wallet signs
+  `CreateMarket`. Every `PredictionMarket` of `truthoracle-v16` carries its ticker, event ticker
+  and the two side labels as mandatory contract fields (labels default to Yes / No). Image,
+  description and category are not on the contract: the backend keeps them as operator
+  metadata (`PATCH /admin/markets/:market/metadata`, the "Market presentation" card), the image
+  defaults to the event's and the category comes from the event's series. The older
+  browser-built `CreateMarket` form that went through the wallet relay is gone.
+
+Without a backend the app stays what it was: markets from the participant, no events, no
+candles (the market chart only draws the prices this tab observed — nothing is fabricated).
+
 ## Features
 - Decentralized Market Creation: Easily create and participate in prediction markets without intermediaries.
 - Low Transaction Fees: Enjoy minimal fees thanks to the efficiency of the Canton Network.
@@ -57,32 +94,28 @@ The current native shell uses local preview data for the first SwiftUI surfaces.
 The next integration step is to connect `URLSession` services for live news,
 Canton markets, and the native wallet flow without introducing a WebView.
 
+## Repositories
+
+This repository is the web frontend plus its Vercel proxy functions. The rest of the
+platform lives in sibling repositories:
+
+| Repository | Contents |
+|---|---|
+| `truthoracle-canton` (this repo) | React/Vite frontend, `api/` Vercel functions (ledger/wallet proxies, accounts-backend relay, admin auth) |
+| `truthoracle-backend` | NestJS backend — accounts (Google / Telegram sign-in; the Cantor8 wallet is linked to the account afterwards, never a sign-in method), KYC, deposits and payouts (the only money rails; required for deposit/withdraw), admin API |
+| `truthoracle-contracts` | Daml package (`daml/`), DAR build/upload and operator scripts (`create:contract`, `ledger:query`, `contracts:active`, `rights:grant`, `create:account`) |
+| `enterprise-wallet` | Self-hosted Cantor8 Enterprise Wallet that signs as the admin / treasury party |
+
 ## DAML Contracts (Canton Network)
 
-TruthOracle uses DAML contracts on the Canton Network in the `daml/` directory:
-
-- **daml/daml/Truthoracle.daml** – Prediction markets (create, buy shares, record result)
-- **daml/daml/Incentives.daml** – Rewards (early participant, creator, winning prediction)
+TruthOracle uses DAML contracts on the Canton Network. They now live in the
+`truthoracle-contracts` repository (`daml/daml/Truthoracle.daml` — markets, pm-AMM
+trades, `UserWallet`, `PendingPayout`; `daml/daml/Incentives.daml` — rewards). Build with
+`npm run dars:build`, test with `npm run dars:test` and deploy with `npm run dars:upload`
+from that repository, then point `VITE_TRUTHORACLE_PACKAGE_ID` / `VITE_TRUTHORACLE_PACKAGE_NAME`
+here at the uploaded package.
 
 Balances and payments use **Canton Coin** (native on Canton Network testnet and mainnet).
-
-### Build DAML
-```bash
-cd daml
-dpm build
-```
-
-### Test DAML
-```bash
-cd daml
-dpm test
-```
-
-### Deploy to Canton Network
-
-Use your Canton participant node and deployment process to upload the Dar and configure parties. See [Canton Network documentation](https://docs.digitalasset.com/canton/) for participant setup and Dar deployment.
-
-Full DAML setup and module details: [daml/README.md](daml/README.md).
 
 ## Our deployments
 
@@ -96,10 +129,11 @@ Front-end: [https://truth-oracle.vercel.app/](https://truth-oracle.vercel.app/)
 - **Architecture Overview:**  
   - [Market Resolution System](https://github.com/Truth-Oracle/truthoracle/tree/main/market-resolution)
   - [ZKP Circuits](https://github.com/Truth-Oracle/truthoracle/tree/main/noir/circuits)
-  - [DAML Smart Contracts](https://github.com/Truth-Oracle/truthoracle/tree/main/daml)
+  - DAML Smart Contracts: the `truthoracle-contracts` repository
 
 - **API Reference:**  
   - [CantonService API](./blockend/cantonService.js) – Functions for interacting with Canton and DAML.
+  - Backend API: `docs/ARCHITECTURE.md` in the `truthoracle-backend` repository.
 
 - **User Interface:**  
   - [UI Components](https://github.com/Truth-Oracle/truthoracle/tree/main/frontend/components)
@@ -112,4 +146,4 @@ Front-end: [https://truth-oracle.vercel.app/](https://truth-oracle.vercel.app/)
 
 ---
 
-**For more details, see the inline documentation and [daml/README.md](daml/README.md).**
+**For more details, see the inline documentation and `daml/README.md` in the `truthoracle-contracts` repository.**

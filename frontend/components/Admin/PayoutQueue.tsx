@@ -23,7 +23,6 @@ import {
     enterpriseWalletPartyId,
     submitAdminTransaction,
 } from "@/lib/enterpriseWalletSubmit";
-import { runAdminAutoPayout } from "@/lib/adminAutoPayout";
 import { debugError } from "@/lib/debugLog";
 
 function truncate(s: string, head = 8, tail = 6) {
@@ -32,22 +31,25 @@ function truncate(s: string, head = 8, tail = 6) {
 }
 
 /**
- * Admin payout queue. Lists every PendingPayout the admin party can see
- * (i.e. they're signatory).
+ * Admin payout queue. Lists every PendingPayout the admin party can see (i.e. they're
+ * signatory).
  *
- * "Settle" is the normal path: the server reads payee and amount from the contract,
- * sends the CC through the Enterprise Wallet, and exercises MarkPaid — the same
- * race-safe endpoint the automatic flows use, so a stuck payout is retried here with
- * no chance of double-paying. The paste-a-hash Mark Paid remains as the escape hatch
- * for payouts that were genuinely settled out-of-band.
+ * Settlement is the accounts backend's job: its payout processor settles bond /
+ * model-prize rows into the in-app balance and withdrawals after identity verification,
+ * and an operator force-settles a stuck row through its admin API
+ * (POST /api/v1/admin/payouts/:cid/settle). That API needs a backend ADMIN session,
+ * which this UI's operator cookie (to_admin) is not — so nothing here pretends to call
+ * it; the contract id is copyable instead. The paste-a-hash Mark Paid remains as the
+ * escape hatch for payouts that were genuinely settled out-of-band (wallet-signed,
+ * amount never leaves the browser).
  */
 function PayoutQueue() {
     const { account, signAndSubmitTransaction } = useCantonWallet();
     const [rows, setRows] = useState<PendingPayoutRecord[]>([]);
     const [loading, setLoading] = useState(false);
     const [marking, setMarking] = useState<string | null>(null);
-    const [settling, setSettling] = useState<string | null>(null);
     const [txHashes, setTxHashes] = useState<Record<string, string>>({});
+    const [copied, setCopied] = useState<string | null>(null);
     const toast = useToast();
 
     const adminParty = enterpriseWalletPartyId();
@@ -67,30 +69,13 @@ function PayoutQueue() {
         refresh();
     }, [refresh]);
 
-    const settle = async (cid: string) => {
-        setSettling(cid);
+    const copyCid = async (cid: string) => {
         try {
-            const result = await runAdminAutoPayout({ pendingPayoutCid: cid });
-            toast({
-                title: result.settled ? "Payout settled" : "Nothing to settle",
-                description: result.settled
-                    ? `Sent ${result.amountCC?.toFixed(4) ?? "?"} CC to ${truncate(result.to ?? "?")} and archived the row.`
-                    : "The payout was already settled or cancelled.",
-                status: result.settled ? "success" : "info",
-                duration: 6000,
-                isClosable: true,
-            });
-            await refresh();
-        } catch (e) {
-            toast({
-                title: "Settlement failed",
-                description: e instanceof Error ? e.message : String(e),
-                status: "error",
-                duration: 6000,
-                isClosable: true,
-            });
-        } finally {
-            setSettling(null);
+            await navigator.clipboard.writeText(cid);
+            setCopied(cid);
+            window.setTimeout(() => setCopied((c) => (c === cid ? null : c)), 1500);
+        } catch {
+            toast({ title: "Could not copy", description: cid, status: "info", duration: 6000, isClosable: true });
         }
     };
 
@@ -148,10 +133,14 @@ function PayoutQueue() {
     return (
         <Box className="font-jbm" color="white" p={6} mt={6} borderRadius="lg" borderWidth="2px" borderColor="#CCCCFF" bg="#18191C" maxW="6xl" mx="auto">
             <Heading size="md" mb={1} color="#CCCCFF">Payout Queue</Heading>
-            <Text fontSize="xs" color="gray.500" mb={4}>
+            <Text fontSize="xs" color="gray.500" mb={2}>
                 Sell, Merge, withdrawals, and resolved-winner shares each create a `PendingPayout` row here.
-                Settle sends the CC via the Enterprise Wallet and archives the row in one step (amount and
-                payee come from the contract). Use Mark Paid only for payouts already settled out-of-band.
+                Use Mark Paid only for payouts already settled out-of-band.
+            </Text>
+            <Text fontSize="xs" color="amber.300" mb={3}>
+                Settlement runs in the accounts backend (bond and model-prize into the in-app balance,
+                withdrawals after identity verification). To force-settle a stuck row, copy its contract
+                id and use the backend&apos;s admin API: POST /api/v1/admin/payouts/:cid/settle.
             </Text>
             <Text fontSize="sm" color="amber.300" mb={3}>
                 Outstanding: <strong>{total.toFixed(4)} CC</strong> across <strong>{rows.length}</strong> row{rows.length === 1 ? "" : "s"}
@@ -169,6 +158,7 @@ function PayoutQueue() {
                             <Th color="white">Market</Th>
                             <Th color="white">Reason</Th>
                             <Th color="white" isNumeric>Amount</Th>
+                            <Th color="white">Contract id</Th>
                             <Th color="white">CC tx hash</Th>
                             <Th color="white"></Th>
                         </Tr>
@@ -176,10 +166,23 @@ function PayoutQueue() {
                     <Tbody>
                         {rows.map((r) => (
                             <Tr color="#CCCCFF" key={r.contractId}>
-                                <Td fontSize="xs" fontFamily="mono">{truncate(r.user)}</Td>
-                                <Td>#{r.marketId}</Td>
+                                <Td fontSize="xs" fontFamily="mono" title={r.user}>{truncate(r.user)}</Td>
+                                <Td>{r.marketId === 0 ? "—" : `#${r.marketId}`}</Td>
                                 <Td>{r.reason}</Td>
                                 <Td isNumeric>{r.amountCC.toFixed(4)} CC</Td>
+                                <Td fontSize="xs" fontFamily="mono" whiteSpace="nowrap" title={r.contractId}>
+                                    {truncate(r.contractId, 6, 4)}
+                                    <Button
+                                        size="xs"
+                                        variant="ghost"
+                                        colorScheme="gray"
+                                        ml={1}
+                                        onClick={() => void copyCid(r.contractId)}
+                                        aria-label="Copy contract id"
+                                    >
+                                        {copied === r.contractId ? "Copied" : "Copy"}
+                                    </Button>
+                                </Td>
                                 <Td>
                                     <Input
                                         size="sm"
@@ -195,21 +198,10 @@ function PayoutQueue() {
                                 <Td>
                                     <Button
                                         size="sm"
-                                        colorScheme="green"
-                                        mr={2}
-                                        onClick={() => settle(r.contractId)}
-                                        isLoading={settling === r.contractId}
-                                        isDisabled={settling !== null || marking !== null}
-                                    >
-                                        Settle
-                                    </Button>
-                                    <Button
-                                        size="sm"
                                         variant="outline"
                                         colorScheme="gray"
                                         onClick={() => markPaid(r.contractId)}
                                         isDisabled={
-                                            settling !== null ||
                                             marking === r.contractId ||
                                             !(txHashes[r.contractId] ?? "").trim()
                                         }

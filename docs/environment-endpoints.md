@@ -33,8 +33,8 @@ VITE_APP_NETWORK=devnet
 VITE_WALLET_TYPE=cantor8
 VITE_LOOP_NETWORK=devnet
 VITE_USE_PARTICIPANT_API=true
-VITE_TRUTHORACLE_PACKAGE_ID=0a786ef1027354cb70a1cd78331680bf34054a642520dc0eb94c9ac4f775b837
-VITE_TRUTHORACLE_PACKAGE_NAME=truthoracle-v13
+VITE_TRUTHORACLE_PACKAGE_ID=<package id printed by npm run dars:upload in truthoracle-contracts>
+VITE_TRUTHORACLE_PACKAGE_NAME=truthoracle-v16
 VITE_ENTERPRISE_WALLET_PARTY_ID=20a2514bea1b4dd382f116c1e580197d::12205811d9301bcc2456567f882baceb8e083483c8be3f2631aedc2ce1806c424393
 VITE_ENTERPRISE_WALLET_APP_NAME=truthoracle
 ```
@@ -74,11 +74,12 @@ CANTON_LEDGER_PROXY_TARGET_URL=https://<host>/api/ledger
 ```
 
 Do not include `/v2/packages`, `/v2/state/ledger-end`, or any other endpoint
-suffix. The app and scripts append those paths.
+suffix. The app appends those paths.
 
 `ENTERPRISE_WALLET_PROXY_TARGET_URL` has no fallback default. Unset, every wallet
 call returns `500 "Missing proxy target for enterprise wallet"` — market creation,
-result recording, admin payouts, and in-app wallet deposit/withdraw alike.
+result recording and Mark Paid alike. (Deposit credits and payout settlement go
+through the accounts backend, which reaches the wallet with its own configuration.)
 
 `KEYCLOAK_CLIENT_ID` / `KEYCLOAK_CLIENT_SECRET` take no `VITE_` prefix. A
 `VITE_`-prefixed spelling of either is deliberately ignored by
@@ -107,19 +108,10 @@ token against the wrong Keycloak, which the participant rejects with an opaque
 
 ## Local `.env`
 
-The aliases above are a Vercel convenience. Locally, keep the `VITE_` spellings —
-`VITE_CANTON_PARTICIPANT_URL`, `VITE_ENTERPRISE_WALLET_URL`, `VITE_KEYCLOAK_URL`,
-`VITE_KEYCLOAK_REALM` — because the `tsx scripts/*.ts` commands read those:
-
-- `ledger:query`, `contracts:active`, `rights:grant`, `dars:upload` read the
-  `VITE_` names only. Setting just an alias locally fails them with
-  `Missing required config`.
-- `create:contract`, `create:account` read `VITE_ENTERPRISE_WALLET_URL`
-  (defaulting to `http://localhost:8080`) and take the Keycloak issuer from
-  `WALLET_KEYCLOAK_URL` → `KEYCLOAK_URL` → `VITE_KEYCLOAK_URL`, so a separate
-  `WALLET_KEYCLOAK_*` client works here when the wallet trusts a different
-  issuer than the Ledger API.
-
-Every script takes the acting party from `VITE_ENTERPRISE_WALLET_PARTY_ID` on
-every network, `--network zkpc` included. `contracts:active` and `rights:grant`
-additionally accept `--party <partyId>` to override it.
+The aliases above are a Vercel convenience; locally either spelling works for the
+proxies and the dev server. The operator scripts (`ledger:query`, `contracts:active`,
+`rights:grant`, `dars:upload`, `create:contract`, `create:account`) moved to the
+`truthoracle-contracts` repository, which has its own `.env` / `.env.example`
+documenting exactly which names each script reads. The treasury wallet deployment is
+the `enterprise-wallet` repository; accounts, KYC and session-gated money flows are
+the `truthoracle-backend` repository.

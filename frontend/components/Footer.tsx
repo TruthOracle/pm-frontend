@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Globe2, Mail, MessageCircle } from "lucide-react";
+import { currentUTCYear } from "@/lib/time";
 
 const Footer = () => (
   <footer className="site-footer">
@@ -14,7 +15,7 @@ const Footer = () => (
         <div><p className="footer-label">TruthOracle</p><Link to="/rewards" className="footer-link">Rewards</Link><Link to="/portfolio" className="footer-link">Portfolio</Link><span className="footer-link">Built on Canton</span><span className="footer-link">Careers</span></div>
       </div>
     </div>
-    <div className="page-container border-t border-slate-200/80 py-4 text-xs text-slate-400"><span>TruthOracle © {new Date().getFullYear()}</span><span className="mx-2">·</span><span>Privacy</span><span className="mx-2">·</span><span>Terms of Use</span><span className="mx-2">·</span><span>Market outcomes are not financial advice.</span></div>
+    <div className="page-container border-t border-slate-200/80 py-4 text-xs text-slate-400"><span>TruthOracle © {currentUTCYear()}</span><span className="mx-2">·</span><span>Privacy</span><span className="mx-2">·</span><span>Terms of Use</span><span className="mx-2">·</span><span>Market outcomes are not financial advice.</span></div>
   </footer>
 );
 

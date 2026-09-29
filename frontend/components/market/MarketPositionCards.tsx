@@ -5,12 +5,15 @@ import { fmtCC } from "./marketHelpers";
 
 export function YourPositionBox({
   account,
+  signInFirst = false,
   userPosition,
   holdings,
   probYes,
   probNo,
 }: {
   account: unknown;
+  /** Anonymous visitor: there is no connect control for them, so point at sign-in. */
+  signInFirst?: boolean;
   userPosition: UserMarketPosition | null;
   holdings: AmuletHoldings | null;
   probYes: number;
@@ -19,7 +22,7 @@ export function YourPositionBox({
   return (
     <div className="rounded-xl border border-primary/20 bg-primary/5 p-5">
       <h3 className="mb-3 text-sm font-semibold text-foreground">Your Position</h3>
-      {!account ? <p className="text-xs text-muted-foreground">Connect a wallet to see your position.</p> : !userPosition ? <p className="text-xs text-muted-foreground">No position in this market yet.</p> : (
+      {!account ? <p className="text-xs text-muted-foreground">{signInFirst ? "Sign in to see your position." : `Connect your ${WALLET_DISPLAY_NAME} wallet to see your position.`}</p> : !userPosition ? <p className="text-xs text-muted-foreground">No position in this market yet.</p> : (
         <div className="space-y-2 text-sm">
           <div className="flex justify-between"><span className="text-muted-foreground">YES shares</span><span className="font-semibold text-oracle-yes">{fmtCC(userPosition.yesShares, 2)}</span></div>
           <div className="flex justify-between"><span className="text-muted-foreground">NO shares</span><span className="font-semibold text-oracle-no">{fmtCC(userPosition.noShares, 2)}</span></div>
@@ -32,11 +35,11 @@ export function YourPositionBox({
   );
 }
 
-export function YourLpBox({ account, lpPosition, market }: { account: unknown; lpPosition: LiquidityPositionRecord | null; market: PredictionMarketRecord }) {
+export function YourLpBox({ account, signInFirst = false, lpPosition, market }: { account: unknown; signInFirst?: boolean; lpPosition: LiquidityPositionRecord | null; market: PredictionMarketRecord }) {
   return (
     <div className="rounded-xl border border-oracle-blue/20 bg-oracle-blue/5 p-5">
       <h3 className="mb-3 text-sm font-semibold text-foreground">Your LP Position</h3>
-      {!account ? <p className="text-xs text-muted-foreground">Connect a wallet to see your LP position.</p> : !lpPosition || lpPosition.lpTokens <= 0 ? <p className="text-xs text-muted-foreground">No liquidity provided yet.</p> : (
+      {!account ? <p className="text-xs text-muted-foreground">{signInFirst ? "Sign in to see your LP position." : `Connect your ${WALLET_DISPLAY_NAME} wallet to see your LP position.`}</p> : !lpPosition || lpPosition.lpTokens <= 0 ? <p className="text-xs text-muted-foreground">No liquidity provided yet.</p> : (
         <div className="space-y-2 text-sm">
           <div className="flex justify-between"><span className="text-muted-foreground">LP tokens</span><span className="font-semibold text-foreground">{fmtCC(lpPosition.lpTokens, 4)}</span></div>
           <div className="flex justify-between"><span className="text-muted-foreground">Share of pool</span><span className="font-semibold text-foreground">{market.lpTokenSupply > 0 ? ((lpPosition.lpTokens / market.lpTokenSupply) * 100).toFixed(2) : "0"}%</span></div>

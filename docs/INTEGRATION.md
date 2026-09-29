@@ -106,8 +106,9 @@ All commands are built in `frontend/utils/cantonCommands.ts` using the Ledger AP
 
 ### Available command builders:
 
-- **`buildInitMarketParams(partyId, question, imageURL, description, option1, option2, liquidityParam, marketCounterContractId)`**  
-  Exercise `MarketCounter.CreateMarket` to create a new prediction market.
+- Market creation has no browser-side builder any more: the operator console posts to the
+  accounts backend (`POST /admin/markets`), which validates the catalog identity and has the
+  Enterprise Wallet exercise `MarketCounter.CreateMarket` as the treasury.
 
 - **`buildBuySharesParams(partyId, predictionMarketContractId, option, numShares, cost, existingPositionContractId, disclosedContracts?)`**  
   Exercise `PredictionMarket.Trade` to buy shares (option 1 or 2). Pass `disclosedContracts` (built from the active `PredictionMarketRecord`'s `createdEventBlob` and `synchronizerId`) when the buyer is an external/self-custody party whose participant can't see the cid directly — without it, the wallet's prepare call fails to resolve the contract.
@@ -152,11 +153,11 @@ If the Loop/Canton API returns a 500 error for active-contracts, verify:
 
 ## UI Integration
 
-### Admin Form (Create Market)
+### Operator console (Create Market)
 
-1. On mount, fetches `MarketCounter` contract ID via `fetchMarketCounterContractId()`
-2. When user submits the form, calls `buildInitMarketParams(..., marketCounterCid)` 
-3. Calls `signAndSubmitTransaction(params)` which uses Loop wallet or participant API based on `VITE_USE_PARTICIPANT_API`
+1. `components/Admin/CreateMarketForm.tsx` collects the event, the ticker suffix, the question, the Yes / No labels, the pm-AMM seed and the resolution policy
+2. Submits `POST /admin/markets` to the accounts backend under a backend operator session (`lib/backendAdmin.ts`)
+3. The backend checks the event and the ticker against the catalog, then the Enterprise Wallet signs `MarketCounter.CreateMarket`; the market appears once the indexer sees it
 
 ### Bet Buy Card (Trade)
 
@@ -206,10 +207,10 @@ If the Loop/Canton API returns a 500 error for active-contracts, verify:
 ### active-contracts returns `[]` (empty array)
 
 1. **MarketCounter not created yet**  
-   Create it once with the admin party using `npm run create:contract` with the same `.env` as the app (`VITE_CANTON_PARTICIPANT_URL`, `VITE_TRUTHORACLE_*`, `VITE_KEYCLOAK_URL`/`_REALM`, `KEYCLOAK_CLIENT_ID`/`_SECRET`, and optionally `VITE_ENTERPRISE_WALLET_PARTY_ID`). Until that succeeds, there is no contract to see.
+   Create it once with the admin party using `npm run create:contract` in the `truthoracle-contracts` repository, with the same values in its `.env` as the app (`VITE_CANTON_PARTICIPANT_URL`, `VITE_TRUTHORACLE_*`, `VITE_KEYCLOAK_URL`/`_REALM`, `KEYCLOAK_CLIENT_ID`/`_SECRET`, and optionally `VITE_ENTERPRISE_WALLET_PARTY_ID`). Until that succeeds, there is no contract to see.
 
 2. **Party mismatch**  
-   You must query with the **exact party** that is signatory (or observer) on the contract. For `MarketCounter`, only the **admin** party is signatory. If the UI uses a different party (e.g. another wallet), that party will get `[]`. Fix: use the same party that ran `npm run create:contract`, or ensure the connected wallet’s `account.address` is that admin party ID.
+   You must query with the **exact party** that is signatory (or observer) on the contract. For `MarketCounter`, only the **admin** party is signatory. If the UI uses a different party (e.g. another wallet), that party will get `[]`. Fix: use the same party that ran `npm run create:contract` (truthoracle-contracts), or ensure the connected wallet’s `account.address` is that admin party ID.
 
 3. **Wrong participant / URL**  
    The app uses `VITE_CANTON_PARTICIPANT_URL` for both creating (script) and querying (frontend). If the script was run against a different base URL than the app, contracts won’t be visible. Use the same participant URL everywhere.
@@ -231,7 +232,7 @@ If you see **"Market counter not found on this participant"**, create the counte
 
 In `c8-knowledge-hub-main/playground/.env.example`, **`VALIDATOR_PARTY`** (e.g. `cantor8-digik-1::1220…`) is the **validator / participant infrastructure** party used in Messenger playground examples. It is **not** the TruthOracle **`MarketCounter` admin**.
 
-- **`npm run create:contract`** uses **`VITE_ENTERPRISE_WALLET_PARTY_ID`** from `.env` if set; otherwise a built-in dev default. That party is signatory on `MarketCounter` (typically the same as the wallet you connect as admin). The script does not call **`GET /v2/parties`**; set the admin explicitly (see [How to get the admin party ID](#how-to-get-the-admin-party-id) below).
+- **`npm run create:contract`** (in the `truthoracle-contracts` repository) uses **`VITE_ENTERPRISE_WALLET_PARTY_ID`** from its `.env` if set; otherwise a built-in dev default. That party is signatory on `MarketCounter` (typically the same as the wallet you connect as admin). The script does not call **`GET /v2/parties`**; set the admin explicitly (see [How to get the admin party ID](#how-to-get-the-admin-party-id) below).
 - Do **not** substitute `VALIDATOR_PARTY` for your TruthOracle admin unless your operator confirms they are the same party (they usually are not).
 
 ### How to get the admin party ID
@@ -273,7 +274,7 @@ Whoever runs the Canton participant (e.g. DigiK, Cantor8, or your team) may have
 
 ### Option 1: TypeScript script (recommended)
 
-From the repo root:
+From the `truthoracle-contracts` repository root:
 
 ```bash
 # .env already has VITE_CANTON_PARTICIPANT_URL, VITE_TRUTHORACLE_PACKAGE_ID,
@@ -360,7 +361,7 @@ After a successful execute, the participant has one active `MarketCounter` contr
 
 ## References
 
-- **DAML Contracts:** `daml/daml/Truthoracle.daml`, `daml/daml/Incentives.daml`
+- **DAML Contracts:** `daml/daml/Truthoracle.daml`, `daml/daml/Incentives.daml` in the `truthoracle-contracts` repository
 - **Canton Interactive Submission API:** [Canton docs](https://docs.digitalasset.com/build/3.4/tutorials/app-dev/external_signing_submission_part_2.html)
 - **Loop SDK:** [@fivenorth/loop-sdk](https://www.npmjs.com/package/@fivenorth/loop-sdk)
 - **Canton Network:** https://www.canton.network/

@@ -109,7 +109,9 @@ function loginErrorMessage(status: number, data: { error?: unknown; detail?: unk
     return "The sign-in challenge expired or was already used. Try signing in again.";
   }
   if (status === 401) {
-    return "Sign-in failed: the signature could not be verified for this wallet.";
+    // One sentence for both causes on purpose: the server answers 401 whether the signature
+    // failed or the party is not an operator, so the UI must not tell them apart either.
+    return "Sign-in failed: the signature could not be verified for this wallet, or this party is not listed in ADMIN_OPERATORS.";
   }
   if (status === 429) {
     return "Too many sign-in attempts. Wait a minute and try again.";
@@ -117,15 +119,57 @@ function loginErrorMessage(status: number, data: { error?: unknown; detail?: unk
   return raw || `Admin login failed (${status}).`;
 }
 
-export async function signInAsAdmin(args: {
-  partyId: string;
-  signMessage: (message: string, partyId?: string) => Promise<string>;
-}): Promise<AdminSession> {
+/** A server-issued, single-use sign-in nonce (server TTL 5 min). */
+export interface AdminNonce {
+  nonce: string;
+  /** The server's absolute expiry, epoch ms. Shown/logged only — never used to decide freshness. */
+  expiresAt: number;
+  /** `Date.now()` at receipt: the only clock-skew-free measure of how old this nonce is. */
+  receivedAt: number;
+}
+
+/**
+ * Step 1 of the operator challenge, separated from the signature so the gate can fetch
+ * it BEFORE the click: the wallet popup must be the first thing the click awaits
+ * (frontend/wallets/cantor8/popupGesture.ts), so the round trip cannot sit in front of it.
+ */
+export async function fetchAdminNonce(): Promise<AdminNonce> {
   const nonceRes = await fetch("/api/admin/nonce", { credentials: "same-origin", cache: "no-store" });
   const nonceData = await readJson(nonceRes);
   if (!nonceRes.ok || typeof nonceData.nonce !== "string") {
     throw new Error(String(nonceData.error ?? `Could not start admin login (${nonceRes.status})`));
   }
+  const expiresAt = typeof nonceData.expiresAt === "number" ? nonceData.expiresAt : 0;
+  return { nonce: nonceData.nonce, expiresAt, receivedAt: Date.now() };
+}
+
+/**
+ * How long a prefetched nonce is reused. Counted from the local moment of receipt, not
+ * from the server's `expiresAt`: a browser clock that is minutes off would otherwise make
+ * every nonce look permanently fresh (signing one the server already dropped) or
+ * permanently stale (forcing the fetch-then-sign fallback that WebKit blocks). The server
+ * TTL is 5 minutes.
+ */
+export const NONCE_REUSE_MS = 120_000;
+
+export function adminNonceIsFresh(nonce: AdminNonce | null, now: number = Date.now()): nonce is AdminNonce {
+  if (nonce === null) return false;
+  const age = now - nonce.receivedAt;
+  return Number.isFinite(age) && age >= 0 && age < NONCE_REUSE_MS;
+}
+
+/**
+ * Steps 2 and 3: the popup, then the session. Pass a prefetched `nonce` from a click
+ * handler; without one the nonce is fetched first (fine in Chrome and Firefox, whose 5 s
+ * activation window covers the round trip; WebKit may block the popup).
+ */
+export async function signInAsAdmin(args: {
+  partyId: string;
+  signMessage: (message: string, partyId?: string) => Promise<string>;
+  nonce?: AdminNonce | null;
+}): Promise<AdminSession> {
+  const given = args.nonce ?? null;
+  const nonceData: AdminNonce = adminNonceIsFresh(given) ? given : await fetchAdminNonce();
 
   const signature = await args.signMessage(nonceData.nonce, args.partyId);
   if (!signature) throw new Error("The wallet returned an empty signature.");

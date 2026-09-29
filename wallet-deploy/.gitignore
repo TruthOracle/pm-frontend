@@ -1,5 +1,0 @@
-# Secrets — never commit (holds WALLET_MNEMONIC)
-.env
-
-# Saved Docker image tarballs (large binaries)
-images/

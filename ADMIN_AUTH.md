@@ -27,9 +27,10 @@ Three ideas, in order of importance:
    `ADMIN_SESSION_SECRET` is unset, privileged paths fail closed with 503 rather than
    falling open. See `api/_lib/proxyGuard.mjs`.
 2. **Amounts and recipients are never accepted from the browser.** The two flows that
-   legitimately need an admin signature on a user's behalf moved to
-   `api/wallet/deposit.mjs` and `api/wallet/settle-payout.mjs`, which derive every
-   value from the ledger and the wallet's own records.
+   need the treasury's signature on a user's behalf — crediting a deposit and settling
+   a payout — live in the accounts backend (`truthoracle-backend`), behind a user
+   session, and derive every value from the ledger and the wallet's own records. This
+   repository has no money-moving endpoint of its own.
 3. **Operators sign in as themselves.** The party that *authorises* an action and the
    party that *signs* it are deliberately different. An operator proves control of a
    party they can actually connect with; the enterprise wallet still holds the
@@ -61,8 +62,24 @@ The request carries **no public key**. The verifying key comes from the server's
 `ADMIN_OPERATORS` map. If the browser supplied one, an attacker would generate a
 keypair, sign our nonce with it, claim any party id, and verify perfectly.
 
-Deriving the key from the party id instead is not possible: the `::1220…` suffix is a
-multihash of Canton's serialised key protobuf, not of the raw Ed25519 key bytes.
+Deriving the key from the party id *is* possible — an earlier version of this document
+claimed otherwise. Verified against the real operator party: the `::1220…` suffix is
+
+```
+hex(0x12 0x20 ‖ sha256(uint32be(12) ‖ rawEd25519Key))
+```
+
+i.e. a sha2-256 multihash (`0x12 0x20` = sha2-256, 32 bytes) over the raw key prefixed
+with Canton's `HashPurpose` 12 (`PublicKeyFingerprint`) — exactly
+`TopologyWriteService.createFingerprintFromKey` in `@canton-network/wallet-sdk`. So a
+client-supplied key *can* be bound to its party by recomputing the fingerprint, and that
+is what the accounts backend does for self-serve wallet sign-in (`POST
+/api/v1/auth/wallet`; `wallet_key_mismatch` when the signing key is not the namespace
+key — rotated keys and participant-namespace parties are its documented limitation).
+The admin flow keeps the pin regardless: `ADMIN_OPERATORS` is the operator allowlist,
+and pinning the key there is an additional check on top of the fingerprint binding —
+admin access is tied to exactly the key configured server-side, independent of what
+the ledger currently says about the party.
 
 ## Configuration
 
@@ -144,38 +161,21 @@ looks: only `api/admin/session.mjs` would swap its verification step.
 | `POST /api/admin/session` | public | Rate limited; uniform error to avoid operator enumeration |
 | `GET /api/admin/me` | public | Rendering aid only, never a boundary |
 | `POST /api/admin/logout` | public | Clears the cookie |
-| `POST /api/wallet/deposit` | open by design | Amount derived, so the worst case is triggering someone's legitimate credit |
-| `POST /api/wallet/settle-payout` | open by design | Payee and amount read from the contract |
 | `/__proxy/wallet/*` | **admin session** | No public surface at all |
 | `/__proxy/ledger/*` | mixed | Read-only query paths public; everything else admin |
+| `/__backend/*` | backend session (`to_session`) | Same-origin relay to the accounts backend — see "Accounts backend" below. Never forwards `to_admin` |
 
 Session-authorised proxy requests are additionally checked for a same-origin `Origin`
 header. The cookie is already `SameSite=Strict`, so a compliant browser never attaches
 it cross-site; the origin check rejects such a request even if one arrives anyway.
 
-### Concurrency: why the open endpoints cannot pay twice
+### Concurrency of the money flows
 
-"Derived amounts" makes sequential replays idempotent, but two *concurrent* requests
-read the same upstream state — the classic TOCTOU. Both endpoints therefore submit
-commands under **deterministic ids**:
-
-- `settle-payout` derives its transfer and MarkPaid command ids from the
-  PendingPayout's contract id. Racing settlements submit the *same* commandId, and
-  ledger command-deduplication rejects every copy but one. Before transferring it also
-  asks the wallet whether that commandId was already submitted, which doubles as crash
-  recovery: a payout whose transfer landed but whose MarkPaid did not resumes at
-  MarkPaid instead of paying again. (The transfer stays *before* the consuming
-  MarkPaid on purpose — the failure mode is "row lingers, money already delivered",
-  never "row archived, money never sent".)
-- `deposit` derives its commandId from the exact state the credit was computed
-  against (user, wallet contract id or "create", amount, amount already credited).
-  This matters most on a user's *first* deposit: `UserWallet` has no contract key, so
-  two racing `CreateCommand`s would otherwise mint two fully-credited wallets. Racing
-  duplicates collide on the id; a genuine later deposit sees new state and gets a new
-  one. (On the exercise path the ledger already arbitrates — `Deposit` consumes the
-  wallet contract, so the loser aborts.)
-
-Both also keep a per-instance in-flight set so same-instance races fail fast with 409.
+Nothing in this repository moves money, so there is no TOCTOU to close here. The
+backend's deposit credit and payout settlement submit under **deterministic command
+ids** (write-ahead `to_deposit_credits` / `to_payouts` rows plus a confirm pass), so
+racing or replayed attempts collide on the id and ledger command-deduplication rejects
+every copy but one — `truthoracle-backend/docs/ARCHITECTURE.md` §8.3 and §9.4.
 
 ## Tests
 
@@ -186,8 +186,11 @@ pre-hashed preimage, and the proxy policy including the fail-closed,
 allowlist-bypass, and CSRF cases (`test/admin-auth.test.mjs`); plus the shared
 store's claim/rate-limit/lock semantics, cross-instance behaviour against an
 emulated backend, and its degrade-on-outage path (`test/shared-store.test.mjs`).
+The accounts-backend relay's containment rules — path allowlist, cookie and header
+filtering, `Domain=` stripping, the 503/404/502 answers — are in
+`test/backend-proxy.test.mjs`.
 The dedup assertion in `UserWallet.Deposit` is covered by the Daml suite
-(`daml/daml/TruthoracleTest.daml`, `dpm test`).
+(`daml/daml/TruthoracleTest.daml` in the `truthoracle-contracts` repository, `npm run dars:test` there).
 
 The ledger allowlist is `v2/state/active-contracts`, `v2/state/ledger-end`,
 `v2/state/connected-synchronizers`, `v2/interactive-submission/prepare`, and
@@ -204,35 +207,67 @@ exposes the former automatically), these guards become fleet-wide:
 
 - nonce single use (`SET NX PX` keyed by the nonce's MAC)
 - login rate limit (10/min per IP)
-- deposit and settle-payout rate limits (per IP and per party/contract) and
-  in-flight locks (60 s crash ceiling, `DEL` on release)
 
 Without a store everything degrades to the previous per-instance behaviour and logs
-one warning — the store being down never blocks logins or payouts, and the
-money-moving races never depended on it in the first place (they are closed by ledger
-command-dedup on deterministic ids, see the concurrency section above).
+one warning — the store being down never blocks logins. No money-moving invariant
+lives here (see "Concurrency of the money flows").
 
-## Deposit audit trail (truthoracle-v13 2.0.0)
+## Accounts backend (`/__backend`, `BACKEND_URL`)
 
-`UserWallet` now records which transfers were credited: `depositRefs : Optional [Text]`
-(appended last and `Optional`, so the 2.0.0 DAR passes Canton's smart-contract-upgrade
-check and 1.0.0 contracts read as `None`). `Deposit` rejects a `txRef` that was already
-credited, so double-crediting one transfer now aborts on-ledger even if it slipped past
-command-dedup — the invariant is auditable instead of derived.
+User accounts, linked wallets, KYC and the in-app wallet live in the separate
+`truthoracle-backend` service (its `docs/ARCHITECTURE.md` is the spec). It is the
+**only money rail**: the on-ledger `UserWallet` is created by the backend (treasury-
+signed) for an account's primary wallet on the first deposit, deposits are credited by
+`POST /in-app-wallet/deposits/reconcile` and payouts settled by
+`POST /in-app-wallet/payouts/:cid/settle` (KYC-gated) — both session-authenticated.
+Deposits and withdrawals therefore **require a signed-in account**; a Canton party
+never holds an in-app balance without one. Trading stays wallet-signed and works
+anonymously (reads + Daml choices), but any choice that debits or credits a
+`UserWallet` needs one to exist, i.e. an account that has deposited.
 
-Deploying it: `npm run dars:build` (done — package id
-`ddeffbe7e09a4f19cafdb7e2e3cab77c4f5bbe814e718c923447e4371475ced9`), then
-`npm run dars:upload`, then point `VITE_TRUTHORACLE_PACKAGE_ID` at that id. Until the
-env flips, submissions keep targeting 1.0.0 and behave exactly as before. One wrinkle:
-the create path (a user's very first deposit) cannot record its own ref — the JSON API
-create against 1.0.0 has no such field, and after the flip the wallet starts at `None`
-and records refs from the first `Deposit` exercise onward.
+The app reaches the backend only through `api/proxy/backend.mjs`, a same-origin relay
+at `/__backend/*` (`vercel.json` rewrite in production, the same handler as `vite dev`
+middleware):
+
+- Forwards only `api/v1/**`, `health` and `health/ready`; everything else — including
+  any path with a dot segment — is `404 { error: "path not proxied" }`.
+- Injects **no** server credential. The caller's own `to_session` cookie authorises the
+  request; the relay rebuilds the `Cookie` header from `to_session` and `to_oidc` only,
+  so the admin cookie (`to_admin`), a client bearer and `x-admin-instance` never leave
+  this deployment. Request headers are an allow-list (`content-type`, `accept`,
+  `origin`, `referer`, `x-requested-with`), never a copy of what the client sent.
+- Replaces every client-supplied `x-forwarded-*` with values it derives itself
+  (`x-forwarded-host` = the app host, `x-forwarded-proto`, `x-real-ip`), authenticated
+  to the backend by `x-truthoracle-proxy: BACKEND_PROXY_SECRET`. The backend trusts
+  those headers only when the secret matches; otherwise it uses the socket address.
+- Relays redirects (`redirect: "manual"` — the Telegram OIDC hops are for the browser)
+  and `Set-Cookie` as an array with any `Domain=` stripped, so backend cookies bind to
+  the app host. Response `cache-control` defaults to `no-store`.
+- `BACKEND_URL` unset → `503 { error: "backend_unconfigured" }`, which the frontend
+  reads as "accounts unavailable": no Sign-in button and no deposit / withdraw
+  controls — the app is read + wallet-signed trading only. Backend unreachable →
+  `502 backend_unreachable`: sign-in is offered but disabled and the money controls
+  pause with a Retry (an outage must never look like "no backend").
+
+The two auth systems do not interact. Market creation is backend-only now: the catalog
+console (`Admin/CatalogPanel.tsx`, `Admin/CreateMarketForm.tsx`) signs the operator into
+the backend (`purpose = admin-sign-in`, parties in the backend's own `ADMIN_OPERATORS`)
+and the backend submits `CreateMarket` through the Enterprise Wallet — the browser never
+builds that command and the wallet relay no longer serves it. Operators keep signing into
+the rest of `/admin` through the `to_admin` flow above until it is ported to the backend's
+admin sessions: `Admin/PayoutQueue` only lists rows, copies their contract ids for the
+backend's `POST /api/v1/admin/payouts/:cid/settle`, and keeps the wallet-signed Mark Paid
+for payouts settled out-of-band — it never pretends to hold a backend admin session.
 
 ## Known gaps
 
-- **`/api/wallet/deposit` is unauthenticated.** Deliberate — there is no user session
-  system yet, and the endpoint derives its own amount, so the worst an anonymous
-  caller can do is trigger someone's legitimate credit. The shared-store rate limits
-  now cap the upstream work such a caller can burn. Tracked in
-  [#78](https://github.com/TruthOracle/prediction-market/issues/78), which specs the
-  user-session flow (reusing the operator nonce/cookie plumbing) that closes this.
+- **The `/admin` UI is not on backend admin sessions yet.** Its `to_admin` cookie is
+  this repository's own flow, so the payout queue cannot call the backend's
+  `POST /api/v1/admin/payouts/:cid/settle`; stuck payouts are force-settled from that
+  API directly (the queue shows the contract id to copy). Porting `/admin` is Phase 2
+  in `truthoracle-backend/docs/ARCHITECTURE.md` §17.
+- **No deposits or withdrawals without `BACKEND_URL`.** By design: there are no
+  money endpoints in this repository, so a deployment without an accounts backend is
+  read + wallet-signed trading only. [#78](https://github.com/TruthOracle/pm-frontend/issues/78)
+  (an unauthenticated deposit reconcile) is closed by this — every credit and
+  settlement is session-authenticated in the backend.

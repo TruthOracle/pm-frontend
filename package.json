@@ -15,14 +15,7 @@
     "test": "node --test test/*.test.mjs",
     "preview": "vite preview",
     "_fmt": "prettier 'frontend/**/*.ts'",
-    "fmt": "npm run _fmt -- --write",
-    "create:contract": "tsx scripts/create-contract.ts",
-    "ledger:query": "tsx scripts/ledger-query.ts",
-    "contracts:active": "tsx scripts/active-contracts.ts",
-    "rights:grant": "tsx scripts/grant-rights.ts",
-    "create:account": "tsx scripts/create-account.ts",
-    "dars:build": "cd daml && dpm build",
-    "dars:upload": "tsx scripts/upload-dar.ts"
+    "fmt": "npm run _fmt -- --write"
   },
   "dependencies": {
     "@canton-network/core-splice-provider": "^0.23.0",
@@ -56,6 +49,8 @@
     "react-helmet": "^6.1.0",
     "react-icons": "^5.3.0",
     "react-router-dom": "^6.26.1",
+    "react-sticky-box": "^2.0.5",
+    "recharts": "^2.15.4",
     "tailwind-merge": "^2.5.2",
     "tailwindcss-animate": "^1.0.7"
   },

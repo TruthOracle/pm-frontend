@@ -50,7 +50,7 @@ function getDisclosure(
 function adminParty(): string {
   if (!ENTERPRISE_WALLET_PARTY_ID) {
     throw new Error(
-      "VITE_ENTERPRISE_WALLET_PARTY_ID is not set. Set it in .env to the Enterprise Wallet party id (see wallet-deploy/README.md)."
+      "VITE_ENTERPRISE_WALLET_PARTY_ID is not set. Set it in .env to the Enterprise Wallet party id (see the enterprise-wallet repository README)."
     );
   }
   return ENTERPRISE_WALLET_PARTY_ID;
@@ -109,6 +109,11 @@ export interface PredictionMarketRecord {
   contractId: string;
   marketId: number;
   question: string;
+  /**
+   * Presentation is off-ledger since truthoracle-v16 (operator metadata in the backend, image
+   * defaulting to the event's): blank on a record read from the participant, filled on one that
+   * came from the backend index (lib/marketsApi.ts).
+   */
   imageUrl: string;
   description: string;
   resolutionDescription: string;
@@ -138,6 +143,33 @@ export interface PredictionMarketRecord {
   createdEventBlob?: string;
   /** Synchronizer the contract lives on; required alongside createdEventBlob on a disclosed contract. */
   synchronizerId?: string;
+
+  // ── On-ledger identity (truthoracle-v16): every PredictionMarket carries all four ──
+  /** Kalshi-style market ticker (`EVENT-LEG`); the market URL can use it. */
+  ticker: string;
+  /** The event this market is one leg of (truthoracle-backend docs/MARKETS.md §2). */
+  eventTicker: string;
+  yesSubTitle: string;
+  noSubTitle: string;
+
+  // ── Present only when the record came from the backend index (lib/marketsApi.ts) ──
+  seriesTicker?: string | null;
+  /** The operator's presentation override, `null` when the image is the event's fallback. */
+  metadata?: { imageUrl: string; description: string; updatedAt: string | null } | null;
+  /** Package-id template of the active version — the disclosed contract must name it. */
+  templateId?: string;
+  previousPrice?: number | null;
+  priceChange24h?: number | null;
+  volume24hCC?: number;
+  /** Outstanding YES + NO shares. */
+  openInterest?: number;
+  /** Pool value V(P) at the current effective liquidity. */
+  liquidityCC?: number;
+  /** AMM-implied one-share bid / ask for a 1 CC order; null unless trading. */
+  book?: { yesBid: number; yesAsk: number; noBid: number; noAsk: number } | null;
+  tradeCount?: number;
+  /** Ledger offset of the version — what to wait past after a trade. */
+  updatedOffset?: number;
 }
 
 function parsePolicy(v: unknown): ResolutionPolicyRecord {
@@ -181,10 +213,15 @@ function parseMarket(item: unknown): PredictionMarketRecord | null {
     contractId: cid,
     marketId: num(p.marketId),
     question: asString(p.question),
-    imageUrl: asString(p.imageUrl),
-    description: asString(p.description),
+    // Not on the contract (v16): the index supplies them, a participant read shows none.
+    imageUrl: "",
+    description: "",
     resolutionDescription: asString(p.resolutionDescription),
-    category: asString(p.category),
+    category: "",
+    ticker: asString(p.ticker),
+    eventTicker: asString(p.eventTicker),
+    yesSubTitle: asString(p.yesSubTitle),
+    noSubTitle: asString(p.noSubTitle),
     createdAt: num(p.createdAt),
     expiresAt: num(p.expiresAt),
     gracePeriodSecs: num(p.gracePeriodSecs),

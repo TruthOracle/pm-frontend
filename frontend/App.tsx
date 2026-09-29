@@ -10,11 +10,15 @@ import MarketDetails from "./components/MarketDetails";
 import Rewards from "./components/Rewards";
 import News from "./components/News";
 import { WalletProvider } from "./components/WalletProvider";
+import { AuthProvider } from "@/auth/AuthContext";
+import AccountPage from "@/components/Account/AccountPage";
 import Footer from "@/components/Footer";
 import { useEffect, useLayoutEffect, useState } from "react";
-import { fetchAllPredictionMarkets } from "@/utils/activeContracts";
 import { setPrefetchedMarkets } from "@/utils/marketPrefetch";
+import { marketSource } from "@/lib/marketsApi";
 import { fetchMarketNews } from "@/lib/marketNews";
+import EventView from "@/components/EventView";
+import { ExchangeStatusBanner, ExchangeStatusProvider } from "@/components/ExchangeStatusBanner";
 
 /**
  * /admin is reachable by anyone; AdminGate decides whether to show the console or a
@@ -76,13 +80,13 @@ function AppContent() {
     const href = target.getAttribute("href");
     if (!href || !href.startsWith("/") || href === location.pathname) return;
     const targetPath = href.split("?")[0];
-    const waitsForMarketData = targetPath === "/" || targetPath === "/marketplace" || targetPath.startsWith("/market/");
+    const waitsForMarketData = targetPath === "/" || targetPath === "/marketplace" || targetPath.startsWith("/market/") || targetPath.startsWith("/markets/");
 
     event.preventDefault();
     setLoadingRoute(targetPath);
     try {
       if (waitsForMarketData) {
-        setPrefetchedMarkets(await fetchAllPredictionMarkets());
+        setPrefetchedMarkets((await marketSource.all()).markets);
       } else if (targetPath === "/news") {
         await fetchMarketNews();
       } else {
@@ -114,26 +118,41 @@ function AppContent() {
     <div className="site-header-mask" aria-hidden="true" />
     <Header />
     <main className="page-transition flex-1 pt-[6.75rem]">
+      <ExchangeStatusBanner />
       <Routes location={location}>
         <Route path="/faq" element={<FAQ />} />
         <Route path="/marketplace" element={<Marketplace />} />
         <Route path="/" element={<Homepage />} />
         <Route path="/portfolio" element={<Portfolio />} />
+        {/* `:id` is a numeric market id or a ticker (truthoracle-backend docs/MARKETS.md §2). */}
         <Route path="/market/:id" element={<MarketDetails />} />
+        <Route path="/markets/:id" element={<MarketDetails />} />
+        <Route path="/events/:ticker" element={<EventView />} />
         <Route path="/admin" element={<AdminRoute />} />
         <Route path="/rewards" element={<Rewards />} />
         <Route path="/news" element={<News />} />
+        <Route path="/account" element={<AccountPage />} />
       </Routes>
     </main>
     <Footer />
   </div>;
 }
 
+/**
+ * Provider order matters: AuthProvider reads the connected wallet (link prompt,
+ * wallet sign-in) and the router (OIDC return on the current URL), so it sits inside
+ * both. This is the ONLY WalletProvider — main.tsx used to wrap App in a second one,
+ * and each instance spun up its own Cantor8 SDK connection.
+ */
 function App() {
   return (
     <WalletProvider>
       <Router>
-        <AppContent />
+        <AuthProvider>
+          <ExchangeStatusProvider>
+            <AppContent />
+          </ExchangeStatusProvider>
+        </AuthProvider>
       </Router>
     </WalletProvider>
   );
