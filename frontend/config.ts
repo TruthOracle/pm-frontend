@@ -43,7 +43,7 @@ export const WALLET_DISPLAY_NAME = WALLET_TYPE === "canton" ? "Canton" : "Cantor
 export const TRUTHORACLE_PACKAGE_ID = readString(import.meta.env.VITE_TRUTHORACLE_PACKAGE_ID, "");
 export const TRUTHORACLE_PACKAGE_NAME = readString(
   import.meta.env.VITE_TRUTHORACLE_PACKAGE_NAME,
-  "truthoracle-v15",
+  "truthoracle-v16",
 );
 
 // The browser never calls the participant or the wallet directly — it calls the

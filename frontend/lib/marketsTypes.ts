@@ -22,9 +22,20 @@ export interface ApiImpliedBook {
   referenceCC: Decimal;
 }
 
+/**
+ * Operator-owned presentation of a market (truthoracle-backend docs/MARKETS.md): the contract
+ * carries no image, description or category since truthoracle-v16. `null` = no override, so the
+ * market's `imageUrl` is the event's and its `description` is empty.
+ */
+export interface ApiMarketMetadata {
+  imageUrl: string;
+  description: string;
+  updatedAt: string | null;
+}
+
 export interface ApiMarket {
   marketId: number;
-  /** On-ledger identity (truthoracle-v15): every market carries all four, non-empty, from its contract. */
+  /** On-ledger identity (truthoracle-v16): every market carries all four, non-empty, from its contract. */
   ticker: string;
   eventTicker: string;
   seriesTicker: string | null;
@@ -34,10 +45,14 @@ export interface ApiMarket {
   templateId: string | null;
   admin: string;
   question: string;
+  /** Off-ledger: the metadata override, else the event's image, else "". */
   imageUrl: string;
+  /** Off-ledger: the metadata override or "". */
   description: string;
   resolutionDescription: string;
+  /** Off-ledger: the event's series category, else the event's category, else "". */
   category: string;
+  metadata: ApiMarketMetadata | null;
   createdAt: string;
   expiresAt: string;
   tradingStartsAt: string;

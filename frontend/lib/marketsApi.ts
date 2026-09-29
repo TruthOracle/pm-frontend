@@ -45,6 +45,7 @@ export function toMarketRecord(m: ApiMarket): PredictionMarketRecord {
     description: m.description,
     resolutionDescription: m.resolutionDescription,
     category: m.category,
+    metadata: m.metadata,
     createdAt: secs(m.createdAt) ?? 0,
     expiresAt: secs(m.expiresAt) ?? 0,
     gracePeriodSecs: m.gracePeriodSecs,

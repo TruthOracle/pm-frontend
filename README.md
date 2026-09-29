@@ -30,10 +30,12 @@ active contracts:
   trading halt. The factory is the only way this UI creates a market: pick an event, give the
   ticker suffix, the question, the Yes / No labels, the pm-AMM seed and the resolution policy;
   the backend refuses an unknown event or a taken ticker before the Enterprise Wallet signs
-  `CreateMarket`. Every `PredictionMarket` of `truthoracle-v15` carries its ticker, event ticker
-  and the two side labels as mandatory contract fields (labels default to Yes / No); the market
-  image defaults to the event's image. The older browser-built `CreateMarket` form that went
-  through the wallet relay is gone.
+  `CreateMarket`. Every `PredictionMarket` of `truthoracle-v16` carries its ticker, event ticker
+  and the two side labels as mandatory contract fields (labels default to Yes / No). Image,
+  description and category are not on the contract: the backend keeps them as operator
+  metadata (`PATCH /admin/markets/:market/metadata`, the "Market presentation" card), the image
+  defaults to the event's and the category comes from the event's series. The older
+  browser-built `CreateMarket` form that went through the wallet relay is gone.
 
 Without a backend the app stays what it was: markets from the participant, no events, no
 candles (the market chart only draws the prices this tab observed — nothing is fabricated).

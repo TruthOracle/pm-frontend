@@ -109,6 +109,11 @@ export interface PredictionMarketRecord {
   contractId: string;
   marketId: number;
   question: string;
+  /**
+   * Presentation is off-ledger since truthoracle-v16 (operator metadata in the backend, image
+   * defaulting to the event's): blank on a record read from the participant, filled on one that
+   * came from the backend index (lib/marketsApi.ts).
+   */
   imageUrl: string;
   description: string;
   resolutionDescription: string;
@@ -139,7 +144,7 @@ export interface PredictionMarketRecord {
   /** Synchronizer the contract lives on; required alongside createdEventBlob on a disclosed contract. */
   synchronizerId?: string;
 
-  // ── On-ledger identity (truthoracle-v15): every PredictionMarket carries all four ──
+  // ── On-ledger identity (truthoracle-v16): every PredictionMarket carries all four ──
   /** Kalshi-style market ticker (`EVENT-LEG`); the market URL can use it. */
   ticker: string;
   /** The event this market is one leg of (truthoracle-backend docs/MARKETS.md §2). */
@@ -149,6 +154,8 @@ export interface PredictionMarketRecord {
 
   // ── Present only when the record came from the backend index (lib/marketsApi.ts) ──
   seriesTicker?: string | null;
+  /** The operator's presentation override, `null` when the image is the event's fallback. */
+  metadata?: { imageUrl: string; description: string; updatedAt: string | null } | null;
   /** Package-id template of the active version — the disclosed contract must name it. */
   templateId?: string;
   previousPrice?: number | null;
@@ -206,10 +213,11 @@ function parseMarket(item: unknown): PredictionMarketRecord | null {
     contractId: cid,
     marketId: num(p.marketId),
     question: asString(p.question),
-    imageUrl: asString(p.imageUrl),
-    description: asString(p.description),
+    // Not on the contract (v16): the index supplies them, a participant read shows none.
+    imageUrl: "",
+    description: "",
     resolutionDescription: asString(p.resolutionDescription),
-    category: asString(p.category),
+    category: "",
     ticker: asString(p.ticker),
     eventTicker: asString(p.eventTicker),
     yesSubTitle: asString(p.yesSubTitle),

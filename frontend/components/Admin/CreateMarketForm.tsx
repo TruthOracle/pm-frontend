@@ -137,10 +137,10 @@ export default function CreateMarketForm({ events, series, busy, run }: { events
           // mandatory Text on the contract.
           yesSubTitle: form.yesSubTitle.trim() || undefined,
           noSubTitle: form.noSubTitle.trim() || undefined,
+          // Presentation goes to the backend as market metadata; the contract carries none (v16).
           imageUrl: form.imageUrl.trim() || undefined,
           description: form.description.trim(),
           resolutionDescription: form.resolutionDescription.trim(),
-          category: category || undefined,
           expiresAt: expiresAt.toISOString(),
           gracePeriodSecs: Math.max(0, Math.round(form.gracePeriodHours * 3600)),
           isDynamic: form.isDynamic,
@@ -220,11 +220,14 @@ export default function CreateMarketForm({ events, series, busy, run }: { events
       <label htmlFor="imageUrl">Image URL (optional)</label>
       <Input type="text" marginTop="2px" id="imageUrl" name="imageUrl" placeholder="Add Image URL" value={form.imageUrl} onChange={handleInputChange} />
       <Text color="gray.500" fontSize="xs" mt={1} mb={4}>
-        Defaults to the event's image; the market card shows the market's own image when set.
+        Defaults to the event's image; the market card shows the market's own image when set. Stored by the backend, editable later; not part of the contract.
       </Text>
 
       <label htmlFor="description">Description</label>
-      <Input required type="text" marginBottom="16px" marginTop="2px" id="description" name="description" placeholder="Short description shown on the market card" value={form.description} onChange={handleInputChange} />
+      <Input required type="text" marginTop="2px" id="description" name="description" placeholder="Short description shown on the market card" value={form.description} onChange={handleInputChange} />
+      <Text color="gray.500" fontSize="xs" mt={1} mb={4}>
+        Stored by the backend, editable later; not part of the contract.
+      </Text>
 
       <label htmlFor="resolutionDescription">Resolution criteria</label>
       <Textarea

@@ -11,7 +11,7 @@
 import { backendFetch } from "@/lib/backend";
 import { requireWalletPublicKey, type SignMessage } from "@/auth/wallet";
 import type { LoginResult, SessionResponse } from "@/auth/types";
-import type { ApiCreateMarketResult, ApiEvent, ApiExchangeStatus, ApiSeries } from "@/lib/marketsTypes";
+import type { ApiCreateMarketResult, ApiEvent, ApiExchangeStatus, ApiMarket, ApiSeries } from "@/lib/marketsTypes";
 
 interface Challenge {
   challengeId: string;
@@ -96,10 +96,10 @@ export interface CreateMarketInput {
   question: string;
   yesSubTitle?: string;
   noSubTitle?: string;
+  /** Presentation, kept by the backend as market metadata (not on the contract since v16). */
   imageUrl?: string;
   description?: string;
   resolutionDescription?: string;
-  category?: string;
   expiresAt: string;
   gracePeriodSecs?: number;
   isDynamic?: boolean;
@@ -122,6 +122,22 @@ export interface CreateMarketInput {
 /** Treasury-signed `CreateMarket` for an event (docs/MARKETS.md §4); the market shows up once indexed. */
 export function createMarketViaBackend(body: CreateMarketInput): Promise<ApiCreateMarketResult> {
   return backendFetch<ApiCreateMarketResult>("/api/v1/admin/markets", { method: "POST", body });
+}
+
+export interface MarketMetadataInput {
+  imageUrl?: string;
+  description?: string;
+  reason?: string;
+}
+
+/**
+ * Operator override of a market's presentation (docs/MARKETS.md): image URL and description.
+ * `market` is an id or a ticker. A blank `imageUrl` puts the market back on the event's image.
+ */
+export function updateMarketMetadata(market: string | number, body: MarketMetadataInput): Promise<ApiMarket> {
+  return backendFetch<{ market: ApiMarket }>(`/api/v1/admin/markets/${encodeURIComponent(String(market))}/metadata`, { method: "PATCH", body }).then(
+    (r) => r.market,
+  );
 }
 
 export function setTradingHalt(body: { active: boolean; reason: string; estimatedResumeAt?: string | null }): Promise<ApiExchangeStatus["halt"]> {
