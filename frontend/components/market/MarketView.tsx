@@ -64,8 +64,8 @@ import {
   poolValue,
 } from "@/lib/marketPricing";
 import { ammState, fmtCC, fmtCountdown, getMarketPhase } from "./marketHelpers";
-import MarketTradePanel from "./MarketTradePanel";
-import MarketLiquidityPanel from "./MarketLiquidityPanel";
+import OrderPanel, { type OrderPanelContext } from "./OrderPanel";
+import { ownImage } from "@/lib/outcomeRows";
 import MarketResolutionPanel from "./MarketResolutionPanel";
 import MarketSettlementPanel from "./MarketSettlementPanel";
 import type { MainTab, TradeSubTab, LiquiditySubTab } from "./marketTypes";
@@ -102,9 +102,13 @@ export interface MarketViewProps {
   variant?: "page" | "dock";
   /** Preselects Yes / No (the event page's price pills); the page variant reads `?side=` instead. */
   initialSide?: "yes" | "no" | null;
+  /** The event's title (event page): the grey line above the outcome in the order ticket. */
+  eventTitle?: string;
+  /** The event's banner, so a market image that merely repeats it is not shown as the outcome's own. */
+  eventImage?: string;
 }
 
-const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null }: MarketViewProps = {}) => {
+const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, eventTitle, eventImage = "" }: MarketViewProps = {}) => {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const marketRef = refProp ?? id ?? "";
@@ -125,7 +129,8 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null }
   const [liquiditySubTab, setLiquiditySubTab] = useState<LiquiditySubTab>("add");
   const [collateralIn, setCollateralIn] = useState<number>(0); // Buy: CC in
   const [sharesIn, setSharesIn] = useState<number>(0); // Sell: shares in
-  const [selectedSide, setSelectedSide] = useState<"yes" | "no" | null>(null);
+  // Yes is preselected, as on Kalshi; `?side=` / the event page's pills override it.
+  const [selectedSide, setSelectedSide] = useState<"yes" | "no" | null>("yes");
   const [tradeSide, setTradeSide] = useState<"buy" | "sell" | "convert">("buy");
   const [slippage, setSlippage] = useState<number>(0.01);
   const [userPosition, setUserPosition] = useState<UserMarketPosition | null>(null);
@@ -956,7 +961,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null }
       <div className="space-y-5 py-2">
         <div className="skeleton h-4 w-40" />
         <div className="skeleton h-8 w-3/4" />
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="skeleton h-80 w-full rounded-xl" />
           <div className="skeleton h-80 w-full rounded-xl" />
         </div>
@@ -994,36 +999,21 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null }
   const showResolveTab = (isAdmin || market.policy.challengeSecs > 0) && (phase === "expired" || phase === "proposed");
   const showSettleTab = phase === "resolved" || phase === "voided";
 
-  const subTabBtn = (active: boolean) =>
-    `flex-1 rounded-md py-1.5 text-sm font-semibold transition-all ${
-      active ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 hover:text-slate-950"
-    }`;
-  // Trade / Liquidity header tabs of the panel: the active one underlined in the brand colour.
-  const tabHeaderBtn = (active: boolean) =>
-    `flex-1 border-b-[3px] pl-3 pr-1 pt-2.5 pb-2 text-left transition-colors ${
-      active ? "border-primary text-slate-950" : "border-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-950"
-    }`;
-  const pillBtn = (active: boolean) =>
-    `flex-1 rounded-lg py-2 text-sm font-semibold transition-all ${
-      active ? "bg-slate-950 text-white shadow-sm" : "border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-950"
-    }`;
-
-  const tradeContext = {
-    setMainTab, subTabBtn, tabHeaderBtn, pillBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs,
-    tradeSide, setTradeSide, selectedSide, setSelectedSide, probYes, probNo,
-    collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage,
-    // The real account stays in the contexts so the position cards show what the
-    // connected party holds; `tradeLockReason` (state B) is what disables the money
-    // CTAs and labels them — requireWallet() blocks the submit itself either way.
-    buyQuote, sellQuote, swapQuote, account, signInFirst: signInRequired, tradeLockReason, walletCta, busy, handleTradeClick, mintMode,
-    setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge,
-    userPosition, holdings,
-  };
-  const liquidityContext = {
-    setMainTab, subTabBtn, tabHeaderBtn, pillBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity,
-    liquidityValue, setLiquidityValue, liquidityQuote, busy, handleProvideLiquidity,
-    lpPosition, market, phase, withdrawPct, setWithdrawPct, handleWithdrawLiquidity,
-    account, signInFirst: signInRequired, tradeLockReason,
+  const orderContext: OrderPanelContext = {
+    market,
+    contextTitle: eventTitle ?? market.question,
+    outcomeImage: ownImage(market, eventImage),
+    phase, nowSecs, probYes, probNo,
+    mainTab, setMainTab, tradeSubTab, setTradeSubTab, tradeSide, setTradeSide, selectedSide, setSelectedSide,
+    mintMode, setMintMode, liquiditySubTab, setLiquiditySubTab,
+    collateralIn, setCollateralIn, sharesIn, setSharesIn, slippage, setSlippage,
+    splitMergeAmount, setSplitMergeAmount, liquidityValue, setLiquidityValue, withdrawPct, setWithdrawPct,
+    buyQuote, sellQuote, swapQuote, liquidityQuote, canProvideLiquidity,
+    // The real account stays in the context so the ticket reads what the connected party holds;
+    // `tradeLockReason` (state B) is what disables the money CTAs and says why — requireWallet()
+    // blocks the submit itself either way.
+    account, walletCta, tradeLockReason, busy, userPosition, lpPosition,
+    handleTradeClick, handleSplitMerge, handleProvideLiquidity, handleWithdrawLiquidity,
   };
   const resolutionContext = {
     market, phase, nowSecs, busy, account, setResolveOutcome, resolveOutcome,
@@ -1037,21 +1027,14 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null }
     holdings, probYes, probNo,
   };
 
-  // Rendered at the top of the trade column, next to the actions it funds. The card itself
-  // decides what a visitor without a wallet sees (sign in, or connect).
-  const walletSlot = (
-    <>
-      {tradeLockReason && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
-          <span className="font-semibold">{tradeLockReason}.</span> The connected wallet is linked to your account
-          but is not its primary wallet, so it can deposit into the in-app balance below but cannot trade from it.
-        </div>
-      )}
-      <InAppWalletCard wallet={wallet} walletLoaded={userDataLoaded} onChanged={refreshAllViews} variant="compact" />
-    </>
+  // The in-app balance sits at the foot of the ticket, under the actions it funds; the ticket's
+  // own call to action covers signing in and connecting a wallet.
+  const panel = (
+    <OrderPanel
+      context={orderContext}
+      walletFooter={<InAppWalletCard wallet={wallet} walletLoaded={userDataLoaded} onChanged={refreshAllViews} variant="inline" />}
+    />
   );
-
-  const panel = mainTab === "liquidity" ? <MarketLiquidityPanel context={liquidityContext} walletSlot={walletSlot} /> : <MarketTradePanel context={tradeContext} walletSlot={walletSlot} />;
 
   const delta24 = priceDelta(probYes, market.previousPrice ?? null);
   const phaseLabel: Record<typeof phase, string> = {
@@ -1065,24 +1048,13 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null }
   const yesLabel = market.yesSubTitle && market.yesSubTitle.toLowerCase() !== "yes" ? market.yesSubTitle : "Yes";
   const noLabel = market.noSubTitle && market.noSubTitle.toLowerCase() !== "no" ? market.noSubTitle : "No";
   const expires = new Date(market.expiresAt * 1000);
+  // The market's own image when it has one, else the event's (the index resolves `imageUrl` that way).
+  const headerImage = ownImage(market, eventImage) || market.imageUrl;
 
   // ── Dock: the trade panel alone, for the event page's sticky column ──
   if (variant === "dock") {
     return (
       <div className="space-y-3">
-        <div className="k-card px-4 py-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="k-eyebrow">{phaseLabel[phase]}</div>
-              <div className="mt-0.5 truncate text-sm font-bold text-slate-950" title={market.question}>{yesLabel === "Yes" ? market.question : yesLabel}</div>
-              {yesLabel !== "Yes" && <div className="truncate text-xs text-slate-500">{market.question}</div>}
-            </div>
-            <div className="shrink-0 text-right">
-              <div className="k-num text-2xl font-bold leading-none tracking-[-0.03em] text-slate-950">{formatPercent(probYes)}</div>
-              {delta24 && <div className={`k-num mt-0.5 text-[11px] font-semibold ${delta24.direction === "up" ? "delta-up" : delta24.direction === "down" ? "delta-down" : "delta-flat"}`}>{delta24.text} today</div>}
-            </div>
-          </div>
-        </div>
         {panel}
         {(showResolveTab || showSettleTab) && (
           <Link to={`/markets/${market.ticker || market.marketId}`} className="quiet-link text-xs">
@@ -1111,9 +1083,9 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null }
       </nav>
 
       <header className="flex items-start gap-4">
-        {market.imageUrl && (
+        {headerImage && (
           <div className="hidden h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-200/70 sm:block">
-            <img src={market.imageUrl} alt="" className="h-full w-full object-cover" onError={(e) => ((e.target as HTMLImageElement).style.display = "none")} />
+            <img src={headerImage} alt="" className="h-full w-full object-cover" onError={(e) => ((e.target as HTMLImageElement).style.display = "none")} />
           </div>
         )}
         <div className="min-w-0 flex-1">
@@ -1131,7 +1103,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null }
         </div>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-5">
           <PriceChart marketRef={market.ticker || market.marketId} createdAtSec={market.createdAt} currentPrice={probYes} yesLabel={yesLabel !== "Yes" ? yesLabel : undefined} indexed={indexed} refreshKey={chartRefreshKey} height={280} />
 

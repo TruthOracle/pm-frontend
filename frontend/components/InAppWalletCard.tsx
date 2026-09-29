@@ -60,8 +60,12 @@ export function InAppWalletCard({
   onChanged?: () => void | Promise<void>;
   /** Self-fetch mode: bump to make the card re-read the ledger (a sibling changed the balance). */
   reloadKey?: number;
-  /** "row" spans wide layouts (Portfolio); "compact" stacks for narrow sidebars (market page). */
-  variant?: "row" | "compact";
+  /**
+   * "row" spans wide layouts (Portfolio); "compact" stacks for narrow sidebars; "inline" is the
+   * balance line at the foot of the order ticket (the ticket's own call to action already covers
+   * signing in and connecting a wallet, so it renders nothing until there is a balance to show).
+   */
+  variant?: "row" | "compact" | "inline";
 }) {
   const { account, connect, transferCC, signAndSubmitTransaction } = useCantonWallet();
   const auth = useAuth();
@@ -406,6 +410,8 @@ export function InAppWalletCard({
     </div>
   );
 
+  if (variant === "inline" && (auth.status === "unavailable" || signInRequired || !account)) return null;
+
   if (auth.status === "unavailable") {
     // The pre-accounts app: nothing to say until a wallet is connected.
     if (!account) return null;
@@ -548,6 +554,56 @@ export function InAppWalletCard({
       )}
     </>
   );
+
+  if (variant === "inline") {
+    const linkBtn = (active: boolean) =>
+      `text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${active ? "text-slate-950 underline underline-offset-4" : "text-primary hover:text-slate-950"}`;
+    return (
+      <div>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[13px] text-slate-500">
+            Balance <span className="ml-1 font-bold tabular-nums text-slate-950">{balanceText}</span>
+          </span>
+          <span className="flex items-center gap-3">
+            <button type="button" onClick={() => setPanel(panel === "deposit" ? null : "deposit")} disabled={depositLock !== null} title={depositLock?.reason} className={linkBtn(panel === "deposit")}>
+              Deposit
+            </button>
+            <button type="button" onClick={() => setPanel(panel === "withdraw" ? null : "withdraw")} disabled={!wallet || balance <= 0 || withdrawLock !== null} title={withdrawLock?.reason} className={linkBtn(panel === "withdraw")}>
+              Withdraw
+            </button>
+          </span>
+        </div>
+        {panel !== null && (
+          <div className="mt-2.5 flex items-center gap-2">
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="Amount (CC)"
+              aria-label={panel === "deposit" ? "Amount to deposit (CC)" : "Amount to withdraw (CC)"}
+              className="min-w-0 flex-1 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-foreground outline-none focus:border-slate-400"
+            />
+            <button
+              type="button"
+              onClick={panel === "deposit" ? handleDeposit : handleWithdraw}
+              disabled={panel === "deposit" ? depositDisabled : withdrawDisabled}
+              title={panel === "withdraw" ? withdrawLock?.reason : depositLock?.reason}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-40"
+            >
+              {panel === "deposit" ? <ArrowDownToLine className="h-3.5 w-3.5" /> : <ArrowUpFromLine className="h-3.5 w-3.5" />}
+              {panel === "deposit" ? (busy === "deposit" ? "Depositing…" : "Deposit") : busy === "withdraw" ? "Withdrawing…" : "Withdraw"}
+            </button>
+          </div>
+        )}
+        <div className="mt-1.5 space-y-0.5 text-[11px] leading-4 text-slate-500 empty:hidden">
+          {panel !== null && <p>{subLine}</p>}
+          {hints}
+        </div>
+      </div>
+    );
+  }
 
   if (compact) {
     // Both states keep a 1px border so toggling never changes the button's size.

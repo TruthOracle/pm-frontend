@@ -27,7 +27,8 @@ export interface OutcomeRow {
 }
 
 /** A market's own image: its metadata override, unless it is just the event's banner again. */
-export function ownImage(m: Pick<ApiMarket, "metadata">, eventImage: string): string {
+/** Accepts an API market or a page record (whose `metadata` may be absent on the ledger-read path). */
+export function ownImage(m: { metadata?: { imageUrl?: string } | null }, eventImage: string): string {
   const own = m.metadata?.imageUrl?.trim() ?? "";
   return own && own !== eventImage ? own : "";
 }

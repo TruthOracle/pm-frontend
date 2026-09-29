@@ -8,7 +8,7 @@
 import { TradeColumn } from "@/components/TradeColumn";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowUpRight, ChevronRight, Clock, Gavel, Layers, ShieldCheck } from "lucide-react";
+import { ArrowUpRight, ChevronRight, Clock, Contrast, Gavel, Layers, ShieldCheck } from "lucide-react";
 import EventPriceChart from "@/components/charts/EventPriceChart";
 import TradeFeed from "@/components/TradeFeed";
 import MarketView from "@/components/market/MarketView";
@@ -16,6 +16,7 @@ import { marketColorMap, compactCC, formatCents, formatPercent, priceDelta, time
 import { useEvent, useEventTrades } from "@/lib/marketQueries";
 import { toNumber, type ApiEvent, type ApiMarket } from "@/lib/marketsTypes";
 import { cn } from "@/lib/utils";
+import { ownImage } from "@/lib/outcomeRows";
 import { formatDateTimeUTC, formatMonthDayUTC, formatShortDateTimeUTC } from "@/lib/time";
 
 const STATUS_LABEL: Record<ApiEvent["status"], string> = {
@@ -59,13 +60,16 @@ export default function EventView() {
   // One colour per market from the chart's own ranking: rows, legend and lines agree.
   const colors = useMemo(() => marketColorMap(markets), [markets]);
   const trades = useEventTrades(event ? event.ticker : null, 40, !!event);
+  // Kalshi gives every row an image slot as soon as one outcome has its own image (flags, crests);
+  // the rest get a neutral glyph. With none, there is no image column at all.
+  const showImages = useMemo(() => markets.some((m) => ownImage(m, event?.imageUrl ?? "")), [markets, event]);
 
   if (query.isLoading && !event) {
     return (
       <div className="page-container space-y-5 py-6">
         <div className="skeleton h-4 w-48" />
         <div className="skeleton h-9 w-2/3" />
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-4">
             <div className="skeleton h-80 w-full rounded-xl" />
             <div className="skeleton h-48 w-full rounded-xl" />
@@ -134,7 +138,7 @@ export default function EventView() {
         </div>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-5">
           {markets.length > 0 && <EventPriceChart eventTicker={event.ticker} markets={markets} selectedTicker={selected} onSelect={(t) => select(t)} height={300} />}
 
@@ -172,58 +176,83 @@ export default function EventView() {
           </div>
 
           <section className="k-card overflow-hidden">
-            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-              <h2 className="k-section-title">Outcomes</h2>
-              <span className="text-xs text-slate-500">
+            {/* One header row, laid out like the rows under it: title over the names, "Chance" over the
+                chances, the Yes total over the pills (Kalshi keeps its column label in the table head). */}
+            <div className="outcome-head">
+              <h2 className="k-section-title min-w-0 flex-1">Markets</h2>
+              <span className="outcome-chance-col hidden sm:flex">Chance</span>
+              <span className="outcome-pills-col text-right text-xs text-slate-500">
                 {markets.length} market{markets.length === 1 ? "" : "s"}
-                {event.mutuallyExclusive && markets.length > 1 && <> · Σ Yes <span className="k-num">{formatPercent(yesSum)}</span></>}
+                {event.mutuallyExclusive && markets.length > 1 && (
+                  <>
+                    {" · "}
+                    <span title="Σ Yes: the sum of the Yes prices. Exactly one of these markets resolves Yes, so a fair book adds up to 100%.">
+                      Σ Yes <span className="k-num">{formatPercent(yesSum)}</span>
+                    </span>
+                  </>
+                )}
               </span>
             </div>
             {markets.length === 0 ? (
               <div className="px-4 py-10 text-center text-sm text-slate-500">No markets listed yet.</div>
             ) : (
-              <ul>
-                {markets.map((m) => {
-                  const p = toNumber(m.currentPrice);
-                  const delta = priceDelta(p, m.previousPrice === null ? null : toNumber(m.previousPrice));
-                  const done = m.status === "Resolved" || m.status === "Voided";
-                  const active = selected === m.ticker;
-                  const color = colors.get(m.ticker);
-                  return (
-                    <li key={m.marketId} className={cn("outcome-row flex-wrap sm:flex-nowrap border-t border-slate-100 first:border-t-0", active && "outcome-row-selected")} onClick={() => select(m.ticker)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") select(m.ticker); }}>
-                      <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
-                        <div className="flex items-center gap-2">
-                          <Link to={`/markets/${m.ticker}`} onClick={(e) => e.stopPropagation()} className="outcome-link" title={`Open the ${outcomeLabel(m)} market page`}>
+              <>
+                <ul>
+                  {markets.map((m) => {
+                    const p = toNumber(m.currentPrice);
+                    const delta = priceDelta(p, m.previousPrice === null ? null : toNumber(m.previousPrice));
+                    const done = m.status === "Resolved" || m.status === "Voided";
+                    const active = selected === m.ticker;
+                    const color = colors.get(m.ticker);
+                    const image = showImages ? ownImage(m, event.imageUrl) : "";
+                    return (
+                      <li key={m.marketId} className={cn("outcome-row flex-wrap sm:flex-nowrap border-t border-slate-100 first:border-t-0", active && "outcome-row-selected")} onClick={() => select(m.ticker)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") select(m.ticker); }}>
+                        {showImages && (
+                          <span className="outcome-img" aria-hidden="true">
+                            {image ? <img src={image} alt="" /> : <Contrast className="h-4 w-4 text-slate-400" />}
+                          </span>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <Link to={`/markets/${m.ticker}`} onClick={(e) => e.stopPropagation()} className="outcome-link outcome-name" title={`Open the ${outcomeLabel(m)} market page`}>
                             <span className="truncate">{outcomeLabel(m)}</span>
                             <ArrowUpRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                           </Link>
-                          <span className="hidden font-mono text-[11px] text-slate-400 lg:inline">{m.ticker}</span>
-                        </div>
-                        {outcomeLabel(m) !== m.question && <div className="truncate text-xs text-slate-500">{m.question}</div>}
-                        <div className="mt-1.5 flex items-center gap-2">
-                          <div className="outcome-bar max-w-[12rem]"><span style={{ width: `${Math.round(p * 100)}%`, background: color }} /></div>
-                          <span className="k-num text-[11px] text-slate-500">{compactCC(m.totalVolumeCC)}</span>
-                        </div>
-                      </div>
-                      <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
-                        <div className="mr-2 w-[4.5rem] shrink-0 text-right sm:mr-3">
-                          <div className={cn("k-num text-lg font-bold leading-none", done && "text-slate-950")} style={done ? undefined : { color }}>{done ? (m.status === "Voided" || m.outcome === "VoidOutcome" ? "Void" : m.outcome) : formatPercent(p)}</div>
-                          {delta && !done && <div className={cn("k-num mt-0.5 whitespace-nowrap text-[11px] font-semibold", delta.direction === "up" ? "delta-up" : delta.direction === "down" ? "delta-down" : "delta-flat")} title="Change in the last 24 h">{delta.text} pts</div>}
-                        </div>
-                        {!done && (
-                          <div className="flex shrink-0 gap-1.5">
-                            <button type="button" className={cn("pill-yes", active && side === "yes" && "ring-2 ring-oracle-yes/40")} onClick={(e) => { e.stopPropagation(); select(m.ticker, "yes"); }}>Yes {formatCents(p)}</button>
-                            <button type="button" className={cn("pill-no", active && side === "no" && "ring-2 ring-oracle-no/40")} onClick={(e) => { e.stopPropagation(); select(m.ticker, "no"); }}>No {formatCents(1 - p)}</button>
+                          {outcomeLabel(m) !== m.question && <div className="truncate text-xs text-slate-500">{m.question}</div>}
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <div className="outcome-bar max-w-[12rem]"><span style={{ width: `${Math.round(p * 100)}%`, background: color }} /></div>
+                            <span className="k-num text-[11px] text-slate-500">{compactCC(m.totalVolumeCC)}</span>
                           </div>
-                        )}
-                        <Link to={`/markets/${m.ticker}`} onClick={(e) => e.stopPropagation()} className="outcome-market-link" aria-label={`Open the ${outcomeLabel(m)} market page`}>
-                          Market <ChevronRight className="h-3.5 w-3.5" />
-                        </Link>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
+                        </div>
+                        <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-end sm:gap-4">
+                          <div className="outcome-chance-col">
+                            <span className="outcome-chance">
+                              {done ? (m.status === "Voided" || m.outcome === "VoidOutcome" ? "Void" : m.outcome) : formatPercent(p)}
+                            </span>
+                            {delta && !done && delta.direction !== "flat" && (
+                              <span
+                                className={cn("outcome-delta", delta.direction === "up" ? "delta-up" : "delta-down")}
+                                title={`${delta.direction === "up" ? "Up" : "Down"} ${delta.text.replace(/^[+\-−]/, "")} percentage points in 24 h (${formatPercent(m.previousPrice === null ? p : toNumber(m.previousPrice), 1)} → ${formatPercent(p, 1)})`}
+                              >
+                                {delta.direction === "up" ? "▲" : "▼"} {delta.text.replace(/^[+\-−]/, "")} pts
+                              </span>
+                            )}
+                          </div>
+                          {!done && (
+                            <div className="outcome-pills-col flex gap-2">
+                              <button type="button" className={cn("pill-outline pill-outline-yes", active && side === "yes" && "pill-outline-yes-on")} onClick={(e) => { e.stopPropagation(); select(m.ticker, "yes"); }} aria-pressed={active && side === "yes"}>
+                                Yes {formatCents(p)}
+                              </button>
+                              <button type="button" className={cn("pill-outline pill-outline-no", active && side === "no" && "pill-outline-no-on")} onClick={(e) => { e.stopPropagation(); select(m.ticker, "no"); }} aria-pressed={active && side === "no"}>
+                                No {formatCents(1 - p)}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
             )}
           </section>
 
@@ -275,7 +304,7 @@ export default function EventView() {
         <TradeColumn className="space-y-3">
           {selectedMarket ? (
             <>
-              <MarketView key={selectedMarket.ticker} marketRef={selectedMarket.ticker} variant="dock" initialSide={side} />
+              <MarketView key={selectedMarket.ticker} marketRef={selectedMarket.ticker} variant="dock" initialSide={side} eventTitle={event.title} eventImage={event.imageUrl} />
               <button type="button" className="quiet-link text-xs" onClick={() => navigate(`/markets/${selectedMarket.ticker}`)}>
                 Open the market page <ChevronRight className="h-3.5 w-3.5" />
               </button>
