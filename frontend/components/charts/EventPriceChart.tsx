@@ -27,8 +27,8 @@ export interface EventPriceChartProps {
   variant?: "full" | "compact";
   /** False pins the chart to `defaultTimeframe` with no range control (homepage hero). */
   showTabs?: boolean;
-  /** `static` renders the legend as plain indicators: no select, no hide / show, no hover (hero). */
-  legend?: "interactive" | "static";
+  /** `static` renders the legend as plain indicators: no select, no hide / show, no hover; `none` renders no legend (the trending board draws its own). */
+  legend?: "interactive" | "static" | "none";
   className?: string;
 }
 
@@ -189,6 +189,7 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
         {query.isLoading && <div className="chart-loading" aria-hidden="true" />}
       </div>
       {showTabs && <TimeframeTabs value={tf} onChange={setTf} className={cn("mt-3", variant === "full" && "sm:hidden")} />}
+      {legend !== "none" && (
       <ul className={cn("chart-legend", variant === "compact" && "chart-legend-compact")} aria-label="Markets on this chart">
         {ranked.map((m) => {
           const meta = series.get(m.ticker)!;
@@ -233,6 +234,7 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
           );
         })}
       </ul>
+      )}
     </section>
   );
 }

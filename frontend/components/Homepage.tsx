@@ -4,7 +4,7 @@ import type { PredictionMarketRecord } from "@/utils/activeContracts";
 import { marketSource } from "@/lib/marketsApi";
 import MarketCard from "./MarketCard";
 import EventCard from "./EventCard";
-import TrendingEventHero from "./TrendingEventHero";
+import TrendingEventBoard, { TrendingEventBoardEmpty, TrendingEventBoardSkeleton } from "./TrendingEventBoard";
 import PriceChart from "@/components/charts/PriceChart";
 import { useEventsList } from "@/lib/marketQueries";
 import { compactCC, formatPercent, priceDelta } from "@/lib/chartData";
@@ -74,9 +74,9 @@ function Homepage() {
   // Trending events for the grid below the hero (index only; the ledger fallback shows markets).
   const indexed = markets.some((m) => m.seriesTicker !== undefined);
   const trendingEvents = useEventsList({ withNestedMarkets: true, sort: "trending", status: "all", limit: 6 }, indexed);
-  // The hero is event-based (like the marketplace cards) whenever the index is there; the
-  // single-market hero below is the ledger-only fallback.
-  const topEvent = indexed ? trendingEvents.data?.items.find((e) => (e.markets ?? []).some((m) => !m.archived)) ?? null : null;
+  // The board carries the three most traded events (each with at least one live market)
+  // whenever the index is there; the single-market hero below is the ledger-only fallback.
+  const boardEvents = indexed ? (trendingEvents.data?.items ?? []).filter((e) => (e.markets ?? []).some((m) => !m.archived)).slice(0, 3) : [];
 
   return (
     <div className="pb-20">
@@ -106,10 +106,16 @@ function Homepage() {
             Explore all markets <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
-        <div className="featured-grid">
-          {topEvent ? (
-            <TrendingEventHero event={topEvent} />
-          ) : lead && !(indexed && trendingEvents.isLoading) ? (
+        <div className={indexed ? "featured-grid featured-grid-board" : "featured-grid"}>
+          {indexed ? (
+            trendingEvents.isLoading && !trendingEvents.data ? (
+              <TrendingEventBoardSkeleton />
+            ) : boardEvents.length ? (
+              <TrendingEventBoard events={boardEvents} />
+            ) : (
+              <TrendingEventBoardEmpty />
+            )
+          ) : lead ? (
             <div className="featured-market-card">
               <div key={lead.marketId} className="market-swap">
                 <div className="flex items-center justify-between">
@@ -155,7 +161,7 @@ function Homepage() {
               <span>Loading trending event</span>
             </div>
           )}
-          <aside className="signal-panel">
+          <aside className={indexed ? "signal-panel signal-panel-wide" : "signal-panel"}>
             <div className="flex items-center gap-2">
               <span className="icon-tile">
                 <TrendingUp className="h-4 w-4" />
