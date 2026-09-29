@@ -76,7 +76,15 @@ export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesL
           <div>
             <div className="chart-headline">
               <span className="chart-headline-value">{formatPercent(currentPrice, currentPrice < 0.1 || currentPrice > 0.9 ? 1 : 0)}</span>
-              <span className="chart-headline-label">chance{yesLabel ? ` · ${yesLabel}` : ""}</span>
+              <span className="chart-headline-label">
+                chance
+                {yesLabel && (
+                  <>
+                    {" · "}
+                    <span className="font-bold text-slate-900">{yesLabel}</span>
+                  </>
+                )}
+              </span>
             </div>
             <div className={cn("chart-delta", deltaColor)}>
               {delta ? `${delta.text} pts` : "—"} <span className="text-slate-400">{tf === "ALL" ? "all time" : `past ${tf.toLowerCase()}`}</span>
