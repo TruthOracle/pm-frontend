@@ -16,8 +16,8 @@ import { initialsOf, leadSentences, outcomeLabel, payoutMultiplier } from "@/lib
 import { fetchSeries } from "@/lib/marketsApi";
 import { toNumber, type ApiEvent, type ApiMarket } from "@/lib/marketsTypes";
 
-/** Row slots on every slide; events with more outcomes link to the rest. */
-const MAX_ROWS = 3;
+/** Row slots on every slide, as on Kalshi's board; events with more outcomes link to the rest. */
+const MAX_ROWS = 2;
 /** The board is fixed to the past week: enough history to read, no range control. */
 const BOARD_TIMEFRAME = "1W" as const;
 /** Underline of the No side of a single binary market (it has no line of its own on the chart). */
@@ -47,8 +47,15 @@ interface BoardRow {
   title: string;
   price: number;
   color: string;
+  /** The outcome's own image (market metadata), never the event's banner; "" when it has none. */
   image: string;
   href: string;
+}
+
+/** A market's own image: its metadata override, when it is not simply the event's banner again. */
+function ownImage(m: ApiMarket, event: ApiEvent): string {
+  const own = m.metadata?.imageUrl?.trim() ?? "";
+  return own && own !== event.imageUrl ? own : "";
 }
 
 /**
@@ -59,10 +66,10 @@ function rowsOf(event: ApiEvent, markets: ApiMarket[], colors: Map<string, strin
   if (markets.length === 1) {
     const m = markets[0];
     const p = toNumber(m.currentPrice);
-    const image = m.imageUrl || event.imageUrl;
+    // Both sides of one market share its image, so it would not tell them apart: none.
     return [
-      { key: `${m.ticker}:yes`, label: m.yesSubTitle || "Yes", title: m.question, price: p, color: colors.get(m.ticker) ?? SERIES_PALETTE[0], image, href: `/markets/${m.ticker}?side=yes` },
-      { key: `${m.ticker}:no`, label: m.noSubTitle || "No", title: m.question, price: 1 - p, color: NO_SIDE_COLOR, image, href: `/markets/${m.ticker}?side=no` },
+      { key: `${m.ticker}:yes`, label: m.yesSubTitle || "Yes", title: m.question, price: p, color: colors.get(m.ticker) ?? SERIES_PALETTE[0], image: "", href: `/markets/${m.ticker}?side=yes` },
+      { key: `${m.ticker}:no`, label: m.noSubTitle || "No", title: m.question, price: 1 - p, color: NO_SIDE_COLOR, image: "", href: `/markets/${m.ticker}?side=no` },
     ];
   }
   return markets.slice(0, MAX_ROWS).map((m) => ({
@@ -71,24 +78,19 @@ function rowsOf(event: ApiEvent, markets: ApiMarket[], colors: Map<string, strin
     title: m.question,
     price: toNumber(m.currentPrice),
     color: colors.get(m.ticker) ?? SERIES_PALETTE[0],
-    image: m.imageUrl || event.imageUrl,
+    image: ownImage(m, event),
     href: `/markets/${m.ticker}?side=yes`,
   }));
 }
 
-function OutcomeImage({ image, label, color }: { image: string; label: string; color: string }) {
-  if (image) return <img src={image} alt="" className="board-icon" />;
-  return (
-    <span className="board-icon board-icon-initials" style={{ color, background: `${color}1f` }} aria-hidden="true">
-      {initialsOf(label)}
-    </span>
-  );
-}
 
 function BoardEvent({ event, nav }: { event: ApiEvent; nav: ReactNode }) {
   const markets = [...(event.markets ?? []).filter((m) => !m.archived)].sort((a, b) => toNumber(b.currentPrice) - toNumber(a.currentPrice));
   const colors = marketColorMap(markets);
   const rows = rowsOf(event, markets, colors);
+  // Images only when every row has its own (Kalshi shows party logos, team crests; date buckets get
+  // none): a mix would leave the names ragged.
+  const showImages = rows.length > 0 && rows.every((r) => r.image);
   const hidden = markets.length > MAX_ROWS ? markets.length - MAX_ROWS : 0;
   const lead = markets[0];
   const seriesTitle = useSeriesTitle(event.seriesTicker);
@@ -125,13 +127,16 @@ function BoardEvent({ event, nav }: { event: ApiEvent; nav: ReactNode }) {
             {rows.map((r) => (
               <li key={r.key} className="board-row">
                 <div className="flex min-w-0 items-center gap-3">
-                  <OutcomeImage image={r.image} label={r.label} color={r.color} />
-                  <span className="board-name">
+                  {showImages && <img src={r.image} alt="" className="board-icon" />}
+                  <div className="board-name">
                     <Link to={r.href} className="board-outcome" title={r.title}>
                       {r.label}
                     </Link>
-                    <span className="board-underline" style={{ background: r.color }} />
-                  </span>
+                    {/* Kalshi's underline is a probability bar: its length is the chance, across the name column. */}
+                    <span className="board-bar" aria-hidden="true">
+                      <span style={{ width: `${Math.max(3, Math.min(100, r.price * 100))}%`, background: r.color }} />
+                    </span>
+                  </div>
                 </div>
                 <span className="board-payout">{payoutMultiplier(r.price)}</span>
                 <Link to={r.href} className="board-odds" aria-label={`${r.label}: ${formatPercent(r.price)} chance`}>
@@ -153,7 +158,7 @@ function BoardEvent({ event, nav }: { event: ApiEvent; nav: ReactNode }) {
               )}
             </span>
             <Link to={`/events/${event.ticker}`} className="board-trade group/trade">
-              {hidden > 0 ? `+${hidden} more` : "Trade"} <ArrowRight className="h-3.5 w-3.5 opacity-0 transition-opacity group-hover/trade:opacity-100" />
+              {hidden > 0 ? `${hidden} more` : "Trade"} <ArrowRight className="h-3.5 w-3.5 opacity-0 transition-opacity group-hover/trade:opacity-100" />
             </Link>
           </div>
           <hr className="board-divider" />
@@ -174,7 +179,7 @@ function BoardEvent({ event, nav }: { event: ApiEvent; nav: ReactNode }) {
               {legend.map((m) => (
                 <li key={m.marketId}>
                   <span className="board-legend-dot" style={{ background: colors.get(m.ticker) ?? SERIES_PALETTE[0] }} />
-                  <span className="board-legend-name">{outcomeLabel(m)}</span>
+                  <span>{outcomeLabel(m)}</span>
                   <b>{formatPercent(toNumber(m.currentPrice))}</b>
                 </li>
               ))}
