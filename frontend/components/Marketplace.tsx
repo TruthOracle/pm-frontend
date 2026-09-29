@@ -105,7 +105,7 @@ const Marketplace = () => {
       (m) =>
         matchesCategory(m.category) &&
         (!seriesFilter || m.seriesTicker === seriesFilter) &&
-        (!q || m.question.toLowerCase().includes(q) || (m.ticker ?? "").toLowerCase().includes(q) || (m.eventTicker ?? "").toLowerCase().includes(q)),
+        (!q || m.question.toLowerCase().includes(q) || m.ticker.toLowerCase().includes(q) || m.eventTicker.toLowerCase().includes(q)),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [markets, tab, category, seriesFilter, q]);

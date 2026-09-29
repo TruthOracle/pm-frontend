@@ -11,7 +11,7 @@
 import { backendFetch } from "@/lib/backend";
 import { requireWalletPublicKey, type SignMessage } from "@/auth/wallet";
 import type { LoginResult, SessionResponse } from "@/auth/types";
-import type { ApiCreateMarketResult, ApiEvent, ApiExchangeStatus, ApiMarket, ApiSeries } from "@/lib/marketsTypes";
+import type { ApiCreateMarketResult, ApiEvent, ApiExchangeStatus, ApiSeries } from "@/lib/marketsTypes";
 
 interface Challenge {
   challengeId: string;
@@ -89,12 +89,6 @@ export function updateEvent(ticker: string, body: Partial<Omit<EventInput, "tick
   return backendFetch<{ event: ApiEvent }>(`/api/v1/admin/events/${encodeURIComponent(ticker)}`, { method: "PATCH", body }).then((r) => r.event);
 }
 
-export function updateMarketCatalog(
-  marketId: number,
-  body: { ticker?: string; eventTicker?: string | null; yesSubTitle?: string; noSubTitle?: string; reason?: string },
-): Promise<ApiMarket> {
-  return backendFetch<{ market: ApiMarket }>(`/api/v1/admin/markets/${marketId}/catalog`, { method: "PATCH", body }).then((r) => r.market);
-}
 
 export interface CreateMarketInput {
   eventTicker: string;

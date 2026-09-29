@@ -1074,12 +1074,10 @@ const MarketView = () => {
       {/* ---------------- Market header ---------------- */}
       <div>
         <div className="mb-2 inline-flex flex-wrap items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs font-medium text-muted-foreground">
-          {market.ticker && market.tickerSource !== "synthetic" ? <span className="font-mono text-foreground">{market.ticker}</span> : <span>Market #{market.marketId}</span>}
-          {market.eventTicker && (
-            <Link to={`/events/${market.eventTicker}`} className="text-oracle-purple hover:underline">
-              Event {market.eventTicker}
-            </Link>
-          )}
+          <span className="font-mono text-foreground">{market.ticker}</span>
+          <Link to={`/events/${market.eventTicker}`} className="text-oracle-purple hover:underline">
+            Event {market.eventTicker}
+          </Link>
           {market.category && <span className="text-oracle-blue">{market.category}</span>}
           {market.isDynamic && <span className="text-oracle-purple">dynamic pm-AMM</span>}
         </div>

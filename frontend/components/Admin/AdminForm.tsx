@@ -14,6 +14,7 @@ import {
 import React, { useState, useEffect } from "react";
 import { useCantonWallet } from "@/wallets";
 import { buildInitMarketParams, type ResolutionPolicyArg } from "@/utils/cantonCommands";
+import { TICKER_PATTERN } from "@/lib/marketsTypes";
 import { fetchMarketCounterContractId } from "@/utils/activeContracts";
 import { enterpriseWalletPartyId, submitAdminTransaction } from "@/lib/enterpriseWalletSubmit";
 import { optimalReserves, liquidityFromValue } from "@/lib/marketPricing";
@@ -47,13 +48,13 @@ function AdminForm({}: Props) {
         description: "",
         resolutionDescription: "",
         category: "Sports",
-        // Catalog identity (truthoracle-v14 ≥ 1.1.0): a Kalshi-style ticker, the event this
-        // market belongs to, and the two side labels. Optional — blanks are left None on-ledger
-        // and can be assigned later from the catalog console.
+        // On-ledger identity (truthoracle-v15): a Kalshi-style ticker, the event this market
+        // belongs to, and the two side labels. All four are mandatory Text on the contract; the
+        // labels fall back to plain Yes / No when left blank.
         ticker: "",
         eventTicker: "",
-        yesSubTitle: "",
-        noSubTitle: "",
+        yesSubTitle: "Yes",
+        noSubTitle: "No",
         expiresAtLocal: "", // datetime-local string
         gracePeriodHours: 24,
         liquidityPeriodMinutes: 5, // pre-trading liquidity-collection window (default 5 min)
@@ -93,8 +94,16 @@ function AdminForm({}: Props) {
         }
     })();
 
+    const tickerNormalized = formData.ticker.trim().toUpperCase();
+    const eventTickerNormalized = formData.eventTicker.trim().toUpperCase();
+    const tickerHint = "Upper-case letters, digits and . _ - only, 2–64 characters (e.g. FED-26MAR-CUT25).";
+    const tickerError = tickerNormalized !== "" && !TICKER_PATTERN.test(tickerNormalized) ? tickerHint : null;
+    const eventTickerError = eventTickerNormalized !== "" && !TICKER_PATTERN.test(eventTickerNormalized) ? tickerHint : null;
+
     const formValid =
         formData.question.trim() !== "" &&
+        TICKER_PATTERN.test(tickerNormalized) &&
+        TICKER_PATTERN.test(eventTickerNormalized) &&
         formData.description.trim() !== "" &&
         formData.resolutionDescription.trim() !== "" &&
         formData.expiresAtLocal !== "" &&
@@ -159,6 +168,17 @@ function AdminForm({}: Props) {
             bondCC: formData.bondCC,
         };
 
+        if (!TICKER_PATTERN.test(tickerNormalized) || !TICKER_PATTERN.test(eventTickerNormalized)) {
+            toast({
+                title: "Ticker and event ticker are required",
+                description: `${tickerHint} Both are written on the ledger contract.`,
+                status: "warning",
+                duration: 6000,
+                isClosable: true,
+            });
+            return;
+        }
+
         const adminParty = enterpriseWalletPartyId() || account.address;
         const params = buildInitMarketParams(
             adminParty,
@@ -180,10 +200,10 @@ function AdminForm({}: Props) {
                 prizeFeeShareBps: formData.prizeFeeShareBps,
                 policy,
                 auditObservers: [],
-                ticker: formData.ticker.trim().toUpperCase() || undefined,
-                eventTicker: formData.eventTicker.trim().toUpperCase() || undefined,
-                yesSubTitle: formData.yesSubTitle.trim() || undefined,
-                noSubTitle: formData.noSubTitle.trim() || undefined,
+                ticker: tickerNormalized,
+                eventTicker: eventTickerNormalized,
+                yesSubTitle: formData.yesSubTitle.trim() || "Yes",
+                noSubTitle: formData.noSubTitle.trim() || "No",
             },
             freshCid
         );
@@ -253,21 +273,23 @@ function AdminForm({}: Props) {
 
                 <Flex gap={4} marginBottom="16px">
                     <Box flex={1}>
-                        <label htmlFor="ticker">Ticker (optional, on-ledger)</label>
-                        <Input type="text" marginTop="2px" name="ticker" placeholder="FED-26MAR-CUT25" value={formData.ticker} onChange={handleInputChange} />
+                        <label htmlFor="ticker">Ticker (on-ledger)</label>
+                        <Input required type="text" marginTop="2px" name="ticker" placeholder="FED-26MAR-CUT25" value={formData.ticker} onChange={handleInputChange} isInvalid={tickerError !== null} />
+                        {tickerError && <Text color="red.400" fontSize="xs" mt={1}>{tickerError}</Text>}
                     </Box>
                     <Box flex={1}>
-                        <label htmlFor="eventTicker">Event ticker (optional)</label>
-                        <Input type="text" marginTop="2px" name="eventTicker" placeholder="FED-26MAR" value={formData.eventTicker} onChange={handleInputChange} />
+                        <label htmlFor="eventTicker">Event ticker (on-ledger)</label>
+                        <Input required type="text" marginTop="2px" name="eventTicker" placeholder="FED-26MAR" value={formData.eventTicker} onChange={handleInputChange} isInvalid={eventTickerError !== null} />
+                        {eventTickerError && <Text color="red.400" fontSize="xs" mt={1}>{eventTickerError}</Text>}
                     </Box>
                 </Flex>
                 <Flex gap={4} marginBottom="16px">
                     <Box flex={1}>
-                        <label htmlFor="yesSubTitle">Yes label (optional)</label>
+                        <label htmlFor="yesSubTitle">Yes label (blank = “Yes”)</label>
                         <Input type="text" marginTop="2px" name="yesSubTitle" placeholder="Cut ≥ 25 bps" value={formData.yesSubTitle} onChange={handleInputChange} />
                     </Box>
                     <Box flex={1}>
-                        <label htmlFor="noSubTitle">No label (optional)</label>
+                        <label htmlFor="noSubTitle">No label (blank = “No”)</label>
                         <Input type="text" marginTop="2px" name="noSubTitle" placeholder="Smaller or none" value={formData.noSubTitle} onChange={handleInputChange} />
                     </Box>
                 </Flex>

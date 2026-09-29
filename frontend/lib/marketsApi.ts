@@ -86,7 +86,6 @@ export function toMarketRecord(m: ApiMarket): PredictionMarketRecord {
     synchronizerId: m.synchronizerId ?? undefined,
     // catalog + exchange figures (index only)
     ticker: m.ticker,
-    tickerSource: m.tickerSource,
     eventTicker: m.eventTicker,
     seriesTicker: m.seriesTicker,
     yesSubTitle: m.yesSubTitle,

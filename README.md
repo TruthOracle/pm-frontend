@@ -26,10 +26,10 @@ active contracts:
   trade controls (redemptions stay available).
 - `/admin` gains the catalog console (`components/Admin/CatalogPanel.tsx`): a backend operator
   session (wallet-signed challenge, `POST /auth/admin`), series and events, the treasury-signed
-  market factory (`POST /admin/markets`, on-ledger ticker / event / side labels with
-  truthoracle-v14 ≥ 1.1.0), assignment of what older markets left blank, and the trading halt.
-  The browser-side `CreateMarket` form also carries the four identity fields
-  (`VITE_TRUTHORACLE_PACKAGE_ID` must point at the 1.1.0 package for them to be accepted).
+  market factory (`POST /admin/markets`, on-ledger ticker / event / side labels) and the trading
+  halt. Every `PredictionMarket` of `truthoracle-v15` carries its ticker, event ticker and the two
+  side labels as mandatory contract fields, so the browser-side `CreateMarket` form requires the
+  tickers too (labels default to Yes / No) and nothing is assigned off-ledger afterwards.
 
 Without a backend the app stays what it was: markets from the participant, no events, no
 candles (the market chart only draws the prices this tab observed — nothing is fabricated).

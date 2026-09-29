@@ -1,12 +1,11 @@
 /**
  * Operator console for the market catalog (truthoracle-backend docs/MARKETS.md §2–§4, §8):
  * series and events, the treasury-signed market factory (a market inside an event, with its
- * ticker and Yes / No labels on-ledger), catalog assignment for markets the ledger left blank,
- * and the trading halt. Everything here calls the backend's admin API, so it needs a backend
+ * ticker and Yes / No labels on-ledger) and the trading halt. Everything here calls the backend's admin API, so it needs a backend
  * operator session (a wallet-signed challenge, ARCHITECTURE §7.4) — separate from the older
  * `to_admin` relay session the rest of /admin uses.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useToast } from "@chakra-ui/react";
 import { useCantonWallet } from "@/wallets";
 import { authErrorMessage } from "@/auth/wallet";
@@ -20,11 +19,10 @@ import {
   signInAsBackendAdmin,
   signOutBackendAdmin,
   updateEvent,
-  updateMarketCatalog,
   updateSeries,
 } from "@/lib/backendAdmin";
-import { fetchAllIndexedMarkets, fetchEvents, fetchExchangeStatus, fetchSeriesList } from "@/lib/marketsApi";
-import { toNumber, type ApiEvent, type ApiExchangeStatus, type ApiMarket, type ApiSeries } from "@/lib/marketsTypes";
+import { fetchEvents, fetchExchangeStatus, fetchSeriesList } from "@/lib/marketsApi";
+import { toNumber, type ApiEvent, type ApiExchangeStatus, type ApiSeries } from "@/lib/marketsTypes";
 import { WALLET_DISPLAY_NAME } from "@/config";
 
 const FREQUENCIES: ApiSeries["frequency"][] = ["one_off", "daily", "weekly", "monthly", "quarterly", "annual", "custom"];
@@ -54,22 +52,19 @@ export default function CatalogPanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [series, setSeries] = useState<ApiSeries[]>([]);
   const [events, setEvents] = useState<ApiEvent[]>([]);
-  const [markets, setMarkets] = useState<ApiMarket[]>([]);
   const [exchange, setExchange] = useState<ApiExchangeStatus | null>(null);
 
   const fail = (title: string, e: unknown) =>
     toast({ title, description: authErrorMessage(e), status: "error", duration: 8000, isClosable: true });
 
   const reload = useCallback(async () => {
-    const [s, e, m, x] = await Promise.all([
+    const [s, e, x] = await Promise.all([
       fetchSeriesList({ status: "all" }).then((r) => r.items),
       fetchEvents({ status: "all", withNestedMarkets: false, limit: 100 }).then((r) => r.items),
-      fetchAllIndexedMarkets(),
       fetchExchangeStatus(),
     ]);
     setSeries(s);
     setEvents(e);
-    setMarkets(m);
     setExchange(x);
   }, []);
 
@@ -191,7 +186,6 @@ export default function CatalogPanel() {
       </div>
 
       <CreateMarketCard events={events} series={series} busy={busy} run={run} />
-      <AssignMarketsCard markets={markets} events={events} busy={busy} run={run} />
     </div>
   );
 }
@@ -470,7 +464,7 @@ function CreateMarketCard({ events, series, busy, run }: { events: ApiEvent[]; s
   return (
     <Card title="Create a market inside an event (treasury-signed)">
       <p className="mb-3 text-xs text-slate-500">
-        The backend builds <code className="font-mono">MarketCounter.CreateMarket</code> with the ticker, event and side labels on-ledger (truthoracle-v14 ≥ 1.1.0) and submits
+        The backend builds <code className="font-mono">MarketCounter.CreateMarket</code> with the ticker, event and side labels on-ledger (mandatory on truthoracle-v15) and submits
         it through the Enterprise Wallet. Same ticker twice collides on the ledger's command dedup.
       </p>
       <div className="grid gap-2 sm:grid-cols-3">
@@ -545,76 +539,6 @@ function CreateMarketCard({ events, series, busy, run }: { events: ApiEvent[]; s
       <button type="button" className={`${btn} mt-3`} disabled={busy !== null || !valid} onClick={() => void submit()}>
         {busy === "Create market" ? "Submitting…" : "Create market on-ledger"}
       </button>
-    </Card>
-  );
-}
-
-function AssignMarketsCard({ markets, events, busy, run }: { markets: ApiMarket[]; events: ApiEvent[]; busy: string | null; run: Run }) {
-  const assignable = useMemo(() => markets.filter((m) => m.eventTickerSource !== "ledger" || m.tickerSource !== "ledger" || !m.subTitlesFromLedger), [markets]);
-  const [edits, setEdits] = useState<Record<number, { eventTicker: string; ticker: string; yesSubTitle: string; noSubTitle: string }>>({});
-  const editOf = (m: ApiMarket) =>
-    edits[m.marketId] ?? { eventTicker: m.eventTicker ?? "", ticker: m.tickerSource === "synthetic" ? "" : m.ticker, yesSubTitle: m.yesSubTitle, noSubTitle: m.noSubTitle };
-  const save = (m: ApiMarket) => {
-    const e = editOf(m);
-    const body: Parameters<typeof updateMarketCatalog>[1] = {};
-    if (m.eventTickerSource !== "ledger" && (e.eventTicker || null) !== (m.eventTicker ?? null)) body.eventTicker = e.eventTicker || null;
-    if (m.tickerSource !== "ledger" && e.ticker && e.ticker !== m.ticker) body.ticker = e.ticker;
-    if (!m.subTitlesFromLedger) {
-      if (e.yesSubTitle !== m.yesSubTitle) body.yesSubTitle = e.yesSubTitle;
-      if (e.noSubTitle !== m.noSubTitle) body.noSubTitle = e.noSubTitle;
-    }
-    if (Object.keys(body).length === 0) return;
-    void run("Update market", () => updateMarketCatalog(m.marketId, body), `Market #${m.marketId} updated`);
-  };
-  return (
-    <Card title={`Markets the ledger left open (${assignable.length})`}>
-      <p className="mb-3 text-xs text-slate-500">
-        Markets created before truthoracle-v14 1.1.0 carry no ticker, event or side labels on-ledger; assign them here. Fields the contract fixed are read-only.
-      </p>
-      <div className="max-h-96 space-y-2 overflow-auto">
-        {assignable.map((m) => {
-          const e = editOf(m);
-          return (
-            <div key={m.marketId} className="grid gap-2 rounded-md bg-slate-50 p-3 text-xs sm:grid-cols-[minmax(0,2fr)_1fr_1fr_1fr_1fr_auto] sm:items-end">
-              <div className="min-w-0">
-                <div className="truncate font-medium text-slate-900" title={m.question}>
-                  #{m.marketId} · {m.question}
-                </div>
-                <div className="text-slate-400">
-                  {m.ticker} ({m.tickerSource}) · {m.phase}
-                </div>
-              </div>
-              <div>
-                <label className={label}>Event</label>
-                <select className={field} value={e.eventTicker} disabled={m.eventTickerSource === "ledger"} onChange={(ev) => setEdits({ ...edits, [m.marketId]: { ...e, eventTicker: ev.target.value } })}>
-                  <option value="">— none —</option>
-                  {events.filter((x) => !x.archived).map((x) => (
-                    <option key={x.ticker} value={x.ticker}>
-                      {x.ticker}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className={label}>Ticker</label>
-                <input className={field} value={e.ticker} disabled={m.tickerSource === "ledger"} onChange={(ev) => setEdits({ ...edits, [m.marketId]: { ...e, ticker: ev.target.value.toUpperCase() } })} placeholder="EVENT-LEG" />
-              </div>
-              <div>
-                <label className={label}>Yes label</label>
-                <input className={field} value={e.yesSubTitle} disabled={m.subTitlesFromLedger} onChange={(ev) => setEdits({ ...edits, [m.marketId]: { ...e, yesSubTitle: ev.target.value } })} />
-              </div>
-              <div>
-                <label className={label}>No label</label>
-                <input className={field} value={e.noSubTitle} disabled={m.subTitlesFromLedger} onChange={(ev) => setEdits({ ...edits, [m.marketId]: { ...e, noSubTitle: ev.target.value } })} />
-              </div>
-              <button type="button" className={btnQuiet} disabled={busy !== null} onClick={() => save(m)}>
-                Save
-              </button>
-            </div>
-          );
-        })}
-        {assignable.length === 0 && <p className="text-xs text-slate-400">Every indexed market carries its identity on-ledger.</p>}
-      </div>
     </Card>
   );
 }

@@ -54,7 +54,6 @@ export type BackendErrorCode =
   | "insufficient_shares"
   | "quote_unavailable"
   | "catalog_conflict"
-  | "ledger_value_fixed"
   | "validation_failed"
   | "bad_request"
   | "not_found"

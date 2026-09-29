@@ -11,7 +11,8 @@ export const toNumber = (v: Decimal | null | undefined): number => (v == null ? 
 export type ApiMarketStatus = "Trading" | "Proposed" | "Resolved" | "Voided";
 export type ApiOutcome = "Yes" | "No" | "VoidOutcome";
 export type ApiPhase = "liquidity" | "trading" | "expired" | "proposed" | "resolved" | "voided";
-export type CatalogValueSource = "ledger" | "catalog" | "synthetic";
+/** Ticker shape the backend enforces for markets, events and series (docs/MARKETS.md §2); upper-case before testing. */
+export const TICKER_PATTERN = /^[A-Z0-9][A-Z0-9._-]{1,63}$/;
 
 export interface ApiImpliedBook {
   yesBid: Decimal;
@@ -23,14 +24,12 @@ export interface ApiImpliedBook {
 
 export interface ApiMarket {
   marketId: number;
+  /** On-ledger identity (truthoracle-v15): every market carries all four, non-empty, from its contract. */
   ticker: string;
-  tickerSource: CatalogValueSource;
-  eventTicker: string | null;
-  eventTickerSource: "ledger" | "catalog" | null;
+  eventTicker: string;
   seriesTicker: string | null;
   yesSubTitle: string;
   noSubTitle: string;
-  subTitlesFromLedger: boolean;
   contractId: string;
   templateId: string | null;
   admin: string;

@@ -64,12 +64,10 @@ const MarketCard = ({ market }: MarketCardProps) => {
             {market.question}
           </h3>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-            {market.ticker && market.tickerSource !== "synthetic" && <span className="font-mono">{market.ticker}</span>}
-            {market.eventTicker && (
-              <Link to={`/events/${market.eventTicker}`} onClick={(e) => e.stopPropagation()} className="text-oracle-purple hover:underline">
-                {market.eventTicker}
-              </Link>
-            )}
+            <span className="font-mono">{market.ticker}</span>
+            <Link to={`/events/${market.eventTicker}`} onClick={(e) => e.stopPropagation()} className="text-oracle-purple hover:underline">
+              {market.eventTicker}
+            </Link>
             {market.category && <span className="text-oracle-blue">{market.category}</span>}
             {!settled && (
               <span className="inline-flex items-center gap-1">

@@ -139,15 +139,16 @@ export interface PredictionMarketRecord {
   /** Synchronizer the contract lives on; required alongside createdEventBlob on a disclosed contract. */
   synchronizerId?: string;
 
-  // ── Present only when the record came from the backend index (lib/marketsApi.ts) ──
-  /** Kalshi-style ticker (on-ledger, catalog-assigned or `MKT-<id>`); the market URL can use it. */
-  ticker?: string;
-  tickerSource?: "ledger" | "catalog" | "synthetic";
+  // ── On-ledger identity (truthoracle-v15): every PredictionMarket carries all four ──
+  /** Kalshi-style market ticker (`EVENT-LEG`); the market URL can use it. */
+  ticker: string;
   /** The event this market is one leg of (truthoracle-backend docs/MARKETS.md §2). */
-  eventTicker?: string | null;
+  eventTicker: string;
+  yesSubTitle: string;
+  noSubTitle: string;
+
+  // ── Present only when the record came from the backend index (lib/marketsApi.ts) ──
   seriesTicker?: string | null;
-  yesSubTitle?: string;
-  noSubTitle?: string;
   /** Package-id template of the active version — the disclosed contract must name it. */
   templateId?: string;
   previousPrice?: number | null;
@@ -209,6 +210,10 @@ function parseMarket(item: unknown): PredictionMarketRecord | null {
     description: asString(p.description),
     resolutionDescription: asString(p.resolutionDescription),
     category: asString(p.category),
+    ticker: asString(p.ticker),
+    eventTicker: asString(p.eventTicker),
+    yesSubTitle: asString(p.yesSubTitle),
+    noSubTitle: asString(p.noSubTitle),
     createdAt: num(p.createdAt),
     expiresAt: num(p.expiresAt),
     gracePeriodSecs: num(p.gracePeriodSecs),

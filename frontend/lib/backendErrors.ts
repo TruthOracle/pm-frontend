@@ -63,7 +63,6 @@ const BASE: ErrorSentences = {
   insufficient_shares: "You hold fewer shares than this order needs.",
   quote_unavailable: "The pool cannot fill this order at that size. Try a smaller amount.",
   catalog_conflict: "That ticker or entry already exists.",
-  ledger_value_fixed: "This field is fixed by the ledger contract and cannot be changed here.",
   deposit_in_progress:
     "Another deposit is still being credited. Your transfer is safe — check the balance again in a moment.",
   deposit_attribution_drift:
