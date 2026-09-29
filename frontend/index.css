@@ -279,6 +279,47 @@
   .trade-cta:hover:not(:disabled) { background-position: 100% 50%; transform: translateY(-1px); box-shadow: 0 10px 24px -6px hsl(var(--primary) / 0.58), inset 0 1px 0 rgba(255, 255, 255, 0.28); }
   .trade-cta:active:not(:disabled) { transform: translateY(0); }
   .trade-cta:disabled { @apply cursor-not-allowed bg-secondary text-muted-foreground; background-image: none; box-shadow: none; }
+  /* Order ticket (market page trade column, event page dock), after Kalshi's order panel:
+     tab row + order-type menu, event and outcome, Yes / No toggle, input rows, summary, one CTA. */
+  .ticket { @apply overflow-hidden rounded-2xl border border-slate-200 bg-white; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 12px 32px -16px rgba(15, 23, 42, 0.16); }
+  .ticket-top { @apply flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-3; }
+  .ticket-tab { @apply py-1 text-[13px] font-bold uppercase tracking-[0.14em] text-slate-400 transition-colors hover:text-slate-700; }
+  .ticket-tab-active { @apply text-slate-950 hover:text-slate-950; }
+  .ticket-mode { @apply inline-flex shrink-0 items-center gap-1.5 rounded-full border-[1.5px] border-slate-900 px-3.5 py-1.5 text-[12px] font-bold uppercase tracking-[0.1em] text-slate-950 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40; }
+  .ticket-body { @apply px-5 pb-5 pt-4; }
+  .ticket-context { @apply text-[14px] leading-5 text-slate-500; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+  .ticket-outcome { @apply mt-1 flex min-w-0 items-center gap-2.5 text-[22px] font-bold leading-tight tracking-[-0.02em] text-slate-950; }
+  .ticket-outcome-img { @apply h-8 w-8 shrink-0 rounded-full bg-slate-100 object-cover; }
+  .ticket-toggle { @apply inline-flex shrink-0 rounded-full bg-slate-100 p-1; }
+  .ticket-toggle-btn { @apply whitespace-nowrap rounded-full px-4 py-1.5 text-[13px] font-bold uppercase tracking-[0.06em] text-slate-900 transition-colors; font-variant-numeric: tabular-nums; }
+  .ticket-toggle-yes { @apply text-white; background: #16c784; }
+  .ticket-toggle-no { @apply text-white; background: #f23645; }
+  .ticket-fee { @apply cursor-default whitespace-nowrap rounded-sm text-[12.5px] text-slate-500 underline decoration-dotted underline-offset-4 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40; }
+  .ticket-field { @apply flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-4 py-3 transition-colors focus-within:border-slate-400; }
+  .ticket-field-label { @apply shrink-0 text-[14px] text-slate-500; }
+  .ticket-field input { @apply w-full min-w-0 bg-transparent text-right text-[20px] font-semibold text-slate-950 outline-none placeholder:text-slate-300; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
+  .ticket-field input::-webkit-outer-spin-button, .ticket-field input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .ticket-field-unit { @apply shrink-0 text-[13px] font-medium text-slate-400; }
+  .ticket-field-value { @apply text-[20px] font-semibold text-slate-950; font-variant-numeric: tabular-nums; }
+  .ticket-muted { @apply px-1 text-[12.5px] leading-5 text-slate-500; font-variant-numeric: tabular-nums; }
+  .ticket-inline-link { @apply font-semibold text-slate-700 underline decoration-dotted underline-offset-2 hover:text-slate-950; }
+  .ticket-sum { @apply space-y-2.5 pt-1; }
+  .ticket-sum-row { @apply flex items-end justify-between gap-3; }
+  .ticket-sum-label { @apply text-[14px] text-slate-600; }
+  .ticket-sum-sub { @apply text-[12px] text-slate-400; }
+  .ticket-sum-value { @apply text-[15px] font-semibold text-slate-950; font-variant-numeric: tabular-nums; }
+  .ticket-sum-big { @apply text-[26px] font-bold leading-none tracking-[-0.02em] text-slate-950; font-variant-numeric: tabular-nums; }
+  .ticket-seg { @apply inline-flex rounded-full bg-slate-100 p-0.5; }
+  .ticket-seg-btn { @apply rounded-full px-2.5 py-1 text-[12px] font-semibold text-slate-500 transition-colors hover:text-slate-900; }
+  .ticket-seg-btn-active { @apply bg-white text-slate-950 shadow-sm hover:text-slate-950; }
+  .ticket-range { @apply mt-2 w-full accent-emerald-500; }
+  .ticket-cta { @apply h-12 w-full rounded-full text-[15px] font-semibold text-white transition-colors; background: #16c784; }
+  .ticket-cta:hover:not(:disabled) { background: #11b073; }
+  .ticket-cta:disabled { @apply cursor-not-allowed bg-slate-100 text-slate-400; }
+  .ticket-helper { @apply mt-2 text-center text-[12px] leading-5 text-slate-500; }
+  .ticket-notice { @apply rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm leading-6 text-slate-500; }
+  .ticket-foot { @apply border-t border-slate-100 px-5 py-3.5; }
+  .ticket-foot:empty { @apply hidden; }
   .featured-grid { @apply grid gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(260px,.65fr)]; }
   .featured-market-card { @apply flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 pt-5 shadow-[0_14px_50px_rgba(15,23,42,.06)] sm:p-7 sm:pt-5; }
   .featured-market-loading { @apply flex min-h-[28rem] flex-col items-center justify-center gap-3 text-sm text-slate-400; }
@@ -357,4 +398,191 @@
   @media (prefers-reduced-motion: reduce) {
     .page-transition { transition: none !important; }
   }
+}
+
+/* ── Exchange surfaces (Kalshi-style cards, pills, charts) ─────────────────────────────── */
+@layer components {
+  .k-card { @apply rounded-xl border border-slate-200 bg-white; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.12); }
+  .k-card-hover { @apply transition-all duration-150; }
+  .k-card-hover:hover { @apply border-slate-300; box-shadow: 0 2px 4px rgba(15, 23, 42, 0.05), 0 14px 32px -12px rgba(15, 23, 42, 0.18); transform: translateY(-1px); }
+  .k-section-title { @apply text-[15px] font-bold tracking-[-0.01em] text-slate-950; }
+  .k-eyebrow { @apply text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400; }
+  .k-chip { @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-950; }
+  .k-chip-active { @apply border-slate-950 bg-slate-950 text-white hover:border-slate-950 hover:text-white; }
+  .k-chip-soft { @apply inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600; }
+  .k-num { font-family: "JetBrains Mono", "DM Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .k-stat { @apply rounded-lg border border-slate-200 bg-white px-3.5 py-3; }
+  .k-stat-label { @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400; }
+  .k-stat-value { @apply mt-1 text-lg font-bold tracking-[-0.02em] text-slate-950; }
+  .k-stat-sub { @apply mt-0.5 text-[11px] text-slate-500; }
+  .k-breadcrumb { @apply flex flex-wrap items-center gap-1.5 text-xs font-medium text-slate-500; }
+  .k-breadcrumb a { @apply hover:text-slate-950; }
+  .k-breadcrumb-sep { @apply text-slate-300; }
+  .pill-yes, .pill-no { @apply inline-flex min-w-[4.5rem] items-center justify-center gap-1 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-bold transition-colors; font-variant-numeric: tabular-nums; }
+  .pill-yes { background: rgba(22, 199, 132, 0.12); color: #0f9a67; }
+  .pill-yes:hover { background: rgba(22, 199, 132, 0.24); }
+  .pill-no { background: rgba(242, 54, 69, 0.1); color: #d92634; }
+  .pill-no:hover { background: rgba(242, 54, 69, 0.22); }
+  .pill-yes-solid { @apply inline-flex min-w-[4.5rem] items-center justify-center rounded-md px-2.5 py-1.5 text-xs font-bold text-white; background: #16c784; }
+  .pill-no-solid { @apply inline-flex min-w-[4.5rem] items-center justify-center rounded-md px-2.5 py-1.5 text-xs font-bold text-white; background: #f23645; }
+  .pill-lg { @apply min-w-[6rem] px-4 py-2.5 text-sm; }
+  .outcome-row { @apply flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-slate-50 sm:gap-4 sm:px-5; }
+  .outcome-row-selected { @apply bg-emerald-50/60 hover:bg-emerald-50/80; }
+  .outcome-bar { @apply h-1.5 w-full overflow-hidden rounded-full bg-slate-100; }
+  .outcome-bar > span { @apply block h-full rounded-full; background: #16c784; }
+  .delta-up { color: #0f9a67; }
+  .delta-down { color: #d92634; }
+  .delta-flat { @apply text-slate-400; }
+  .skeleton { @apply animate-pulse rounded-md bg-slate-100; }
+
+  .chart-card { @apply k-card p-4 sm:p-5; }
+  .chart-head { @apply mb-3 flex items-start justify-between gap-3; }
+  .chart-title { @apply text-sm font-bold text-slate-950; }
+  .chart-subtitle { @apply mt-0.5 text-xs text-slate-500; }
+  .chart-headline { @apply flex items-baseline gap-2; }
+  .chart-headline-value { @apply text-3xl font-bold tracking-[-0.04em] text-slate-950 sm:text-4xl; font-variant-numeric: tabular-nums; }
+  .chart-headline-label { @apply text-sm font-medium text-slate-500; }
+  .chart-delta { @apply mt-0.5 text-sm font-semibold; font-variant-numeric: tabular-nums; }
+  .chart-plot-area { @apply relative w-full; }
+  /* One "UTC" marker per chart, in the corner under the y labels, instead of a zone on every tick. */
+  .chart-tz { @apply pointer-events-none absolute bottom-[7px] right-0 select-none text-[10px] tracking-[0.04em] text-[#8a9bb0]; font-family: "JetBrains Mono", "DM Mono", monospace; }
+  .chart-plot-area .recharts-surface { overflow: visible; }
+  /* Kalshi's live pulse: the halo starts at the dot's size, emanates to ~2.8× and fades out,
+     then restarts; the dot itself never moves. Origin at the circle centre so it grows in place. */
+  .chart-live-halo { opacity: 0.45; transform-box: fill-box; transform-origin: center; animation: chart-live-pulse 1.8s ease-out infinite; }
+  @keyframes chart-live-pulse { 0% { opacity: 0.45; transform: scale(1); } 100% { opacity: 0; transform: scale(2.8); } }
+  @media (prefers-reduced-motion: reduce) { .chart-live-halo { animation: none; opacity: 0.22; transform: scale(2.4); } }
+  .chart-loading { @apply pointer-events-none absolute inset-x-0 top-0 h-0.5 animate-pulse bg-emerald-300; }
+  .chart-empty { @apply flex h-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-200 px-6 text-center text-xs text-slate-500; }
+  .chart-empty-value { @apply text-2xl font-bold text-slate-950; }
+  .chart-tip { @apply rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg; font-family: "JetBrains Mono", "DM Mono", ui-monospace, monospace; }
+  .chart-tip-value { @apply text-base font-bold text-slate-950; }
+  .chart-tip-value span { @apply text-xs font-semibold text-slate-500; }
+  .chart-tip-time { @apply text-[11px] text-slate-500; }
+  .chart-tip-multi { @apply min-w-[12rem]; }
+  .chart-tip-multi .chart-tip-time { @apply mb-1 border-b border-slate-100 pb-1; }
+  .chart-tip-row { @apply flex items-center gap-2 py-0.5; }
+  .chart-tip-swatch { @apply inline-block h-2 w-2 shrink-0 rounded-full; }
+  .chart-tip-name { @apply min-w-0 flex-1 truncate text-slate-700; }
+  .chart-tip-num { @apply font-bold text-slate-950; }
+  .timeframe-tabs { @apply flex items-center gap-0.5 rounded-lg bg-slate-100 p-0.5 text-[11px] font-bold text-slate-500; }
+  .timeframe-tab { @apply rounded-md px-2.5 py-1.5 transition-colors hover:text-slate-950; }
+  .timeframe-tab-active { @apply bg-white text-slate-950 shadow-sm; }
+  .chart-legend { @apply mt-4 grid gap-1 sm:grid-cols-2; }
+  .chart-legend-item { @apply flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-slate-50; }
+  .chart-legend-item-off { @apply text-slate-400; }
+  .chart-legend-item-selected { @apply bg-emerald-50/70 hover:bg-emerald-50; }
+  .chart-legend-swatch { @apply inline-block h-2.5 w-2.5 shrink-0 rounded-sm; }
+  .chart-legend-compact { @apply mt-2 flex flex-wrap gap-x-2 gap-y-1; }
+  .chart-legend-compact .chart-legend-item { @apply w-auto px-1.5 py-1; }
+  .chart-legend-item-static { cursor: default; pointer-events: none; background: transparent !important; box-shadow: none !important; }
+  .k-criteria { @apply k-card p-5; border-left: 4px solid #16c784; background: #fff; }
+  .k-criteria-text { @apply whitespace-pre-line text-[15px] leading-7 text-slate-800; }
+  .k-criteria-meta { @apply mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3 text-xs text-slate-500; }
+
+  /* Trending event board on the homepage, after Kalshi's event board (components/TrendingEventBoard.tsx). */
+  /* Event card (marketplace grid, homepage "Trending markets"), after Kalshi's event card. The
+     rows area takes the free height and centres its rows, so cards in one grid row line up. */
+  .ev-card { @apply flex h-full cursor-pointer flex-col rounded-xl border border-slate-200 bg-white px-5 pb-4 pt-4 transition-[box-shadow,border-color] duration-150; }
+  .ev-card:hover { @apply border-slate-300; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.07); }
+  .ev-card:focus-visible { @apply outline-none ring-2 ring-primary/40; }
+  .ev-top { @apply flex items-center justify-between gap-3; }
+  .ev-tile { @apply h-6 w-6 shrink-0 rounded-[6px] object-cover; }
+  .ev-tile-initials { @apply inline-flex items-center justify-center text-[9px] font-extrabold text-white; }
+  .ev-label { @apply truncate text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500; }
+  .ev-sub { @apply min-w-0 max-w-[55%] truncate text-[12px] text-slate-400; }
+  .ev-title { @apply mt-3 text-[17px] font-bold leading-snug tracking-[-0.015em] text-slate-950; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .ev-meta { @apply mt-1 inline-flex items-center gap-1.5 text-[12.5px] text-slate-500; font-variant-numeric: tabular-nums; }
+  .ev-rows { @apply flex flex-1 flex-col justify-center gap-1 py-3; min-height: 6.5rem; }
+  .ev-row { @apply grid h-11 items-center gap-3; grid-template-columns: minmax(0, 1fr) 2.75rem 4.25rem; }
+  /* Without outcome images the rows only need the name and its underline: tighter, like Kalshi's homepage cards. */
+  .ev-rows-tight { @apply gap-0.5; }
+  .ev-rows-tight .ev-row { @apply h-[38px]; }
+  .ev-icon { @apply h-8 w-8 shrink-0 rounded-[3px] bg-slate-100 object-cover; }
+  .ev-name { @apply flex min-w-0 flex-1 flex-col; }
+  .ev-outcome { @apply block truncate text-[15px] leading-5 text-slate-900 transition-colors hover:text-slate-950; }
+  .ev-bar { @apply mt-1 block h-[2px] w-full; }
+  .ev-bar > span { @apply block h-full rounded-full; }
+  .ev-payout { @apply text-right text-[13px] text-slate-500; font-variant-numeric: tabular-nums; }
+  .ev-odds { @apply inline-flex h-[34px] w-full items-center justify-center rounded-full border-[1.5px] bg-white text-[14px] font-bold text-slate-950 transition-colors; border-color: #16c784; font-variant-numeric: tabular-nums; }
+  .ev-odds:hover { background: rgba(22, 199, 132, 0.08); }
+  .ev-result { @apply inline-flex h-[34px] w-full items-center justify-center rounded-full text-[12.5px] font-bold; }
+  .ev-result-won { @apply bg-emerald-50 text-emerald-700; }
+  .ev-result-other { @apply bg-slate-100 text-slate-500; }
+  .ev-empty { @apply rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-500; }
+  .ev-foot { @apply mt-auto flex items-center justify-between gap-3 text-[12.5px] text-slate-500; font-variant-numeric: tabular-nums; }
+
+  /* Trending board (homepage), after Kalshi's event board. One grid template for the table head
+     and its rows keeps "Pays out" / "Odds" over their values; fixed row, title and About heights
+     keep every carousel slide the same size. */
+  .board { @apply rounded-2xl border border-slate-200 bg-white px-5 py-5 sm:px-8 sm:py-6 lg:px-9; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 14px 50px rgba(15, 23, 42, 0.06); --board-cols: minmax(0, 1fr) 3.5rem 5rem; }
+  .board-top { @apply flex items-center justify-between gap-4; }
+  .board-tile { @apply h-8 w-8 shrink-0 rounded-[7px] object-cover; }
+  .board-tile-initials { @apply flex items-center justify-center text-[11px] font-extrabold tracking-wide text-white; }
+  .board-series { @apply truncate text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500; }
+  .board-nav { @apply flex shrink-0 items-center gap-2 whitespace-nowrap text-[13px] text-slate-700; font-variant-numeric: tabular-nums; }
+  .board-live { @apply mr-2 hidden items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.16em] text-primary sm:inline-flex; }
+  .board-nav-btn { @apply inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 transition-colors hover:border-slate-900 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40; }
+  .board-title { @apply mt-4 truncate text-[21px] font-bold leading-tight tracking-[-0.03em] text-slate-950 sm:text-[24px]; }
+  .board-grid { @apply mt-5 grid gap-7 lg:grid-cols-[minmax(0,44fr)_minmax(0,56fr)] lg:gap-9; }
+  .board-left { @apply flex min-w-0 flex-col; }
+  .board-table-head { @apply grid h-5 items-center gap-3 text-[12px] text-slate-500; grid-template-columns: var(--board-cols); }
+  .board-rows { @apply mt-1.5; min-height: 6rem; }
+  .board-row { @apply grid h-12 items-center gap-3; grid-template-columns: var(--board-cols); }
+  .board-icon { @apply h-8 w-8 shrink-0 rounded-[3px] bg-slate-100 object-cover; }
+  .board-name { @apply flex min-w-0 flex-1 flex-col; }
+  .board-outcome { @apply block truncate text-[15px] leading-5 text-slate-900 transition-colors hover:text-slate-950; }
+  .board-bar { @apply mt-1 block h-[2px] w-full; }
+  .board-bar > span { @apply block h-full rounded-full; }
+  .board-payout { @apply text-right text-[13px] text-slate-500; font-variant-numeric: tabular-nums; }
+  .board-odds { @apply inline-flex h-[34px] w-full items-center justify-center rounded-full border-[1.5px] bg-white text-[14px] font-bold text-slate-950 transition-colors; border-color: #16c784; font-variant-numeric: tabular-nums; }
+  .board-odds:hover { background: rgba(22, 199, 132, 0.08); }
+  .board-stats { @apply mt-3 flex h-5 items-center justify-between gap-3 text-[12.5px] text-slate-500; }
+  .board-stats-line { @apply min-w-0 truncate; }
+  .board-stats b { @apply font-bold text-slate-900; font-variant-numeric: tabular-nums; }
+  .board-trade { @apply inline-flex shrink-0 items-center gap-1 text-[12.5px] font-medium text-slate-500 transition-colors hover:text-slate-950; }
+  .board-divider { @apply my-3.5 border-0 border-t border-dashed border-slate-300; }
+  .board-about { @apply text-[13px] leading-[1.375rem] text-slate-600; height: 5.5rem; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+  .board-about b { @apply font-bold text-slate-950; }
+  .board-right { @apply flex min-w-0 flex-col; }
+  .board-chart-head { @apply flex items-center justify-between gap-4; }
+  .board-legend { @apply flex min-w-0 flex-wrap items-center gap-x-5 gap-y-1.5 text-[13px] text-slate-600; }
+  .board-legend li { @apply inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap; }
+  .board-legend-dot { @apply inline-block h-2 w-2 shrink-0 rounded-full; }
+  .board-legend b { @apply font-bold text-slate-950; font-variant-numeric: tabular-nums; }
+  .board-wordmark { @apply hidden shrink-0 text-[15px] font-extrabold tracking-[-0.04em] text-slate-950 sm:inline; }
+  .board-wordmark span { @apply text-primary; }
+  .board-chart-wrap { @apply relative mt-3 min-h-[12rem] flex-1; }
+  .board-chart { @apply absolute inset-0 !rounded-none !border-0 !bg-transparent !p-0 !shadow-none; }
+  .board-empty { @apply flex min-h-[18rem] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500; }
+  .outcome-link { @apply inline-flex min-w-0 items-center gap-1 text-sm font-semibold text-slate-950 underline-offset-4 decoration-2 hover:text-primary hover:underline; }
+  .outcome-link svg { @apply opacity-40 transition-opacity; }
+  .outcome-link:hover svg { @apply opacity-100; }
+  .outcome-row .pill-yes, .outcome-row .pill-no { @apply min-h-[2.5rem] sm:min-h-0; }
+  /* Event page outcome list, after Kalshi's: "Chance" header, image slot, big chance + 24 h change,
+     outlined Yes / No pills (selected one tinted). Same px-4 / gap-3 as the rows so columns line up. */
+  .outcome-head { @apply flex items-center gap-3 border-b border-slate-100 px-4 py-3.5 text-[12px] font-medium text-slate-500 sm:gap-4 sm:px-5; }
+  .outcome-chance-col { @apply flex shrink-0 items-center gap-2 sm:w-[8.5rem]; }
+  .outcome-pills-col { @apply shrink-0 sm:w-[14.5rem]; }
+  .outcome-img { @apply flex h-8 w-8 shrink-0 items-center justify-center self-start overflow-hidden rounded-full bg-slate-100 sm:self-center; }
+  .outcome-img img { @apply h-full w-full object-cover; }
+  .outcome-name { @apply text-[16px] font-medium; }
+  /* Near-black like Kalshi's: the market's line colour lives on the bar under its name, so the number stays neutral. */
+  .outcome-chance { @apply text-[22px] font-semibold leading-none tracking-[-0.02em] text-slate-950; font-variant-numeric: tabular-nums; }
+  .outcome-delta { @apply whitespace-nowrap text-[12px] font-semibold leading-none; font-variant-numeric: tabular-nums; }
+  .pill-outline { @apply inline-flex h-10 flex-1 items-center justify-center whitespace-nowrap rounded-full border border-slate-200 bg-white px-3 text-[14px] font-semibold transition-colors sm:h-9 sm:w-[7rem] sm:flex-none; font-variant-numeric: tabular-nums; }
+  .pill-outline-yes { color: #0f9a67; }
+  .pill-outline-no { color: #d92634; }
+  .pill-outline:hover { @apply border-slate-300 bg-slate-50; }
+  .pill-outline-yes-on, .pill-outline-yes-on:hover { border-color: #16c784; background: rgba(22, 199, 132, 0.1); }
+  .pill-outline-no-on, .pill-outline-no-on:hover { border-color: #f23645; background: rgba(242, 54, 69, 0.08); }
+  .chart-legend-name { @apply min-w-0 flex-1 truncate font-medium text-slate-800; }
+  .chart-legend-item-off .chart-legend-name { @apply text-slate-400; }
+  .chart-legend-value { @apply font-bold text-slate-950; font-variant-numeric: tabular-nums; }
+  .chart-legend-item-off .chart-legend-value { @apply text-slate-400; }
+  .chart-legend-eye { @apply ml-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 hover:bg-slate-200 hover:text-slate-700; }
+  .trade-feed-row { @apply flex items-center gap-3 border-t border-slate-100 px-4 py-2.5 text-xs first:border-t-0; }
+  .trade-feed-side { @apply inline-flex min-w-[2.75rem] justify-center rounded px-1.5 py-0.5 text-[11px] font-bold; }
+  .trade-feed-side-yes { background: rgba(22, 199, 132, 0.12); color: #0f9a67; }
+  .trade-feed-side-no { background: rgba(242, 54, 69, 0.1); color: #d92634; }
 }

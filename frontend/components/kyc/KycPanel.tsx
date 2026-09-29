@@ -29,6 +29,7 @@ import {
   type SnsWebSdkInstance,
 } from "@/lib/kyc";
 import MockKycForm from "./MockKycForm";
+import { formatDateTimeUTC } from "@/lib/time";
 
 const TONE_CLASSES: Record<KycTone, string> = {
   neutral: "border-slate-200 bg-slate-50 text-slate-600",
@@ -116,6 +117,7 @@ export default function KycPanel() {
         if (cancelled) return;
         sdkRef.current = launchSumsub(sdk, {
           accessToken: session.accessToken,
+          email: auth.me?.user.email ?? null,
           refreshToken: async () => {
             const next = await createKycSession();
             if (next.provider !== "sumsub") throw new Error("Verification provider changed; reload the page.");
@@ -128,6 +130,9 @@ export default function KycPanel() {
               void syncAfterChange();
             }
           },
+          // Documents (re)submitted: the backend flips to pending on the webhook; re-read now
+          // so the card does not wait for the next poll.
+          onSubmitted: () => void syncAfterChange(),
           onError: () => {
             setFlowError("The verification widget reported an error. You can close it and start again.");
           },
@@ -148,6 +153,7 @@ export default function KycPanel() {
       // iframe from surviving into the next launch.
       if (container) container.innerHTML = "";
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, syncAfterChange]);
 
   const closeFlow = () => {
@@ -265,7 +271,7 @@ export default function KycPanel() {
               <li key={h.id} className="flex flex-wrap gap-x-2">
                 <span className="font-mono">#{h.attemptNo}</span>
                 <span>{h.status.replace(/_/g, " ")}</span>
-                <span className="text-slate-400">{new Date(h.createdAt).toLocaleString()}</span>
+                <span className="text-slate-400">{formatDateTimeUTC(h.createdAt)}</span>
               </li>
             ))}
           </ul>

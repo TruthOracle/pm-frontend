@@ -45,6 +45,15 @@ export type BackendErrorCode =
   | "kyc_provider_unavailable"
   /** Sumsub webhook signature refused — server-to-server only, never seen by a browser. */
   | "webhook_rejected"
+  // markets / orders (truthoracle-backend docs/MARKETS.md)
+  | "trading_halted"
+  | "market_not_tradable"
+  | "no_in_app_wallet"
+  | "no_position"
+  | "insufficient_balance"
+  | "insufficient_shares"
+  | "quote_unavailable"
+  | "catalog_conflict"
   | "validation_failed"
   | "bad_request"
   | "not_found"

@@ -1,5 +1,6 @@
 import { YourLpBox, YourPositionBox } from "./MarketPositionCards";
 import { fmtCC } from "./marketHelpers";
+import { formatDateTimeUTC } from "@/lib/time";
 
 type SettlementContext = {
   phase: any;
@@ -35,7 +36,7 @@ export default function MarketSettlementPanel({ context }: { context: Settlement
                 <div className="flex justify-between"><span>Final probability</span><span>{(probYes * 100).toFixed(1)}% Yes</span></div>
                 <div className="flex justify-between"><span>Total volume</span><span>{fmtCC(market.totalVolumeCC, 2)} CC</span></div>
                 {market.resolvedAt && (
-                  <div className="flex justify-between"><span>Settled</span><span>{new Date(market.resolvedAt * 1000).toLocaleString()}</span></div>
+                  <div className="flex justify-between"><span>Settled</span><span>{formatDateTimeUTC(market.resolvedAt * 1000)}</span></div>
                 )}
               </div>
             </div>

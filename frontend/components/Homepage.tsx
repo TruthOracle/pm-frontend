@@ -1,11 +1,17 @@
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchAllPredictionMarkets, type PredictionMarketRecord } from "@/utils/activeContracts";
+import type { PredictionMarketRecord } from "@/utils/activeContracts";
+import { marketSource } from "@/lib/marketsApi";
 import MarketCard from "./MarketCard";
+import EventCard from "./EventCard";
+import TrendingEventBoard, { TrendingEventBoardEmpty, TrendingEventBoardSkeleton } from "./TrendingEventBoard";
+import PriceChart from "@/components/charts/PriceChart";
+import { useEventsList } from "@/lib/marketQueries";
+import { compactCC, formatPercent, priceDelta } from "@/lib/chartData";
 import { ArrowRight, Clock3, Loader2, Newspaper, Radio, ShieldCheck, Sparkles, TrendingUp, Zap } from "lucide-react";
 import { getPrefetchedMarkets } from "@/utils/marketPrefetch";
-import { formatChartDate, pointOnProbabilityPath, probabilityHistoryPath, type ProbabilityPoint } from "@/lib/probabilityChart";
 import { fetchMarketNews, getNewsThumbnail, getTickerHeadline, NEWS_REFRESH_INTERVAL_MS, type MarketNewsItem } from "@/lib/marketNews";
+import { formatClockUTC } from "@/lib/time";
 
 function Homepage() {
   const [markets, setMarkets] = useState<PredictionMarketRecord[]>(() => getPrefetchedMarkets() ?? []);
@@ -15,12 +21,12 @@ function Homepage() {
   const [newsLoading, setNewsLoading] = useState(true);
   const [newsIsLive, setNewsIsLive] = useState(false);
   const [newsUpdatedAt, setNewsUpdatedAt] = useState<Date | null>(null);
-  const [priceHistory, setPriceHistory] = useState<Map<number, ProbabilityPoint[]>>(new Map());
   useEffect(() => {
     let active = true;
     const refresh = () => {
-      fetchAllPredictionMarkets()
-        .then((nextMarkets) => {
+      marketSource
+        .all()
+        .then(({ markets: nextMarkets }) => {
           if (active) setMarkets(nextMarkets);
         })
         .finally(() => {
@@ -58,36 +64,20 @@ function Homepage() {
   }, []);
   const latestHeadlines = news.map((item) => getTickerHeadline(item.title));
   const tickerHeadlines = [...latestHeadlines, ...latestHeadlines];
-  const featured = markets.slice(0, 4);
+  // Trending = the most traded open markets over the last day (falls back to the newest).
+  const featured = [...markets]
+    .filter((m) => m.status === "Trading")
+    .sort((a, b) => (b.volume24hCC ?? 0) - (a.volume24hCC ?? 0) || b.marketId - a.marketId)
+    .slice(0, 4);
   const lead = featured[featured.length ? featuredIndex % featured.length : 0];
   const yesPct = lead ? Math.round(lead.currentPrice * 100) : 0;
-  const nowSecs = Math.floor(Date.now() / 1000);
-  const leadHistory = lead ? priceHistory.get(lead.marketId) ?? [{ timestamp: lead.createdAt, probability: 0.5 }] : [];
-  const chartCurrentY = lead ? 4 + (1 - lead.currentPrice) * 106 : 57;
-  const chartTrendPath = probabilityHistoryPath(leadHistory, lead?.createdAt ?? nowSecs, nowSecs, 410, 110, 4);
-  const homeChartPathRef = useRef<SVGPathElement>(null);
-  const [hoveredHomePoint, setHoveredHomePoint] = useState<(ProbabilityPoint & { x: number; y: number }) | null>(null);
-  const [hoveredHomeX, setHoveredHomeX] = useState<number | null>(null);
-
-  const handleHomePointerMove = (event: PointerEvent<SVGSVGElement>) => {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const chartX = ((event.clientX - bounds.left) / bounds.width) * 480;
-    const exactX = Math.max(0, Math.min(410, chartX));
-    setHoveredHomeX(exactX);
-    if (homeChartPathRef.current) setHoveredHomePoint(pointOnProbabilityPath(homeChartPathRef.current, exactX, 410, lead?.createdAt ?? nowSecs, nowSecs, 110, 4));
-  };
-
-  useEffect(() => {
-    if (!lead) return;
-    setPriceHistory((previous) => {
-      const existing = previous.get(lead.marketId) ?? [{ timestamp: lead.createdAt, probability: 0.5 }];
-      const last = existing.at(-1);
-      if (last && Math.abs(last.probability - lead.currentPrice) < 0.0001) return previous;
-      const next = new Map(previous);
-      next.set(lead.marketId, [...existing, { timestamp: nowSecs, probability: lead.currentPrice }]);
-      return next;
-    });
-  }, [lead, nowSecs]);
+  const leadDelta = lead ? priceDelta(lead.currentPrice, lead.previousPrice ?? null) : null;
+  // Trending events for the grid below the hero (index only; the ledger fallback shows markets).
+  const indexed = markets.some((m) => m.seriesTicker !== undefined);
+  const trendingEvents = useEventsList({ withNestedMarkets: true, sort: "trending", status: "all", limit: 6 }, indexed);
+  // The board carries the three most traded events (each with at least one live market)
+  // whenever the index is there; the single-market hero below is the ledger-only fallback.
+  const boardEvents = indexed ? (trendingEvents.data?.items ?? []).filter((e) => (e.markets ?? []).some((m) => !m.archived)).slice(0, 3) : [];
 
   return (
     <div className="pb-20">
@@ -118,7 +108,15 @@ function Homepage() {
           </Link>
         </div>
         <div className="featured-grid">
-          {lead ? (
+          {indexed ? (
+            trendingEvents.isLoading && !trendingEvents.data ? (
+              <TrendingEventBoardSkeleton />
+            ) : boardEvents.length ? (
+              <TrendingEventBoard events={boardEvents} />
+            ) : (
+              <TrendingEventBoardEmpty />
+            )
+          ) : lead ? (
             <div className="featured-market-card">
               <div key={lead.marketId} className="market-swap">
                 <div className="flex items-center justify-between">
@@ -127,71 +125,30 @@ function Homepage() {
                   </div>
                   <span className="soft-badge -mr-1 sm:-mr-2">{lead.category || "Trending"}</span>
                 </div>
-                <Link to={`/market/${lead.marketId}`} className="group/title block">
+                <Link to={`/market/${lead.ticker ?? lead.marketId}`} className="group/title block">
                   <h2 className="mt-3 max-w-xl text-2xl font-bold tracking-[-0.04em] text-slate-950 transition-colors group-hover/title:text-primary group-active/title:text-primary sm:text-3xl">
                     {lead.question}
                   </h2>
                 </Link>
                 <div className="my-auto grid gap-5 pt-6 sm:grid-cols-[1fr_1.2fr] sm:items-end">
                   <div>
-                    <p className="text-sm font-medium text-slate-500">Probability of Yes</p>
-                    <p className="mt-1 text-5xl font-bold tracking-[-0.07em] text-slate-950">{yesPct}%</p>
+                    <p className="text-sm font-medium text-slate-500">Chance of Yes</p>
+                    <p className="k-num mt-1 text-5xl font-bold tracking-[-0.07em] text-slate-950">{yesPct}%</p>
+                    {leadDelta && <p className={`k-num mt-1 text-sm font-semibold ${leadDelta.direction === "up" ? "delta-up" : leadDelta.direction === "down" ? "delta-down" : "delta-flat"}`}>{leadDelta.text} pts today</p>}
                     <div className="mt-3 prob-bar h-2">
                       <div className="prob-bar-yes" style={{ width: `${yesPct}%` }} />
                     </div>
-                  </div>
-                  <div className="mini-chart" aria-label="Market probability trend">
-                    <div className="chart-caption">
-                      <strong>pm-AMM curve</strong>
-                      <span>LIVE PROBABILITY</span>
-                    </div>
-                    <div className="chart-plot top-8 right-3 bottom-2 left-2">
-                      <svg
-                        viewBox="0 0 480 148"
-                        preserveAspectRatio="none"
-                        role="img"
-                        aria-label="Live probability trend"
-                        onPointerMove={handleHomePointerMove}
-                        onPointerLeave={() => { setHoveredHomePoint(null); setHoveredHomeX(null); }}
-                      >
-                        <defs>
-                          <linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1">
-                            <stop offset="0" stopColor="#138b61" stopOpacity=".22" />
-                            <stop offset="1" stopColor="#138b61" stopOpacity="0" />
-                          </linearGradient>
-                        </defs>
-                        <path d="M0 110H430 M0 83.5H430 M0 57H430 M0 30.5H430 M0 4H430" className="chart-grid" />
-                        <path className="chart-fill" d={`${chartTrendPath} V110 H0Z`} />
-                        <path ref={homeChartPathRef} className="chart-line chart-line-edge-safe" d={chartTrendPath} />
-                        <circle cx="410" cy={chartCurrentY} r="4" fill="#138b61" />
-                        {hoveredHomePoint && <>
-                          <line x1={hoveredHomeX ?? hoveredHomePoint.x} x2={hoveredHomeX ?? hoveredHomePoint.x} y1="4" y2="110" className="chart-crosshair" />
-                          <circle cx={hoveredHomePoint.x} cy={hoveredHomePoint.y} r="4" className="chart-hover-dot" />
-                        </>}
-                        {[100, 75, 50, 25, 0].map((label, index) => (
-                          <text key={label} x="442" y={8 + index * 26.5} className="home-chart-axis-label">
-                            {label}%
-                          </text>
-                        ))}
-                        <text x="0" y="144" className="home-chart-axis-label">
-                          {formatChartDate(lead?.createdAt ?? 0, true)}
-                        </text>
-                        <text x="405" y="144" className="home-chart-axis-label">
-                          Now
-                        </text>
-                      </svg>
-                      {hoveredHomePoint && <div className="chart-tooltip chart-tooltip-home" style={{ left: `${Math.min(80, Math.max(8, ((hoveredHomeX ?? hoveredHomePoint.x) / 410) * 100))}%`, transform: (hoveredHomeX ?? hoveredHomePoint.x) < 410 * .28 ? "translateX(0)" : (hoveredHomeX ?? hoveredHomePoint.x) > 410 * .72 ? "translateX(-100%)" : "translateX(-50%)" }}>
-                        <strong>{(hoveredHomePoint.probability * 100).toFixed(2)}% Yes</strong>
-                        <span>{new Date(hoveredHomePoint.timestamp * 1000).toLocaleDateString(undefined, { day: "2-digit", month: "short" }).toUpperCase()}</span>
-                        <span>{new Date(hoveredHomePoint.timestamp * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: false })}</span>
-                      </div>}
+                    <div className="mt-3 flex gap-2">
+                      <Link to={`/markets/${lead.ticker || lead.marketId}?side=yes`} className="pill-yes pill-lg flex-1">Yes {formatPercent(lead.currentPrice)}</Link>
+                      <Link to={`/markets/${lead.ticker || lead.marketId}?side=no`} className="pill-no pill-lg flex-1">No {formatPercent(1 - lead.currentPrice)}</Link>
                     </div>
                   </div>
+                  <PriceChart marketRef={lead.ticker || lead.marketId} createdAtSec={lead.createdAt} currentPrice={lead.currentPrice} indexed={lead.seriesTicker !== undefined} variant="compact" height={168} defaultTimeframe="1W" className="!p-3" />
                 </div>
                 <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 pt-5 text-xs text-slate-500">
-                  <span>{`${lead.totalVolumeCC.toFixed(1)} CC market volume`}</span>
+                  <span className="k-num">{lead.volume24hCC !== undefined ? `${compactCC(lead.volume24hCC)} traded in 24h · ${compactCC(lead.totalVolumeCC)} lifetime` : `${compactCC(lead.totalVolumeCC)} market volume`}</span>
                   <Link
-                    to={`/market/${lead.marketId}`}
+                    to={`/market/${lead.ticker ?? lead.marketId}`}
                     className="inline-flex items-center gap-1 font-semibold text-slate-900 hover:text-primary"
                   >
                     View market <ArrowRight className="h-3.5 w-3.5" />
@@ -200,9 +157,9 @@ function Homepage() {
               </div>
             </div>
           ) : (
-            <div className="featured-market-card featured-market-loading" aria-label="Loading featured market">
+            <div className="featured-market-card featured-market-loading" aria-label="Loading trending event">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <span>Loading trending market</span>
+              <span>Loading trending event</span>
             </div>
           )}
           <aside className="signal-panel">
@@ -219,7 +176,7 @@ function Homepage() {
               <div>
                 <div className="mb-2 flex justify-between text-sm">
                   <span>Active markets</span>
-                  <strong>{loading ? "—" : markets.length}</strong>
+                  <strong>{loading ? "—" : markets.filter((m) => m.status === "Trading").length}</strong>
                 </div>
                 <div className="signal-bar">
                   <span style={{ width: "78%" }} />
@@ -274,6 +231,12 @@ function Homepage() {
           <div className="flex h-48 items-center justify-center">
             <Loader2 className="h-7 w-7 animate-spin text-primary" />
           </div>
+        ) : indexed && (trendingEvents.data?.items.length ?? 0) > 0 ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {trendingEvents.data!.items.slice(0, 6).map((event) => (
+              <EventCard key={event.ticker} event={event} showOutcomeImages={false} />
+            ))}
+          </div>
         ) : featured.length ? (
           <div className="market-grid">
             {featured.map((market) => (
@@ -296,7 +259,7 @@ function Homepage() {
                 {newsIsLive ? <Radio className="h-3 w-3" /> : <Clock3 className="h-3 w-3" />}
                 {newsIsLive ? "LIVE FROM WEB" : "FALLBACK DATA"}
               </span>
-              {newsUpdatedAt && <span>Updated {newsUpdatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
+              {newsUpdatedAt && <span>Updated {formatClockUTC(newsUpdatedAt)}</span>}
             </div>
           </div>
           <Link to="/news" className="quiet-link">

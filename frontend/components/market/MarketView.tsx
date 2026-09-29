@@ -1,11 +1,22 @@
-import { Skeleton, Text, useToast } from "@chakra-ui/react";
-import { Gavel } from "lucide-react";
+import { useToast } from "@chakra-ui/react";
+import { TradeColumn } from "@/components/TradeColumn";
+import { ChevronRight, Gavel } from "lucide-react";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useCantonWallet } from "@/wallets";
 import { useAccountWallet, useAuth } from "@/auth/AuthContext";
 import { authErrorMessage } from "@/auth/wallet";
-import { WALLET_DISPLAY_NAME } from "@/config";
+import { TRUTHORACLE_PACKAGE_ID, WALLET_DISPLAY_NAME } from "@/config";
+import { backendErrorMessage } from "@/lib/backendErrors";
+import { fetchMyMarketView, marketSource, prepareOrder, waitForTradeLanding } from "@/lib/marketsApi";
+import { useMarketTrades } from "@/lib/marketQueries";
+import { compactCC, formatCents, formatPercent, priceDelta } from "@/lib/chartData";
+import PriceChart from "@/components/charts/PriceChart";
+import TradeFeed from "@/components/TradeFeed";
+import { YourLpBox, YourPositionBox } from "./MarketPositionCards";
+import type { ApiPreparedOrder, PrepareOrderRequest } from "@/lib/marketsTypes";
+import type { PrepareExecuteParams } from "@/lib/cantonDapp";
+import { useExchangeStatus } from "@/components/ExchangeStatusBanner";
 import { useIsAdmin } from "@/lib/useIsAdmin";
 import { shortPartyId } from "@/lib/party";
 import {
@@ -28,7 +39,6 @@ import {
   type OutcomeArg,
 } from "@/utils/cantonCommands";
 import {
-  fetchAllPredictionMarkets,
   fetchUserPosition,
   fetchUserLpPosition,
   fetchUserWallet,
@@ -54,13 +64,14 @@ import {
   poolValue,
 } from "@/lib/marketPricing";
 import { ammState, fmtCC, fmtCountdown, getMarketPhase } from "./marketHelpers";
-import MarketTradePanel from "./MarketTradePanel";
-import MarketLiquidityPanel from "./MarketLiquidityPanel";
+import OrderPanel, { type OrderPanelContext } from "./OrderPanel";
+import { ownImage } from "@/lib/outcomeRows";
 import MarketResolutionPanel from "./MarketResolutionPanel";
 import MarketSettlementPanel from "./MarketSettlementPanel";
 import type { MainTab, TradeSubTab, LiquiditySubTab } from "./marketTypes";
 import { getPrefetchedMarkets } from "@/utils/marketPrefetch";
 import { debugError } from "@/lib/debugLog";
+import { formatClockUTC, formatDateTimeUTC, formatMonthDayUTC } from "@/lib/time";
 
 async function waitForPositionUpdate(
   partyId: string,
@@ -78,26 +89,39 @@ async function waitForPositionUpdate(
   return null;
 }
 
-/** Market-header stat box. */
-function StatBox({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-card px-4 py-3">
-      <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className={`mt-1 text-xl font-bold ${accent ?? "text-foreground"}`}>{value}</div>
-      {sub && <div className="text-[11px] text-muted-foreground">{sub}</div>}
-    </div>
-  );
+/** `/market/:id` takes a numeric market id or a ticker (truthoracle-backend docs/MARKETS.md §2). */
+function matchesRef(m: PredictionMarketRecord, ref: string): boolean {
+  if (/^\d+$/.test(ref)) return m.marketId === Number(ref);
+  return (m.ticker ?? "").toUpperCase() === ref.toUpperCase();
 }
 
-const MarketView = () => {
+export interface MarketViewProps {
+  /** Id or ticker; defaults to the route's `:id`. The event page passes the selected market. */
+  marketRef?: string;
+  /** `dock` = the trade panel alone (event page's sticky column); `page` = the full market page. */
+  variant?: "page" | "dock";
+  /** Preselects Yes / No (the event page's price pills); the page variant reads `?side=` instead. */
+  initialSide?: "yes" | "no" | null;
+  /** The event's title (event page): the grey line above the outcome in the order ticket. */
+  eventTitle?: string;
+  /** The event's banner, so a market image that merely repeats it is not shown as the outcome's own. */
+  eventImage?: string;
+}
+
+const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, eventTitle, eventImage = "" }: MarketViewProps = {}) => {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
-  const marketIdNum = id != null && id !== "" ? Number(id) : NaN;
+  const marketRef = refProp ?? id ?? "";
 
   const [market, setMarket] = useState<PredictionMarketRecord | null>(() => {
     const prefetched = getPrefetchedMarkets();
-    return prefetched?.find((item) => item.marketId === marketIdNum) ?? null;
+    return prefetched?.find((item) => matchesRef(item, marketRef)) ?? null;
   });
+  // True when the market came from the backend index: candles, the catalog and prepared
+  // orders exist; the account's own contracts are read from the index too.
+  const [indexed, setIndexed] = useState<boolean>(() => Boolean(getPrefetchedMarkets()?.find((item) => matchesRef(item, marketRef))?.ticker));
+  const marketIdNum = market?.marketId ?? NaN;
+  const [chartRefreshKey, setChartRefreshKey] = useState(0);
   const [loading, setLoading] = useState(() => market === null);
   const [nowSecs, setNowSecs] = useState(Math.floor(Date.now() / 1000));
   const [mainTab, setMainTab] = useState<MainTab>("trade");
@@ -105,7 +129,8 @@ const MarketView = () => {
   const [liquiditySubTab, setLiquiditySubTab] = useState<LiquiditySubTab>("add");
   const [collateralIn, setCollateralIn] = useState<number>(0); // Buy: CC in
   const [sharesIn, setSharesIn] = useState<number>(0); // Sell: shares in
-  const [selectedSide, setSelectedSide] = useState<"yes" | "no" | null>(null);
+  // Yes is preselected, as on Kalshi; `?side=` / the event page's pills override it.
+  const [selectedSide, setSelectedSide] = useState<"yes" | "no" | null>("yes");
   const [tradeSide, setTradeSide] = useState<"buy" | "sell" | "convert">("buy");
   const [slippage, setSlippage] = useState<number>(0.01);
   const [userPosition, setUserPosition] = useState<UserMarketPosition | null>(null);
@@ -123,9 +148,14 @@ const MarketView = () => {
   const { account, connect, signAndSubmitTransaction } = useCantonWallet();
   const { primaryPartyId: primaryParty, walletState, signInRequired } = useAccountWallet();
   const auth = useAuth();
+  const { tradingActive } = useExchangeStatus();
+  // Prepared orders: the index knows the active market version and the account's contracts.
+  const usePrepared = indexed && auth.status === "authenticated";
   const adminPartyForCC = enterpriseWalletPartyId();
   const isAdmin = useIsAdmin();
   const toast = useToast();
+  // Recent pool trades (index only); refetched with the page's 15 s cadence.
+  const tradesQuery = useMarketTrades(indexed && market ? market.ticker || market.marketId : null, 30, variant === "page");
 
   // Account signed in with a linked, NON-primary wallet connected (ARCHITECTURE §16
   // state B): the in-app balance lives on the primary party's UserWallet, and every
@@ -145,6 +175,8 @@ const MarketView = () => {
       ? { label: "Checking your account…" }
       : auth.status === "unavailable"
         ? { label: "Trading is disabled on this deployment" }
+        : !tradingActive
+          ? { label: "Trading is paused by the operator" }
         : signInRequired
           ? { label: "Sign in to trade", onClick: () => auth.openLogin() }
           : auth.status === "unreachable" && !auth.me
@@ -177,18 +209,18 @@ const MarketView = () => {
 
   const refreshMarket = useCallback(
     async (opts?: { silent?: boolean }): Promise<PredictionMarketRecord | null> => {
-      if (isNaN(marketIdNum)) return null;
+      if (!marketRef) return null;
       if (!opts?.silent) setLoading(true);
       try {
-        const all = await fetchAllPredictionMarkets();
-        const m = all.find((x) => x.marketId === marketIdNum) ?? null;
+        const { market: m, source } = await marketSource.one(marketRef);
         setMarket(m);
+        setIndexed(source === "index");
         return m;
       } finally {
         if (!opts?.silent) setLoading(false);
       }
     },
-    [marketIdNum]
+    [marketRef]
   );
 
   useEffect(() => {
@@ -203,6 +235,9 @@ const MarketView = () => {
     const side = searchParams.get("side");
     if (side === "yes" || side === "no") setSelectedSide(side);
   }, [searchParams]);
+  useEffect(() => {
+    if (initialSide) setSelectedSide(initialSide);
+  }, [initialSide, marketRef]);
 
   const refreshUserData = useCallback(async () => {
     if (!account?.address || isNaN(marketIdNum)) {
@@ -214,10 +249,14 @@ const MarketView = () => {
       return;
     }
     setUserDataLoaded(false);
+    // With the index and an account, the account's contracts come from the backend (read as the
+    // treasury — the participant answers an external party's own reads with nothing on mainnet);
+    // the ledger reads stay as the fallback and for anonymous wallets.
+    const viaIndex = usePrepared ? await fetchMyMarketView(marketIdNum).catch(() => null) : null;
     const [pos, lp, w, h] = await Promise.all([
-      fetchUserPosition(account.address, marketIdNum),
-      fetchUserLpPosition(account.address, marketIdNum),
-      fetchUserWallet(walletParty ?? account.address),
+      viaIndex ? Promise.resolve(viaIndex.position) : fetchUserPosition(account.address, marketIdNum),
+      viaIndex ? Promise.resolve(viaIndex.lpPosition) : fetchUserLpPosition(account.address, marketIdNum),
+      viaIndex ? Promise.resolve(viaIndex.wallet) : fetchUserWallet(walletParty ?? account.address),
       getCantonCoinHoldings(),
     ]);
     setUserPosition(pos);
@@ -225,7 +264,7 @@ const MarketView = () => {
     setWallet(w);
     setHoldings(h);
     setUserDataLoaded(true);
-  }, [account?.address, walletParty, marketIdNum]);
+  }, [account?.address, walletParty, marketIdNum, usePrepared]);
 
   useEffect(() => {
     refreshUserData();
@@ -291,7 +330,51 @@ const MarketView = () => {
     w.refreshMarketplace?.();
     await refreshMarket({ silent: true });
     await refreshUserData();
+    setChartRefreshKey((k) => k + 1);
   };
+
+  /**
+   * Submit a market choice. With the index and a signed-in account the command comes from
+   * `POST /markets/:market/orders/prepare` (docs/MARKETS.md §7): the backend assembles the exact
+   * ExerciseCommand with the active market version, its disclosed blob and the account's
+   * UserWallet / Position contract ids, pre-checks every rule the Daml choice asserts, and the
+   * wallet signs it as-is; the page then waits for the index to reflect the trade. Otherwise the
+   * legacy builder assembles the command from what this tab read itself.
+   */
+  const runPrepared = async (
+    label: string,
+    request: PrepareOrderRequest,
+    legacy: () => ReturnType<typeof buildBuyParams> | null,
+  ): Promise<boolean> => {
+    if (usePrepared && market) {
+      let prepared: ApiPreparedOrder;
+      try {
+        prepared = await prepareOrder(market.marketId, request);
+      } catch (e) {
+        debugError("Order preparation refused", e);
+        toast({ title: `${label} not possible`, description: backendErrorMessage(e), status: "warning", duration: 7000, isClosable: true });
+        return false;
+      }
+      const params: PrepareExecuteParams = {
+        actAs: [prepared.actAs],
+        commands: [prepared.command],
+        disclosedContracts: prepared.disclosedContracts.map((d) => ({
+          templateId: d.templateId,
+          contractId: d.contractId,
+          createdEventBlob: d.createdEventBlob,
+          ...(d.synchronizerId ? { synchronizerId: d.synchronizerId } : {}),
+        })),
+        packageIdSelectionPreference: [TRUTHORACLE_PACKAGE_ID],
+      };
+      const ok = await runUserChoice(label, params);
+      if (ok) await waitForTradeLanding(prepared);
+      return ok;
+    }
+    const params = legacy();
+    if (!params) return false;
+    return runUserChoice(label, params);
+  };
+  const slippageBps = Math.round(slippage * 10_000);
 
   /** Exercise a choice via the user's wallet, standard error toasts. */
   const runUserChoice = async (label: string, params: ReturnType<typeof buildBuyParams>): Promise<boolean> => {
@@ -369,34 +452,38 @@ const MarketView = () => {
         toast({ title: "Enter CC amount to spend", status: "info", duration: 3000, isClosable: true });
         return;
       }
-      const spendWallet = requireWallet(collateralIn);
-      if (!spendWallet) return;
+      const spendWallet = usePrepared ? null : requireWallet(collateralIn);
+      if (!usePrepared && !spendWallet) return;
       const minSharesOut = buyQuote.sharesOut * (1 - slippage);
       const prevSideShares = selectedSide === "yes" ? (userPosition?.yesShares ?? 0) : (userPosition?.noShares ?? 0);
       setBusy("trade");
       try {
-        const ok = await runUserChoice(
+        const ok = await runPrepared(
           "Buy",
-          buildBuyParams(
-            account.address,
-            market.contractId,
-            sideArg,
-            collateralIn,
-            minSharesOut,
-            userPosition?.contractId ?? null,
-            spendWallet.contractId,
-            disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
-          ),
+          { action: "buy", side: sideArg === "Yes" ? "Yes" : "No", amountCC: collateralIn.toFixed(10), slippageBps },
+          () =>
+            buildBuyParams(
+              account.address,
+              market.contractId,
+              sideArg,
+              collateralIn,
+              minSharesOut,
+              userPosition?.contractId ?? null,
+              spendWallet!.contractId,
+              disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+            ),
         );
         if (!ok) return;
-        const verified = await waitForPositionUpdate(
-          account.address,
-          marketIdNum,
-          (pos) => {
-            const cur = selectedSide === "yes" ? (pos?.yesShares ?? 0) : (pos?.noShares ?? 0);
-            return cur >= prevSideShares + minSharesOut * 0.99;
-          },
-        );
+        const verified = usePrepared
+          ? await fetchMyMarketView(marketIdNum).then((v) => v.position).catch(() => null)
+          : await waitForPositionUpdate(
+              account.address,
+              marketIdNum,
+              (pos) => {
+                const cur = selectedSide === "yes" ? (pos?.yesShares ?? 0) : (pos?.noShares ?? 0);
+                return cur >= prevSideShares + minSharesOut * 0.99;
+              },
+            );
         await refreshAllViews();
         toast({
           title: verified ? "Position updated" : "Trade submitted — confirmation pending",
@@ -419,12 +506,12 @@ const MarketView = () => {
         toast({ title: "Enter shares to convert", status: "info", duration: 3000, isClosable: true });
         return;
       }
-      if (!userPosition) {
+      if (!usePrepared && !userPosition) {
         toast({ title: "No position to convert", status: "warning", duration: 4000, isClosable: true });
         return;
       }
-      const ownedFrom = selectedSide === "yes" ? userPosition.yesShares : userPosition.noShares;
-      if (ownedFrom < sharesIn) {
+      const ownedFrom = selectedSide === "yes" ? (userPosition?.yesShares ?? 0) : (userPosition?.noShares ?? 0);
+      if (!usePrepared && ownedFrom < sharesIn) {
         toast({
           title: "Not enough shares to convert",
           description: `You own ${fmtCC(ownedFrom, 2)} ${sideArg} shares.`,
@@ -437,17 +524,21 @@ const MarketView = () => {
       const minOut = swapQuote.sharesOut * (1 - slippage);
       setBusy("trade");
       try {
-        const ok = await runUserChoice(
+        const ok = await runPrepared(
           "Convert",
-          buildSwapSharesParams(
-            account.address,
-            market.contractId,
-            sideArg,
-            sharesIn,
-            minOut,
-            userPosition.contractId,
-            disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
-          ),
+          { action: "swap", side: sideArg === "Yes" ? "Yes" : "No", shares: sharesIn.toFixed(10), slippageBps },
+          () =>
+            userPosition
+              ? buildSwapSharesParams(
+                  account.address,
+                  market.contractId,
+                  sideArg,
+                  sharesIn,
+                  minOut,
+                  userPosition.contractId,
+                  disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+                )
+              : null,
         );
         if (!ok) return;
         await refreshAllViews();
@@ -469,12 +560,12 @@ const MarketView = () => {
       toast({ title: "Enter shares to sell", status: "info", duration: 3000, isClosable: true });
       return;
     }
-    if (!userPosition) {
+    if (!usePrepared && !userPosition) {
       toast({ title: "No position to sell", status: "warning", duration: 4000, isClosable: true });
       return;
     }
-    const owned = selectedSide === "yes" ? userPosition.yesShares : userPosition.noShares;
-    if (owned < sharesIn) {
+    const owned = selectedSide === "yes" ? (userPosition?.yesShares ?? 0) : (userPosition?.noShares ?? 0);
+    if (!usePrepared && owned < sharesIn) {
       toast({
         title: "Not enough shares to sell",
         description: `You own ${fmtCC(owned, 2)} ${sideArg} shares.`,
@@ -484,23 +575,27 @@ const MarketView = () => {
       });
       return;
     }
-    const proceedsWallet = requireWallet();
-    if (!proceedsWallet) return;
+    const proceedsWallet = usePrepared ? null : requireWallet();
+    if (!usePrepared && !proceedsWallet) return;
     const minProceeds = sellQuote.netProceeds * (1 - slippage);
     setBusy("trade");
     try {
-      const ok = await runUserChoice(
+      const ok = await runPrepared(
         "Sell",
-        buildSellParams(
-          account.address,
-          market.contractId,
-          sideArg,
-          sharesIn,
-          minProceeds,
-          userPosition.contractId,
-          proceedsWallet.contractId,
-          disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
-        ),
+        { action: "sell", side: sideArg === "Yes" ? "Yes" : "No", shares: sharesIn.toFixed(10), slippageBps },
+        () =>
+          userPosition && proceedsWallet
+            ? buildSellParams(
+                account.address,
+                market.contractId,
+                sideArg,
+                sharesIn,
+                minProceeds,
+                userPosition.contractId,
+                proceedsWallet.contractId,
+                disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+              )
+            : null,
       );
       if (!ok) return;
       await refreshAllViews();
@@ -535,7 +630,7 @@ const MarketView = () => {
       toast({ title: "Enter an amount", status: "info", duration: 3000, isClosable: true });
       return;
     }
-    if (action === "merge") {
+    if (action === "merge" && !usePrepared) {
       if (!userPosition || userPosition.yesShares < amt || userPosition.noShares < amt) {
         toast({
           title: "Not enough Yes + No pairs",
@@ -547,16 +642,21 @@ const MarketView = () => {
         return;
       }
     }
-    const setWallet = requireWallet(action === "split" ? amt : undefined);
-    if (!setWallet) return;
+    const setWallet = usePrepared ? null : requireWallet(action === "split" ? amt : undefined);
+    if (!usePrepared && !setWallet) return;
 
     setBusy("splitmerge");
     try {
       const disclosed = disclosedForMarket();
-      const params = action === "split"
-        ? buildSplitParams(account.address, market.contractId, amt, userPosition?.contractId ?? null, setWallet.contractId, disclosed.length > 0 ? disclosed : undefined)
-        : buildMergeParams(account.address, market.contractId, amt, userPosition!.contractId, setWallet.contractId, disclosed.length > 0 ? disclosed : undefined);
-      const ok = await runUserChoice(action === "split" ? "Mint set" : "Merge", params);
+      const ok = await runPrepared(action === "split" ? "Mint set" : "Merge", { action, amountCC: amt.toFixed(10) }, () =>
+        !setWallet
+          ? null
+          : action === "split"
+            ? buildSplitParams(account.address, market.contractId, amt, userPosition?.contractId ?? null, setWallet.contractId, disclosed.length > 0 ? disclosed : undefined)
+            : userPosition
+              ? buildMergeParams(account.address, market.contractId, amt, userPosition.contractId, setWallet.contractId, disclosed.length > 0 ? disclosed : undefined)
+              : null,
+      );
       if (!ok) return;
       await refreshAllViews();
       toast({
@@ -585,21 +685,25 @@ const MarketView = () => {
     }
     const cost = liquidityQuote.costCC;
     const maxCost = cost * (1 + slippage);
-    const lpWallet = requireWallet(maxCost);
-    if (!lpWallet) return;
+    const lpWallet = usePrepared ? null : requireWallet(maxCost);
+    if (!usePrepared && !lpWallet) return;
     setBusy("liquidity");
     try {
-      const ok = await runUserChoice(
+      const ok = await runPrepared(
         "Provide liquidity",
-        buildProvideLiquidityParams(
-          account.address,
-          market.contractId,
-          liquidityValue,
-          maxCost,
-          lpPosition?.contractId ?? null,
-          lpWallet.contractId,
-          disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
-        ),
+        { action: "provide_liquidity", amountCC: liquidityValue.toFixed(10), slippageBps },
+        () =>
+          lpWallet
+            ? buildProvideLiquidityParams(
+                account.address,
+                market.contractId,
+                liquidityValue,
+                maxCost,
+                lpPosition?.contractId ?? null,
+                lpWallet.contractId,
+                disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+              )
+            : null,
       );
       if (ok) {
         await refreshAllViews();
@@ -630,21 +734,25 @@ const MarketView = () => {
       });
       return;
     }
-    const lpWallet = requireWallet();
-    if (!lpWallet) return;
+    const lpWallet = usePrepared ? null : requireWallet();
+    if (!usePrepared && !lpWallet) return;
     setBusy("withdraw");
     try {
-      const ok = await runUserChoice(
+      const ok = await runPrepared(
         "Withdraw liquidity",
-        buildWithdrawLiquidityParams(
-          account.address,
-          market.contractId,
-          burn,
-          lpPosition.contractId,
-          userPosition?.contractId ?? null,
-          lpWallet.contractId,
-          disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
-        ),
+        { action: "withdraw_liquidity", lpTokens: burn.toFixed(10) },
+        () =>
+          lpWallet
+            ? buildWithdrawLiquidityParams(
+                account.address,
+                market.contractId,
+                burn,
+                lpPosition.contractId,
+                userPosition?.contractId ?? null,
+                lpWallet.contractId,
+                disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+              )
+            : null,
       );
       if (!ok) return;
       await refreshAllViews();
@@ -808,20 +916,21 @@ const MarketView = () => {
   };
 
   const handleRedeem = async () => {
-    if (!market || !account || !userPosition) return;
-    const redeemWallet = requireWallet();
-    if (!redeemWallet) return;
+    if (!market || !account || (!usePrepared && !userPosition)) return;
+    const redeemWallet = usePrepared ? null : requireWallet();
+    if (!usePrepared && !redeemWallet) return;
     setBusy("redeem");
     try {
-      const ok = await runUserChoice(
-        "Redeem",
-        buildRedeemPositionParams(
-          account.address,
-          market.contractId,
-          userPosition.contractId,
-          redeemWallet.contractId,
-          disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
-        ),
+      const ok = await runPrepared("Redeem", { action: "redeem" }, () =>
+        userPosition && redeemWallet
+          ? buildRedeemPositionParams(
+              account.address,
+              market.contractId,
+              userPosition.contractId,
+              redeemWallet.contractId,
+              disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+            )
+          : null,
       );
       if (!ok) return;
       await refreshAllViews();
@@ -842,19 +951,29 @@ const MarketView = () => {
   // -------------------------------------------------------------------------
 
   if (loading && !market) {
-    return (
-      <div className="space-y-4 py-8">
-        <Skeleton height="32px" borderRadius="lg" />
-        <Skeleton height="20px" borderRadius="lg" />
-        <Skeleton height="120px" borderRadius="xl" />
+    return variant === "dock" ? (
+      <div className="k-card space-y-3 p-4">
+        <div className="skeleton h-5 w-2/3" />
+        <div className="skeleton h-10 w-full" />
+        <div className="skeleton h-40 w-full" />
+      </div>
+    ) : (
+      <div className="space-y-5 py-2">
+        <div className="skeleton h-4 w-40" />
+        <div className="skeleton h-8 w-3/4" />
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="skeleton h-80 w-full rounded-xl" />
+          <div className="skeleton h-80 w-full rounded-xl" />
+        </div>
       </div>
     );
   }
 
   if (!market) {
     return (
-      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-2">
-        <Text fontSize="lg" color="gray.400">Market #{id} not found.</Text>
+      <div className="k-card flex min-h-[40vh] flex-col items-center justify-center gap-2 p-8 text-center">
+        <p className="text-base font-semibold text-slate-950">Market {marketRef} not found</p>
+        <Link to="/marketplace" className="quiet-link text-xs">Back to markets</Link>
       </div>
     );
   }
@@ -880,51 +999,21 @@ const MarketView = () => {
   const showResolveTab = (isAdmin || market.policy.challengeSecs > 0) && (phase === "expired" || phase === "proposed");
   const showSettleTab = phase === "resolved" || phase === "voided";
 
-  const tabs: { key: MainTab; label: string; visible: boolean }[] = [
-    { key: "trade", label: "Trade", visible: true },
-    { key: "liquidity", label: "Liquidity", visible: true },
-    { key: "resolve", label: "Resolve", visible: showResolveTab },
-    { key: "settle", label: "Settle", visible: showSettleTab },
-  ];
-
-  const subTabBtn = (active: boolean) =>
-    `flex-1 rounded-md py-1.5 text-sm font-semibold transition-all ${
-      active ? "bg-oracle-purple text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-    }`;
-
-  // Trade/Liquidity header tabs: label + one-line description, primary underline on
-  // the active tab (see the reference layout in PR discussion).
-  const tabHeaderBtn = (active: boolean) =>
-    `flex-1 rounded-t-lg border-b-[3px] pl-2.5 pr-1 pt-2 pb-2.5 text-left transition-colors ${
-      active
-        ? "border-primary bg-primary/5 text-foreground"
-        : "border-transparent text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
-    }`;
-  // Mode pills (Swap Tokens / Mint Set, Add / Remove Liquidity): two separated
-  // buttons, the active one filled.
-  const pillBtn = (active: boolean) =>
-    `flex-1 rounded-lg py-2.5 text-sm font-semibold transition-all ${
-      active
-        ? "bg-slate-900 text-white shadow-sm"
-        : "border border-border bg-secondary text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
-    }`;
-
-  const tradeContext = {
-    setMainTab, subTabBtn, tabHeaderBtn, pillBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs,
-    tradeSide, setTradeSide, selectedSide, setSelectedSide, probYes, probNo,
-    collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage,
-    // The real account stays in the contexts so the position cards show what the
-    // connected party holds; `tradeLockReason` (state B) is what disables the money
-    // CTAs and labels them — requireWallet() blocks the submit itself either way.
-    buyQuote, sellQuote, swapQuote, account, signInFirst: signInRequired, tradeLockReason, walletCta, busy, handleTradeClick, mintMode,
-    setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge,
-    userPosition, holdings, wallet,
-  };
-  const liquidityContext = {
-    setMainTab, subTabBtn, tabHeaderBtn, pillBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity,
-    liquidityValue, setLiquidityValue, liquidityQuote, busy, handleProvideLiquidity,
-    lpPosition, market, phase, withdrawPct, setWithdrawPct, handleWithdrawLiquidity,
-    account, signInFirst: signInRequired, tradeLockReason,
+  const orderContext: OrderPanelContext = {
+    market,
+    contextTitle: eventTitle ?? market.question,
+    outcomeImage: ownImage(market, eventImage),
+    phase, nowSecs, probYes, probNo,
+    mainTab, setMainTab, tradeSubTab, setTradeSubTab, tradeSide, setTradeSide, selectedSide, setSelectedSide,
+    mintMode, setMintMode, liquiditySubTab, setLiquiditySubTab,
+    collateralIn, setCollateralIn, sharesIn, setSharesIn, slippage, setSlippage,
+    splitMergeAmount, setSplitMergeAmount, liquidityValue, setLiquidityValue, withdrawPct, setWithdrawPct,
+    buyQuote, sellQuote, swapQuote, liquidityQuote, canProvideLiquidity,
+    // The real account stays in the context so the ticket reads what the connected party holds;
+    // `tradeLockReason` (state B) is what disables the money CTAs and says why — requireWallet()
+    // blocks the submit itself either way.
+    account, walletCta, tradeLockReason, busy, userPosition, lpPosition,
+    handleTradeClick, handleSplitMerge, handleProvideLiquidity, handleWithdrawLiquidity,
   };
   const resolutionContext = {
     market, phase, nowSecs, busy, account, setResolveOutcome, resolveOutcome,
@@ -938,123 +1027,167 @@ const MarketView = () => {
     holdings, probYes, probNo,
   };
 
-  // Rendered inside the panels' right column, next to the trade actions it funds. The
-  // card itself decides what a visitor without a wallet sees (sign in, or connect).
-  const walletSlot = (
-    <>
-      {tradeLockReason && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
-          <span className="font-semibold">{tradeLockReason}.</span> The connected wallet is linked to your account
-          but is not its primary wallet, so it can deposit into the in-app balance below but cannot trade from it.
-        </div>
-      )}
-      <InAppWalletCard wallet={wallet} walletLoaded={userDataLoaded} onChanged={refreshAllViews} variant="compact" />
-    </>
+  // The in-app balance sits at the foot of the ticket, under the actions it funds; the ticket's
+  // own call to action covers signing in and connecting a wallet.
+  const panel = (
+    <OrderPanel
+      context={orderContext}
+      walletFooter={<InAppWalletCard wallet={wallet} walletLoaded={userDataLoaded} onChanged={refreshAllViews} variant="inline" />}
+    />
   );
 
-  const resolutionSlot = market.resolutionDescription ? (
-    <div className="rounded-xl border border-primary/20 border-l-4 border-l-primary bg-card p-5 shadow-sm">
-      <div className="mb-2 flex items-center gap-2">
-        <Gavel className="h-4 w-4 text-primary" />
-        <h2 className="text-sm font-semibold text-foreground">Resolution criteria</h2>
-      </div>
-      <p className="text-sm text-foreground/80">{market.resolutionDescription}</p>
-      {tiers.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3 text-xs">
-          <span className="font-semibold text-foreground">Policy</span>
-          {tiers.map((t) => (
-            <span key={t} className="rounded-full bg-primary/10 px-2.5 py-0.5 font-medium text-primary">{t}</span>
-          ))}
-          {market.policy.sources.length > 0 && (
-            <span className="text-muted-foreground">Sources: {market.policy.sources.join(", ")}</span>
-          )}
-        </div>
-      )}
-    </div>
-  ) : null;
+  const delta24 = priceDelta(probYes, market.previousPrice ?? null);
+  const phaseLabel: Record<typeof phase, string> = {
+    liquidity_period: "Liquidity period",
+    trading: "Trading",
+    expired: "Awaiting resolution",
+    proposed: "Outcome proposed",
+    resolved: "Resolved",
+    voided: "Voided",
+  };
+  const yesLabel = market.yesSubTitle && market.yesSubTitle.toLowerCase() !== "yes" ? market.yesSubTitle : "Yes";
+  const noLabel = market.noSubTitle && market.noSubTitle.toLowerCase() !== "no" ? market.noSubTitle : "No";
+  const expires = new Date(market.expiresAt * 1000);
+  // The market's own image when it has one, else the event's (the index resolves `imageUrl` that way).
+  const headerImage = ownImage(market, eventImage) || market.imageUrl;
 
+  // ── Dock: the trade panel alone, for the event page's sticky column ──
+  if (variant === "dock") {
+    return (
+      <div className="space-y-3">
+        {panel}
+        {(showResolveTab || showSettleTab) && (
+          <Link to={`/markets/${market.ticker || market.marketId}`} className="quiet-link text-xs">
+            {showSettleTab ? "Redeem and settle on the market page" : "Resolution on the market page"} <ChevronRight className="h-3.5 w-3.5" />
+          </Link>
+        )}
+      </div>
+    );
+  }
+
+  // ── Page ──
   return (
-    <div className="space-y-6">
-      {/* ---------------- Market header ---------------- */}
-      <div>
-        <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs font-medium text-muted-foreground">
-          Market #{market.marketId}
-          {market.category && <span className="text-oracle-blue">{market.category}</span>}
-          {market.isDynamic && <span className="text-oracle-purple">dynamic pm-AMM</span>}
+    <div className="space-y-5">
+      <nav className="k-breadcrumb" aria-label="Breadcrumb">
+        <Link to="/marketplace">Markets</Link>
+        {market.seriesTicker && (
+          <>
+            <ChevronRight className="k-breadcrumb-sep h-3.5 w-3.5" />
+            <Link to={`/marketplace?series=${encodeURIComponent(market.seriesTicker)}`}>{market.seriesTicker}</Link>
+          </>
+        )}
+        <ChevronRight className="k-breadcrumb-sep h-3.5 w-3.5" />
+        <Link to={`/events/${market.eventTicker}`}>{market.eventTicker}</Link>
+        <ChevronRight className="k-breadcrumb-sep h-3.5 w-3.5" />
+        <span className="font-mono text-slate-700">{market.ticker}</span>
+      </nav>
+
+      <header className="flex items-start gap-4">
+        {headerImage && (
+          <div className="hidden h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-200/70 sm:block">
+            <img src={headerImage} alt="" className="h-full w-full object-cover" onError={(e) => ((e.target as HTMLImageElement).style.display = "none")} />
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+            {market.category && <span className="k-chip-soft">{market.category}</span>}
+            <span className={`k-chip-soft ${phase === "trading" ? "text-emerald-700" : ""}`}>{phaseLabel[phase]}</span>
+            {market.isDynamic && <span className="k-chip-soft text-violet-700">dynamic pm-AMM</span>}
+          </div>
+          <h1 className="text-2xl font-bold leading-tight tracking-[-0.02em] text-slate-950 sm:text-[28px]">{market.question}</h1>
+          <p className="mt-1.5 text-sm text-slate-500">
+            <span className="font-semibold text-oracle-yes">Yes</span> {yesLabel !== "Yes" ? `= ${yesLabel}` : ""} · <span className="font-semibold text-oracle-no">No</span> {noLabel !== "No" ? `= ${noLabel}` : ""}
+            {yesLabel === "Yes" && noLabel === "No" && <span> — binary market</span>}
+          </p>
+          {market.description && <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{market.description}</p>}
         </div>
-        <h1 className="text-2xl font-bold leading-tight text-foreground sm:text-3xl">{market.question}</h1>
-        {market.description && <p className="mt-2 text-base text-muted-foreground">{market.description}</p>}
-      </div>
+      </header>
 
-      {/* ---------------- Market stat boxes ---------------- */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatBox
-          label="Current Probability"
-          value={`${(probYes * 100).toFixed(1)}%`}
-          sub="chance of Yes"
-          accent="text-oracle-yes"
-        />
-        <StatBox
-          label="Cumulative Token Volume"
-          value={`${fmtCC(market.totalVolumeCC, 2)} CC`}
-          sub="lifetime traded collateral"
-        />
-        <StatBox
-          label="Reserve Inventory"
-          value={fmtCC(reserveInventory, 2)}
-          sub={`${fmtCC(market.reserveYes, 2)} YES · ${fmtCC(market.reserveNo, 2)} NO`}
-        />
-        <StatBox
-          label="Trading Fee"
-          value={`${(market.feeBps / 100).toFixed(2)}%`}
-          sub={`pool value ${fmtCC(currentPoolValue, 2)} CC`}
-        />
-      </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="min-w-0 space-y-5">
+          <PriceChart marketRef={market.ticker || market.marketId} createdAtSec={market.createdAt} currentPrice={probYes} yesLabel={yesLabel !== "Yes" ? yesLabel : undefined} indexed={indexed} refreshKey={chartRefreshKey} height={280} />
 
-      {/* ---------------- Secondary tabs ---------------- */}
-      {tabs.some((t) => t.visible && t.key !== "trade" && t.key !== "liquidity") && (
-        <div className="flex gap-1 rounded-full bg-secondary p-1">
-          {tabs.filter((t) => t.visible && t.key !== "trade" && t.key !== "liquidity").map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setMainTab(t.key)}
-              className={`tab-pill ${mainTab === t.key ? "tab-pill-active" : "tab-pill-inactive"}`}
-            >
-              {t.label}
-            </button>
-          ))}
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6">
+            <div className="k-stat">
+              <div className="k-stat-label">24h change</div>
+              <div className={`k-stat-value k-num ${delta24 ? (delta24.direction === "up" ? "delta-up" : delta24.direction === "down" ? "delta-down" : "") : ""}`}>{delta24 ? `${delta24.text} pts` : "—"}</div>
+              <div className="k-stat-sub">from {market.previousPrice != null ? formatPercent(market.previousPrice) : "—"}</div>
+            </div>
+            <div className="k-stat">
+              <div className="k-stat-label">Volume 24h</div>
+              <div className="k-stat-value k-num">{compactCC(market.volume24hCC ?? 0, "")}</div>
+              <div className="k-stat-sub">{compactCC(market.totalVolumeCC)} lifetime</div>
+            </div>
+            <div className="k-stat">
+              <div className="k-stat-label">Open interest</div>
+              <div className="k-stat-value k-num">{compactCC(market.openInterest ?? reserveInventory, "")}</div>
+              <div className="k-stat-sub">shares outstanding</div>
+            </div>
+            <div className="k-stat">
+              <div className="k-stat-label">Liquidity</div>
+              <div className="k-stat-value k-num">{compactCC(market.liquidityCC ?? currentPoolValue, "")}</div>
+              <div className="k-stat-sub">pool value · {(market.feeBps / 100).toFixed(2)}% fee</div>
+            </div>
+            <div className="k-stat">
+              <div className="k-stat-label">Trades</div>
+              <div className="k-stat-value k-num">{market.tradeCount ?? "—"}</div>
+              <div className="k-stat-sub">{market.book ? `bid ${formatCents(market.book.yesBid)} · ask ${formatCents(market.book.yesAsk)}` : "on the pool"}</div>
+            </div>
+            <div className="k-stat">
+              <div className="k-stat-label">{phase === "resolved" || phase === "voided" ? "Settled" : "Closes"}</div>
+              <div className="k-stat-value k-num" title={formatDateTimeUTC(expires)}>{formatMonthDayUTC(expires)}</div>
+              <div className="k-stat-sub">{phase === "trading" || phase === "liquidity_period" ? `${fmtCountdown(market.expiresAt, nowSecs)} left` : formatClockUTC(expires)}</div>
+            </div>
+          </div>
+
+          {mainTab === "liquidity" ? (
+            <YourLpBox account={account} signInFirst={signInRequired} lpPosition={lpPosition} market={market} />
+          ) : (
+            <YourPositionBox account={account} signInFirst={signInRequired} userPosition={userPosition} holdings={holdings} probYes={probYes} probNo={probNo} />
+          )}
+
+          {showResolveTab && <MarketResolutionPanel context={resolutionContext} />}
+          {showSettleTab && <MarketSettlementPanel context={settlementContext} />}
+
+          <section className="k-criteria">
+            <div className="mb-2 flex items-center gap-2">
+              <Gavel className="h-4 w-4 text-primary" />
+              <h2 className="k-section-title">Resolution criteria</h2>
+            </div>
+            {market.resolutionDescription ? (
+              <p className="k-criteria-text">{market.resolutionDescription}</p>
+            ) : (
+              <p className="text-sm text-slate-500">No resolution criteria were written for this market.</p>
+            )}
+            <div className="k-criteria-meta">
+              <span className="font-semibold text-slate-950">Resolution policy</span>
+              {tiers.map((t) => (
+                <span key={t} className="k-chip-soft">{t}</span>
+              ))}
+              {tiers.length === 0 && <span className="text-slate-500">none configured</span>}
+              {market.policy.sources.length > 0 && <span className="text-slate-500">Sources: {market.policy.sources.join(", ")}</span>}
+              <span className="ml-auto text-slate-500">Grace {Math.round(market.gracePeriodSecs / 3600)}h after close</span>
+            </div>
+          </section>
+
+          {indexed && (
+            <section className="k-card overflow-hidden">
+              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                <h2 className="k-section-title">Recent trades</h2>
+                <span className="text-xs text-slate-500">{market.tradeCount ?? 0} total</span>
+              </div>
+              <TradeFeed trades={tradesQuery.data?.items ?? []} loading={tradesQuery.isLoading} limit={20} emptyText="No trades on this market yet." />
+            </section>
+          )}
+
+          <p className="px-1 text-xs leading-5 text-slate-500">
+            Prices come from Paradigm's pm-AMM: the Yes price is Φ((y−x)/L) of the pool's reserve imbalance, so every quote is a calibrated probability between 0 and 1.
+            {market.isDynamic && " Liquidity decays as L·√(T−t) toward expiry, keeping LP loss-versus-rebalancing uniform over the market's life."}
+          </p>
         </div>
-      )}
 
-      {/* ================= TRADE TAB ================= */}
-      {mainTab === "trade" && (
-        <MarketTradePanel context={tradeContext} walletSlot={walletSlot} />
-      )}
-      {mainTab === "liquidity" && (
-        <MarketLiquidityPanel context={liquidityContext} walletSlot={walletSlot} />
-      )}
-      {/* ================= RESOLVE TAB ================= */}
-      {mainTab === "resolve" && showResolveTab && (
-        <MarketResolutionPanel context={resolutionContext} />
-      )}
-
-      {/* ================= SETTLE TAB ================= */}
-      {mainTab === "settle" && showSettleTab && (
-        <MarketSettlementPanel context={settlementContext} />
-      )}
-
-      {resolutionSlot}
-
-      {/* About pm-AMM */}
-      <div className="rounded-xl border border-border bg-card/50 p-5">
-        <h2 className="mb-2 text-sm font-semibold text-foreground">About pm-AMM pricing</h2>
-        <p className="text-sm text-muted-foreground">
-          This market runs on Paradigm's prediction-market AMM design: the YES price is the normal CDF
-          Φ((y−x)/L) of the pool's reserve imbalance, so quotes are calibrated probabilities that
-          always stay between 0 and 1. {market.isDynamic && "Liquidity decays as L·√(T−t) toward expiry, holding LP loss-versus-rebalancing uniform over the market's life."}
-        </p>
+        <TradeColumn className="space-y-4">{panel}</TradeColumn>
       </div>
-
     </div>
   );
 };

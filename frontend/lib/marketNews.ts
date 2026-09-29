@@ -1,3 +1,4 @@
+import { formatDateUTC } from "@/lib/time";
 export type MarketNewsItem = { tag: string; source: string; time: string; title: string; url: string; image?: string };
 export const NEWS_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -30,7 +31,7 @@ function formatDate(value?: string) {
   if (!value) return "Latest";
   const match = value.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/);
   const parsed = match ? new Date(`${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`) : new Date(value);
-  return Number.isNaN(parsed.getTime()) ? "Latest" : parsed.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return Number.isNaN(parsed.getTime()) ? "Latest" : formatDateUTC(parsed);
 }
 
 function getNewsTag(title: string, source: string, topic?: string) {

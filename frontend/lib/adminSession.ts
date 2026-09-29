@@ -109,7 +109,9 @@ function loginErrorMessage(status: number, data: { error?: unknown; detail?: unk
     return "The sign-in challenge expired or was already used. Try signing in again.";
   }
   if (status === 401) {
-    return "Sign-in failed: the signature could not be verified for this wallet.";
+    // One sentence for both causes on purpose: the server answers 401 whether the signature
+    // failed or the party is not an operator, so the UI must not tell them apart either.
+    return "Sign-in failed: the signature could not be verified for this wallet, or this party is not listed in ADMIN_OPERATORS.";
   }
   if (status === 429) {
     return "Too many sign-in attempts. Wait a minute and try again.";

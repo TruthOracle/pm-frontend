@@ -55,6 +55,14 @@ const BASE: ErrorSentences = {
   no_primary_wallet: "Your account has no primary wallet yet. Link a wallet on the Account page first.",
   primary_wallet_in_use:
     "Your primary wallet can't change once you have deposited or have a withdrawal in progress.",
+  trading_halted: "Trading is paused by the operator right now. Redemptions still work; try again later.",
+  market_not_tradable: "This market is not open for that action right now.",
+  no_in_app_wallet: "Deposit to your in-app wallet first — one deposit funds every trade.",
+  no_position: "You have no open position in this market.",
+  insufficient_balance: "Your in-app balance is below what this order needs. Top up via Deposit.",
+  insufficient_shares: "You hold fewer shares than this order needs.",
+  quote_unavailable: "The pool cannot fill this order at that size. Try a smaller amount.",
+  catalog_conflict: "That ticker or entry already exists.",
   deposit_in_progress:
     "Another deposit is still being credited. Your transfer is safe — check the balance again in a moment.",
   deposit_attribution_drift:

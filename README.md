@@ -3,6 +3,43 @@ TruthOracle is a cutting-edge decentralized prediction market platform built on 
 
 The platform can be seen at - [truthoracle-omega.vercel.app](https://truthoracle-omega.vercel.app/)
 
+## Markets like an exchange (series → events → markets)
+
+With the accounts backend deployed, the app reads markets, candles and the catalog from its
+ledger index (`truthoracle-backend/docs/MARKETS.md`) instead of polling the participant's
+active contracts:
+
+- `/marketplace` lists **events** (one question, N binary pm-AMM markets) with their legs'
+  Yes / No prices, filtered by the series' category (`?category=`, `?series=`, `?q=` — the
+  header topics and search box drive them); a Markets view lists every market.
+- `/events/:ticker` is the event page: the legs table (Yes price, 24 h change, volume, open
+  interest, trade buttons) and one chart with every leg's Yes price.
+- `/market/:idOrTicker` is the market page. The chart is the backend's candlesticks (1 min ·
+  1 h · 1 d, line or candles, volume bars, OHLC tooltip); the header shows the ticker, the
+  event and the two side labels; the stats show 24 h volume, open interest and the pool's
+  liquidity. A trade goes through `POST /markets/:market/orders/prepare`: the backend assembles
+  the exact ExerciseCommand (active market version + disclosed blob, the account's UserWallet
+  and Position contract ids — reads a browser cannot do as an external party on mainnet) and
+  the Cantor8 wallet signs it; the page then waits on `GET /ledger/wait` and reloads from the
+  index. The local `lib/marketPricing.ts` mirror still drives the live quote box.
+- The header banner reflects `GET /exchange/status`: an operator trading halt disables the
+  trade controls (redemptions stay available).
+- `/admin` is the operator console (`components/Admin/CatalogPanel.tsx`): a backend operator
+  session (wallet-signed challenge, `POST /auth/admin`), series and events, the treasury-signed
+  market factory (`components/Admin/CreateMarketForm.tsx` → `POST /admin/markets`) and the
+  trading halt. The factory is the only way this UI creates a market: pick an event, give the
+  ticker suffix, the question, the Yes / No labels, the pm-AMM seed and the resolution policy;
+  the backend refuses an unknown event or a taken ticker before the Enterprise Wallet signs
+  `CreateMarket`. Every `PredictionMarket` of `truthoracle-v16` carries its ticker, event ticker
+  and the two side labels as mandatory contract fields (labels default to Yes / No). Image,
+  description and category are not on the contract: the backend keeps them as operator
+  metadata (`PATCH /admin/markets/:market/metadata`, the "Market presentation" card), the image
+  defaults to the event's and the category comes from the event's series. The older
+  browser-built `CreateMarket` form that went through the wallet relay is gone.
+
+Without a backend the app stays what it was: markets from the participant, no events, no
+candles (the market chart only draws the prices this tab observed — nothing is fabricated).
+
 ## Features
 - Decentralized Market Creation: Easily create and participate in prediction markets without intermediaries.
 - Low Transaction Fees: Enjoy minimal fees thanks to the efficiency of the Canton Network.

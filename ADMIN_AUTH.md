@@ -249,12 +249,15 @@ middleware):
   `502 backend_unreachable`: sign-in is offered but disabled and the money controls
   pause with a Retry (an outage must never look like "no backend").
 
-The two auth systems do not interact. Operators keep signing into `/admin` through the
-`to_admin` flow above until that UI is ported to the backend's admin sessions
-(`purpose = admin-sign-in`, parties in the backend's own `ADMIN_OPERATORS`). Until
-then `Admin/PayoutQueue` only lists rows, copies their contract ids for the backend's
-`POST /api/v1/admin/payouts/:cid/settle`, and keeps the wallet-signed Mark Paid for
-payouts settled out-of-band — it never pretends to hold a backend admin session.
+The two auth systems do not interact. Market creation is backend-only now: the catalog
+console (`Admin/CatalogPanel.tsx`, `Admin/CreateMarketForm.tsx`) signs the operator into
+the backend (`purpose = admin-sign-in`, parties in the backend's own `ADMIN_OPERATORS`)
+and the backend submits `CreateMarket` through the Enterprise Wallet — the browser never
+builds that command and the wallet relay no longer serves it. Operators keep signing into
+the rest of `/admin` through the `to_admin` flow above until it is ported to the backend's
+admin sessions: `Admin/PayoutQueue` only lists rows, copies their contract ids for the
+backend's `POST /api/v1/admin/payouts/:cid/settle`, and keeps the wallet-signed Mark Paid
+for payouts settled out-of-band — it never pretends to hold a backend admin session.
 
 ## Known gaps
 

@@ -38,13 +38,12 @@ export const WALLET_TYPE =
  */
 export const WALLET_DISPLAY_NAME = WALLET_TYPE === "canton" ? "Canton" : "Cantor8";
 
-export const TRUTHORACLE_PACKAGE_ID = readString(
-  import.meta.env.VITE_TRUTHORACLE_PACKAGE_ID,
-  "64653d3a4b63abcff3a0f016cdf08b0c46aa827f0b971b8990a7fdf5ede6446a",
-);
+// The package id is per deployment (printed by `npm run dars:upload` in truthoracle-contracts);
+// there is no meaningful default, so an unset value fails loudly at the participant.
+export const TRUTHORACLE_PACKAGE_ID = readString(import.meta.env.VITE_TRUTHORACLE_PACKAGE_ID, "");
 export const TRUTHORACLE_PACKAGE_NAME = readString(
   import.meta.env.VITE_TRUTHORACLE_PACKAGE_NAME,
-  "truthoracle-v14",
+  "truthoracle-v16",
 );
 
 // The browser never calls the participant or the wallet directly — it calls the

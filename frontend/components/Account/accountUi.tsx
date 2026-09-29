@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { formatDateTimeUTC } from "@/lib/time";
 
 export type PillTone = "neutral" | "pending" | "ok" | "warn" | "bad" | "info";
 
@@ -178,8 +179,7 @@ export function initialsFrom(source: string): string {
 
 export function fmtDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  return formatDateTimeUTC(iso) || iso;
 }
 
 export function providerLabel(provider: IdentityProvider): string {
