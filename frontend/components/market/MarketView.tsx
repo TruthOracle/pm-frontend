@@ -955,7 +955,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null }
       <div className="space-y-5 py-2">
         <div className="skeleton h-4 w-40" />
         <div className="skeleton h-8 w-3/4" />
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="skeleton h-80 w-full rounded-xl" />
           <div className="skeleton h-80 w-full rounded-xl" />
         </div>
@@ -1130,7 +1130,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null }
         </div>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-5">
           <PriceChart marketRef={market.ticker || market.marketId} createdAtSec={market.createdAt} currentPrice={probYes} yesLabel={yesLabel !== "Yes" ? yesLabel : undefined} indexed={indexed} refreshKey={chartRefreshKey} height={280} />
 

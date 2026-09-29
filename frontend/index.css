@@ -434,14 +434,6 @@
   .chart-legend-compact .chart-legend-item { @apply w-auto px-1.5 py-1; }
   .chart-legend-item-static { cursor: default; pointer-events: none; background: transparent !important; box-shadow: none !important; }
   .k-criteria { @apply k-card p-5; border-left: 4px solid #16c784; background: #fff; }
-  /* The trade column beside the page body (Polymarket-style): on desktop it stays put under the
-     header and, when taller than the viewport, scrolls inside itself with the scrollbar hidden;
-     wheel input over it scrolls the column first and then the page. Below lg it is flow content. */
-  .trade-column { @apply min-w-0; }
-  @media (min-width: 1024px) {
-    .trade-column { position: sticky; top: 7rem; max-height: calc(100vh - 8rem); overflow-y: auto; overscroll-behavior-y: auto; padding-bottom: 0.25rem; scrollbar-width: none; -ms-overflow-style: none; }
-    .trade-column::-webkit-scrollbar { display: none; }
-  }
   .k-criteria-text { @apply whitespace-pre-line text-[15px] leading-7 text-slate-800; }
   .k-criteria-meta { @apply mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3 text-xs text-slate-500; }
   .outcome-link { @apply inline-flex min-w-0 items-center gap-1 text-sm font-semibold text-slate-950 underline-offset-4 decoration-2 hover:text-primary hover:underline; }

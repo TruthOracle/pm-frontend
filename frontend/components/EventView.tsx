@@ -65,7 +65,7 @@ export default function EventView() {
       <div className="page-container space-y-5 py-6">
         <div className="skeleton h-4 w-48" />
         <div className="skeleton h-9 w-2/3" />
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-4">
             <div className="skeleton h-80 w-full rounded-xl" />
             <div className="skeleton h-48 w-full rounded-xl" />
@@ -134,7 +134,7 @@ export default function EventView() {
         </div>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-5">
           {markets.length > 0 && <EventPriceChart eventTicker={event.ticker} markets={markets} selectedTicker={selected} onSelect={(t) => select(t)} height={300} />}
 

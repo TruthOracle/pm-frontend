@@ -1,49 +1,35 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
+import StickyBox from "react-sticky-box";
+
+/** Header + category rail + breathing room, in px (the old `lg:top-28`). */
+const OFFSET_TOP = 112;
+const OFFSET_BOTTOM = 16;
+const DESKTOP = "(min-width: 1024px)";
+
+function subscribe(onChange: () => void) {
+  const mq = window.matchMedia(DESKTOP);
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
+}
+const readDesktop = () => window.matchMedia(DESKTOP).matches;
+const readServer = () => false;
 
 /**
- * The trade column beside the page body (`.trade-column` in index.css does the sticky /
- * self-scrolling part). This adds the two rules that keep it feeling like one page:
- *
- * - While the column is not yet pinned under the header (the page is near the top), wheel
- *   input over it scrolls the PAGE, not the column — otherwise the column's own content
- *   would slide up under nothing and look clipped.
- * - Once the column is pinned, the wheel scrolls it first (native overflow behaviour) and
- *   the browser chains to the page when it reaches either end.
- * - When the page scrolls back up far enough to unpin the column, its inner scroll resets to
- *   the start, so arriving at the top always shows the column from its first card.
+ * The trade column beside the page body. On desktop it moves with the page and parks at
+ * whichever edge it reaches: scrolling down it stops when its bottom meets the viewport
+ * bottom, scrolling up when its top meets the header. So the two columns start together at
+ * the top of the page and end together at the bottom, every control is reachable through
+ * ordinary page scrolling, and there is no inner scrollbar (react-sticky-box handles the
+ * direction changes and columns taller than the viewport). Below `lg` it is flow content.
  */
 export function TradeColumn({ children, className = "" }: { children: ReactNode; className?: string }) {
-  const ref = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const stickyTop = () => {
-      const top = parseFloat(getComputedStyle(el).top);
-      return Number.isFinite(top) ? top : 0;
-    };
-    const pinned = () => getComputedStyle(el).position === "sticky" && el.getBoundingClientRect().top <= stickyTop() + 1;
-
-    const onWheel = (e: WheelEvent) => {
-      if (e.deltaY > 0 && !pinned()) {
-        e.preventDefault();
-        window.scrollBy({ top: e.deltaY, left: 0 });
-      }
-    };
-    const onPageScroll = () => {
-      if (!pinned() && el.scrollTop !== 0) el.scrollTop = 0;
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    window.addEventListener("scroll", onPageScroll, { passive: true });
-    return () => {
-      el.removeEventListener("wheel", onWheel);
-      window.removeEventListener("scroll", onPageScroll);
-    };
-  }, []);
-
+  const desktop = useSyncExternalStore(subscribe, readDesktop, readServer);
+  if (!desktop) return <aside className={className}>{children}</aside>;
   return (
-    <aside ref={ref} className={`trade-column ${className}`.trim()}>
-      {children}
+    <aside className="min-w-0">
+      <StickyBox offsetTop={OFFSET_TOP} offsetBottom={OFFSET_BOTTOM} className={className}>
+        {children}
+      </StickyBox>
     </aside>
   );
 }
