@@ -90,13 +90,6 @@ export const ENTERPRISE_WALLET_PROXY_URL = trimTrailingSlash(
 export const DEBUG_ACTIVE_CONTRACTS = readBoolean(import.meta.env.VITE_DEBUG_ACTIVE_CONTRACTS);
 export const DEBUG_WALLET_STATUS = readBoolean(import.meta.env.VITE_DEBUG_WALLET_STATUS);
 
-export const PUSHER_KEY = readString(import.meta.env.VITE_PUSHER_KEY, "5c9c8369bdc5cdcb8b7c");
-export const PUSHER_CLUSTER = readString(import.meta.env.VITE_PUSHER_CLUSTER, "ap2");
-export const MODULE_ADDRESS = readString(
-  import.meta.env.VITE_MODULE_ADDRESS,
-  "0xbde9b5978954614b28adf8e8c71d919271ccad89a878d4d914249444a31f2b49",
-);
-
 // ---------------------------------------------------------------------------
 // Accounts backend (truthoracle-backend: sign-in, linked wallets, KYC). Everything
 // here is OPTIONAL — with no backend deployed these stay at their defaults and the
