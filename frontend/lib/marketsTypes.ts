@@ -106,13 +106,6 @@ export interface ApiMarket {
   synchronizerId: string | null;
   /** `GET /markets/:market` only. */
   createdEventBlob?: string | null;
-  /** `GET /markets?withSparkline=true` only: the last 24 hourly closes, oldest first. */
-  sparkline?: ApiSparkline | null;
-}
-
-export interface ApiSparkline {
-  periodInterval: 60;
-  closes: Decimal[];
 }
 
 export interface ApiPage<T> {

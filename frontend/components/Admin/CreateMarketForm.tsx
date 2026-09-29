@@ -12,6 +12,7 @@ import { Box, Button, Flex, FormLabel, Input, Select, Switch, Text, Textarea, us
 import { createMarketViaBackend } from "@/lib/backendAdmin";
 import { TICKER_PATTERN, type ApiEvent, type ApiSeries } from "@/lib/marketsTypes";
 import { liquidityFromValue, optimalReserves } from "@/lib/marketPricing";
+import { parseUTCInput } from "@/lib/time";
 
 /** Runs one operator action with the console's busy state, reload and toasts (see CatalogPanel). */
 export type Run = (what: string, fn: () => Promise<unknown>, done: string) => Promise<boolean>;
@@ -28,7 +29,7 @@ const initialForm = {
   imageUrl: "",
   description: "",
   resolutionDescription: "",
-  expiresAtLocal: "", // datetime-local string
+  expiresAtUtc: "", // datetime-local value, read as UTC
   gracePeriodHours: 24,
   isDynamic: true,
   liquidityPeriodMinutes: 5, // pre-trading liquidity-collection window (default 5 min)
@@ -102,7 +103,7 @@ export default function CreateMarketForm({ events, series, busy, run }: { events
     form.question.trim() !== "" &&
     form.description.trim() !== "" &&
     form.resolutionDescription.trim() !== "" &&
-    form.expiresAtLocal !== "" &&
+    form.expiresAtUtc !== "" &&
     form.initialValueCC > 0 &&
     form.initialProbability >= 1 &&
     form.initialProbability <= 99;
@@ -115,8 +116,9 @@ export default function CreateMarketForm({ events, series, busy, run }: { events
       warn("Event and ticker suffix are required", `${TICKER_HINT} The ticker and the event ticker are written on the ledger contract.`);
       return;
     }
-    const expiresAt = new Date(form.expiresAtLocal);
-    if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
+    // The field is UTC: every instant on the platform is (see lib/time.ts).
+    const expiresMs = parseUTCInput(form.expiresAtUtc);
+    if (expiresMs === null || expiresMs <= Date.now()) {
       warn("Expiry must be in the future");
       return;
     }
@@ -141,7 +143,7 @@ export default function CreateMarketForm({ events, series, busy, run }: { events
           imageUrl: form.imageUrl.trim() || undefined,
           description: form.description.trim(),
           resolutionDescription: form.resolutionDescription.trim(),
-          expiresAt: expiresAt.toISOString(),
+          expiresAt: new Date(expiresMs).toISOString(),
           gracePeriodSecs: Math.max(0, Math.round(form.gracePeriodHours * 3600)),
           isDynamic: form.isDynamic,
           liquidityPeriodSecs: form.isDynamic ? Math.max(0, Math.round(form.liquidityPeriodMinutes * 60)) : 0,
@@ -247,8 +249,8 @@ export default function CreateMarketForm({ events, series, busy, run }: { events
           <Input isReadOnly type="text" marginTop="2px" id="category" name="category" placeholder="pick an event first" value={category} />
         </Box>
         <Box flex={1}>
-          <label htmlFor="expiresAtLocal">Expiry (trading stops)</label>
-          <Input required type="datetime-local" id="expiresAtLocal" name="expiresAtLocal" marginTop="2px" value={form.expiresAtLocal} onChange={handleInputChange} />
+          <label htmlFor="expiresAtUtc">Expiry, UTC (trading stops)</label>
+          <Input required type="datetime-local" id="expiresAtUtc" name="expiresAtUtc" marginTop="2px" value={form.expiresAtUtc} onChange={handleInputChange} />
         </Box>
         <Box flex={1}>
           <label htmlFor="gracePeriodHours">Resolution grace period (hours)</label>

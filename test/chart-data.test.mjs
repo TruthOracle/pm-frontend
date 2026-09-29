@@ -84,12 +84,6 @@ describe("deltas and formatting", () => {
     assert.deepEqual(chart.windowDelta([{ t: 1, price: 0.3 }, { t: 2, price: 0.35 }]), { points: 5, text: "+5.0", direction: "up" });
     assert.equal(chart.windowDelta([]), null);
   });
-  it("classifies a sparkline", () => {
-    assert.equal(chart.sparklineTrend(["0.4", "0.5"]), "up");
-    assert.equal(chart.sparklineTrend([0.5, 0.4]), "down");
-    assert.equal(chart.sparklineTrend([0.5]), "flat");
-    assert.equal(chart.sparklineTrend(["0.5000", "0.5000"]), "flat");
-  });
   it("formats percentages, cents and compact volumes", () => {
     assert.equal(chart.formatPercent(0.6249), "62%");
     assert.equal(chart.formatPercent(0.6249, 1), "62.5%");
@@ -100,6 +94,14 @@ describe("deltas and formatting", () => {
     assert.equal(chart.compactCC(3_400_000), "3.4M CC");
     assert.equal(chart.compactCC(7.25, ""), "7.25");
     assert.equal(chart.compactCC(42.5), "42.5 CC");
+    // Small figures read naturally: no "0.00 CC" on an untraded card.
+    assert.equal(chart.compactCC(0), "0 CC");
+    assert.equal(chart.compactCC("0.0000000000"), "0 CC");
+    assert.equal(chart.compactCC(0.5), "0.5 CC");
+    assert.equal(chart.compactCC(12.345), "12.3 CC");
+    assert.equal(chart.compactCC(940), "940 CC");
+    assert.equal(chart.compactCC(1000), "1k CC");
+    assert.equal(chart.compactCC(-0.001), "0 CC");
   });
   it("formats relative times and time left", () => {
     const now = Date.parse("2026-09-29T12:00:00Z");
@@ -108,6 +110,8 @@ describe("deltas and formatting", () => {
     assert.equal(chart.relativeTime("2026-09-29T09:00:00Z", now), "3h ago");
     assert.equal(chart.relativeTime("2026-09-28T09:00:00Z", now), "Yesterday");
     assert.equal(chart.relativeTime("2026-09-25T09:00:00Z", now), "4d ago");
+    // Older than a week: the UTC date (Sep 1 23:30 UTC is already Sep 2 in Asia).
+    assert.equal(chart.relativeTime("2026-09-01T23:30:00Z", now), "Sep 1");
     assert.equal(chart.timeLeft("2026-10-02T16:30:00Z", now), "3d 4h");
     assert.equal(chart.timeLeft("2026-09-29T12:52:00Z", now), "52m");
     assert.equal(chart.timeLeft("2026-09-29T11:00:00Z", now), "Closed");
@@ -153,43 +157,71 @@ describe("axis scaling (Polymarket-style)", () => {
   });
 });
 
-describe("axis ticks", () => {
+describe("axis ticks (UTC)", () => {
   const day = 86_400_000;
-  it("1W: one tick per local midnight, evenly spaced, inside the window, at most six", () => {
-    const end = Date.now();
+  const hour = 3_600_000;
+  // A fixed "now" so the expectations never depend on when (or in which zone) the suite runs.
+  const end = Date.UTC(2026, 8, 29, 14, 37, 12);
+  it("1W: one tick per UTC midnight, evenly spaced, inside the window, at most six, labelled by day", () => {
     const start = end - 7 * day;
-    const ticks = chart.axisTicks(start, end, "1W", 6);
+    const { ticks, granularity } = chart.axisScale(start, end, "1W", 6);
+    assert.equal(granularity, "day");
     assert.ok(ticks.length >= 3 && ticks.length <= 6, `count ${ticks.length}`);
     for (const t of ticks) {
       assert.ok(t >= start && t <= end);
-      const d = new Date(t);
-      assert.equal(d.getHours() + d.getMinutes(), 0, "local midnight");
+      assert.equal(t % day, 0, "UTC midnight");
     }
-    const steps = new Set(ticks.slice(1).map((t, i) => Math.round((t - ticks[i]) / 3_600_000)));
-    assert.ok(steps.size === 1 || (steps.size === 2 && [...steps].every((h) => h === 24 || h === 23 || h === 25 || h === 48 || h === 47 || h === 49)), `steps ${[...steps]}`);
-  });
-  it("1D: hour-aligned local ticks with the smallest step that fits", () => {
-    const end = Date.now();
-    const ticks = chart.axisTicks(end - day, end, "1D", 6);
-    assert.ok(ticks.length >= 4 && ticks.length <= 6, `count ${ticks.length}`);
-    for (const t of ticks) assert.equal(new Date(t).getMinutes(), 0);
     const step = ticks[1] - ticks[0];
     for (let i = 2; i < ticks.length; i += 1) assert.equal(ticks[i] - ticks[i - 1], step);
+    assert.equal(chart.formatAxisTime(Date.UTC(2026, 8, 23), "1W", granularity), "Sep 23");
+  });
+  it("1D: whole UTC hours with the smallest step that fits, labelled by the UTC clock", () => {
+    const { ticks, granularity } = chart.axisScale(end - day, end, "1D", 6);
+    assert.equal(granularity, "hour");
+    assert.ok(ticks.length >= 4 && ticks.length <= 6, `count ${ticks.length}`);
+    for (const t of ticks) assert.equal(t % hour, 0, "whole UTC hour");
+    const step = ticks[1] - ticks[0];
+    for (let i = 2; i < ticks.length; i += 1) assert.equal(ticks[i] - ticks[i - 1], step);
+    assert.equal(chart.formatAxisTime(Date.UTC(2026, 8, 29, 4), "1D", granularity), "04:00");
+    assert.equal(chart.formatAxisTime(Date.UTC(2026, 8, 29, 0), "1D", granularity), "00:00");
+  });
+  it("1H: minute ticks", () => {
+    const { ticks, granularity } = chart.axisScale(end - hour, end, "1H", 6);
+    assert.equal(granularity, "minute");
+    for (const t of ticks) assert.equal(t % (5 * 60_000), 0);
   });
   it("compact charts ask for fewer ticks and get a larger step", () => {
-    const end = Date.now();
     const many = chart.axisTicks(end - 30 * day, end, "1M", 6);
     const few = chart.axisTicks(end - 30 * day, end, "1M", 4);
     assert.ok(few.length <= 4 && few.length < many.length);
   });
-  it("ALL: first-of-month ticks", () => {
-    const end = Date.UTC(2026, 8, 29, 12);
-    const ticks = chart.axisTicks(end - 365 * day, end, "ALL", 6);
+  it("ALL over a year: first-of-month ticks at 00:00 UTC, January labelled with the year", () => {
+    const { ticks, granularity } = chart.axisScale(end - 365 * day, end, "ALL", 6);
+    assert.equal(granularity, "month");
     assert.ok(ticks.length >= 2 && ticks.length <= 6);
-    for (const t of ticks) assert.equal(new Date(t).getDate(), 1);
+    for (const t of ticks) {
+      const d = new Date(t);
+      assert.equal(d.getUTCDate(), 1);
+      assert.equal(t % day, 0);
+    }
+    assert.equal(chart.formatAxisTime(Date.UTC(2026, 8, 1), "ALL", "month"), "Sep");
+    assert.equal(chart.formatAxisTime(Date.UTC(2027, 0, 1), "ALL", "month"), "2027");
+  });
+  it("ALL over a young market: day or hour ticks instead of an empty month axis", () => {
+    const days = chart.axisScale(end - 10 * day, end, "ALL", 6);
+    assert.equal(days.granularity, "day");
+    assert.ok(days.ticks.length >= 2);
+    const hours = chart.axisScale(end - 20 * hour, end, "ALL", 6);
+    assert.equal(hours.granularity, "hour");
+    assert.ok(hours.ticks.length >= 2);
   });
   it("an empty or inverted window yields no ticks", () => {
     assert.deepEqual(chart.axisTicks(10, 5, "1H"), []);
+  });
+  it("tooltips read in UTC", () => {
+    const t = Date.UTC(2026, 8, 23, 12, 30);
+    assert.equal(chart.formatPointTime(t, "1D"), "12:30 UTC");
+    assert.equal(chart.formatPointTime(t, "1W"), "Sep 23, 12:30 UTC");
   });
 });
 

@@ -2,8 +2,8 @@
  * The marketplace, Kalshi's browse page: filter chips (Trending · New · Closing soon · Volume),
  * the header rail's category and a search box narrowing a grid of event cards; each card shows
  * its top outcomes with live prices. With the backend index the events come from the catalog
- * (`GET /events?withNestedMarkets=true&sort=…`) and the cards' sparklines from
- * `GET /markets?withSparkline=true`; on a ledger-only deployment only a market grid exists.
+ * (`GET /events?withNestedMarkets=true&sort=…`); on a ledger-only deployment only a market grid
+ * exists.
  */
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -12,8 +12,8 @@ import EventCard from "./EventCard";
 import MarketCard from "./MarketCard";
 import { cn } from "@/lib/utils";
 import { marketSource, type MarketSourceKind } from "@/lib/marketsApi";
-import { useEventsList, useMarketsList } from "@/lib/marketQueries";
-import type { ApiEvent, ApiSparkline, EventSort } from "@/lib/marketsTypes";
+import { useEventsList } from "@/lib/marketQueries";
+import type { ApiEvent, EventSort } from "@/lib/marketsTypes";
 import type { PredictionMarketRecord } from "@/utils/activeContracts";
 import { getPrefetchedMarkets } from "@/utils/marketPrefetch";
 
@@ -84,12 +84,6 @@ const Marketplace = () => {
     { withNestedMarkets: true, sort, status: tab === "active" ? "all" : "settled", category: category || undefined, series: seriesFilter || undefined, q: q || undefined, limit: 100 },
     indexed,
   );
-  const sparkMarkets = useMarketsList({ withSparkline: true, status: "active", limit: 100 }, indexed);
-  const sparklines = useMemo(() => {
-    const map = new Map<string, ApiSparkline | null>();
-    for (const m of sparkMarkets.data?.items ?? []) map.set(m.ticker, m.sparkline ?? null);
-    return map;
-  }, [sparkMarkets.data]);
 
   const setParam = (key: string, value: string | null) => {
     const next = new URLSearchParams(params);
@@ -175,7 +169,7 @@ const Marketplace = () => {
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {shownEvents.map((e) => (
-              <EventCard key={e.ticker} event={e} sparklines={sparklines} />
+              <EventCard key={e.ticker} event={e} />
             ))}
           </div>
         )

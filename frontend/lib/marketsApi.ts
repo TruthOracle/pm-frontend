@@ -125,8 +125,6 @@ export interface MarketListQuery {
   series?: string;
   q?: string;
   sort?: "newest" | "oldest" | "volume" | "expiry" | "activity";
-  /** Attach the last 24 hourly closes to every market (cards' sparklines). */
-  withSparkline?: boolean;
   page?: number;
   limit?: number;
 }

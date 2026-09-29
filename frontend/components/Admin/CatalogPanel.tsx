@@ -28,6 +28,7 @@ import { WALLET_DISPLAY_NAME } from "@/config";
 import { btn, btnQuiet, Card, field, label } from "./adminUi";
 import CreateMarketForm, { type Run } from "./CreateMarketForm";
 import MarketPresentationCard from "./MarketPresentationCard";
+import { formatDateTimeUTC, utcInputToIso } from "@/lib/time";
 
 const FREQUENCIES: ApiSeries["frequency"][] = ["one_off", "daily", "weekly", "monthly", "quarterly", "annual", "custom"];
 
@@ -209,7 +210,7 @@ function HaltCard({ exchange, busy, onSet }: { exchange: ApiExchangeStatus | nul
       {halted ? (
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-sm text-amber-800">
-            Halted{exchange?.halt.since ? ` since ${new Date(exchange.halt.since).toLocaleString()}` : ""}: {exchange?.halt.reason}
+            Halted{exchange?.halt.since ? ` since ${formatDateTimeUTC(exchange.halt.since)}` : ""}: {exchange?.halt.reason}
           </p>
           <button type="button" className={btn} disabled={busy !== null} onClick={() => void onSet(false, "resumed by operator", "")}>
             Resume trading
@@ -222,14 +223,14 @@ function HaltCard({ exchange, busy, onSet }: { exchange: ApiExchangeStatus | nul
             <input className={field} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. participant maintenance" />
           </div>
           <div>
-            <label className={label}>Expected resume (optional)</label>
+            <label className={label}>Expected resume, UTC (optional)</label>
             <input className={field} type="datetime-local" value={resume} onChange={(e) => setResume(e.target.value)} />
           </div>
           <button
             type="button"
             className={btn}
             disabled={busy !== null || !reason.trim()}
-            onClick={() => void onSet(true, reason.trim(), resume ? new Date(resume).toISOString() : "")}
+            onClick={() => void onSet(true, reason.trim(), utcInputToIso(resume) ?? "")}
           >
             Halt trading
           </button>
@@ -338,7 +339,7 @@ function EventsCard({ series, events, busy, run }: { series: ApiSeries[]; events
           subTitle: form.subTitle || undefined,
           imageUrl: form.imageUrl.trim() || undefined,
           mutuallyExclusive: form.mutuallyExclusive,
-          strikeDate: form.strikeDate ? new Date(form.strikeDate).toISOString() : null,
+          strikeDate: utcInputToIso(form.strikeDate),
         }),
       `Event ${form.ticker.toUpperCase()} created`,
     );
@@ -393,7 +394,7 @@ function EventsCard({ series, events, busy, run }: { series: ApiSeries[]; events
           <input className={field} value={form.subTitle} onChange={(e) => setForm({ ...form, subTitle: e.target.value })} placeholder="March meeting" />
         </div>
         <div>
-          <label className={label}>Strike date (optional)</label>
+          <label className={label}>Strike date, UTC (optional)</label>
           <input className={field} type="datetime-local" value={form.strikeDate} onChange={(e) => setForm({ ...form, strikeDate: e.target.value })} />
         </div>
         <div className="sm:col-span-2">

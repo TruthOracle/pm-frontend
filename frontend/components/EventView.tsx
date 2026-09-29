@@ -10,13 +10,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowUpRight, ChevronRight, Clock, Gavel, Layers, ShieldCheck } from "lucide-react";
 import EventPriceChart from "@/components/charts/EventPriceChart";
-import Sparkline from "@/components/charts/Sparkline";
 import TradeFeed from "@/components/TradeFeed";
 import MarketView from "@/components/market/MarketView";
 import { marketColorMap, compactCC, formatCents, formatPercent, priceDelta, timeLeft } from "@/lib/chartData";
 import { useEvent, useEventTrades } from "@/lib/marketQueries";
 import { toNumber, type ApiEvent, type ApiMarket } from "@/lib/marketsTypes";
 import { cn } from "@/lib/utils";
+import { formatDateTimeUTC, formatMonthDayUTC, formatShortDateTimeUTC } from "@/lib/time";
 
 const STATUS_LABEL: Record<ApiEvent["status"], string> = {
   unopened: "Opens soon",
@@ -127,7 +127,7 @@ export default function EventView() {
           <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
             <span className={cn("k-chip-soft", event.status === "open" && "text-emerald-700")}>{STATUS_LABEL[event.status]}</span>
             {event.mutuallyExclusive && markets.length > 1 && <span className="k-chip-soft text-violet-700">one outcome wins</span>}
-            {event.strikeDate && <span className="k-chip-soft">strike {new Date(event.strikeDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>}
+            {event.strikeDate && <span className="k-chip-soft" title={formatDateTimeUTC(event.strikeDate)}>strike {formatMonthDayUTC(event.strikeDate)}</span>}
           </div>
           <h1 className="text-2xl font-bold leading-tight tracking-[-0.02em] text-slate-950 sm:text-[28px]">{event.title}</h1>
           {event.subTitle && <p className="mt-1 text-base text-slate-600">{event.subTitle}</p>}
@@ -166,7 +166,7 @@ export default function EventView() {
             </div>
             <div className="k-stat">
               <div className="k-stat-label">{settled ? "Settled" : "Closes"}</div>
-              <div className="k-stat-value k-num">{close ? close.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}</div>
+              <div className="k-stat-value k-num" title={close ? formatDateTimeUTC(close) : undefined}>{close ? formatMonthDayUTC(close) : "—"}</div>
               <div className="k-stat-sub"><Clock className="mr-1 inline h-3 w-3" />{settled ? "all markets settled" : close ? `${timeLeft(event.closeTime)} left` : "no markets yet"}</div>
             </div>
           </div>
@@ -210,7 +210,6 @@ export default function EventView() {
                           <div className={cn("k-num text-lg font-bold leading-none", done && "text-slate-950")} style={done ? undefined : { color }}>{done ? (m.status === "Voided" || m.outcome === "VoidOutcome" ? "Void" : m.outcome) : formatPercent(p)}</div>
                           {delta && !done && <div className={cn("k-num mt-0.5 text-[11px] font-semibold", delta.direction === "up" ? "delta-up" : delta.direction === "down" ? "delta-down" : "delta-flat")}>{delta.text}</div>}
                         </div>
-                        <Sparkline closes={m.sparkline?.closes} className="hidden md:inline-block" />
                         {!done && (
                           <div className="flex shrink-0 gap-1.5">
                             <button type="button" className={cn("pill-yes", active && side === "yes" && "ring-2 ring-oracle-yes/40")} onClick={(e) => { e.stopPropagation(); select(m.ticker, "yes"); }}>Yes {formatCents(p)}</button>
@@ -243,7 +242,7 @@ export default function EventView() {
                         <span className="truncate">{outcomeLabel(m)}</span>
                         <ArrowUpRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                       </Link>
-                      <span className="k-num shrink-0 text-[11px] text-slate-500">closes {new Date(m.expiresAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                      <span className="k-num shrink-0 text-[11px] text-slate-500">closes {formatShortDateTimeUTC(m.expiresAt)}</span>
                     </div>
                     <p className="k-criteria-text mt-1">{m.resolutionDescription || "No resolution criteria were written for this market."}</p>
                   </li>

@@ -12,6 +12,7 @@ import { shortPartyId } from "@/lib/party";
 import { authErrorMessage } from "@/auth/wallet";
 import { ConfirmDialog, Pill, type PillTone } from "@/components/Account/accountUi";
 import { fmtCC } from "@/components/market/marketHelpers";
+import { formatDateTimeUTC } from "@/lib/time";
 
 /** Status pill per backend `Payout.status` (API.md). */
 function statusView(p: Payout | undefined): { label: string; tone: PillTone; verifyLink?: boolean } {
@@ -332,7 +333,7 @@ function PendingPayouts({ onChanged }: { onChanged?: () => void | Promise<void> 
                       )}
                     </td>
                     <td className="px-5 py-4 text-right font-bold text-primary sm:px-6">{r.amountCC.toFixed(4)} CC</td>
-                    <td className="px-5 py-4 text-slate-500 sm:px-6">{new Date(r.createdAt * 1000).toLocaleString()}</td>
+                    <td className="px-5 py-4 text-slate-500 sm:px-6">{formatDateTimeUTC(r.createdAt * 1000)}</td>
                     {withAccount && (
                       <td className="px-5 py-4 sm:px-6">
                         <div className="flex flex-col items-start gap-1">

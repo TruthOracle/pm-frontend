@@ -11,6 +11,7 @@ import { compactCC, formatPercent, priceDelta } from "@/lib/chartData";
 import { ArrowRight, Clock3, Loader2, Newspaper, Radio, ShieldCheck, Sparkles, TrendingUp, Zap } from "lucide-react";
 import { getPrefetchedMarkets } from "@/utils/marketPrefetch";
 import { fetchMarketNews, getNewsThumbnail, getTickerHeadline, NEWS_REFRESH_INTERVAL_MS, type MarketNewsItem } from "@/lib/marketNews";
+import { formatClockUTC } from "@/lib/time";
 
 function Homepage() {
   const [markets, setMarkets] = useState<PredictionMarketRecord[]>(() => getPrefetchedMarkets() ?? []);
@@ -258,7 +259,7 @@ function Homepage() {
                 {newsIsLive ? <Radio className="h-3 w-3" /> : <Clock3 className="h-3 w-3" />}
                 {newsIsLive ? "LIVE FROM WEB" : "FALLBACK DATA"}
               </span>
-              {newsUpdatedAt && <span>Updated {newsUpdatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
+              {newsUpdatedAt && <span>Updated {formatClockUTC(newsUpdatedAt)}</span>}
             </div>
           </div>
           <Link to="/news" className="quiet-link">

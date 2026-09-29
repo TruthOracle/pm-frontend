@@ -1,13 +1,12 @@
 /**
  * One event on the marketplace, Kalshi's card: artwork, series chip, title, the top outcomes
  * with their chance and Yes / No price pills (a binary event gets one big number instead), and
- * a footer with volume, time to close and the leading market's 24 h sparkline.
+ * a footer with the event's volume and its time to close.
  */
 import { useNavigate } from "react-router-dom";
 import { CheckCircle2, Clock, Layers } from "lucide-react";
-import Sparkline from "@/components/charts/Sparkline";
 import { compactCC, formatCents, formatPercent, priceDelta, timeLeft } from "@/lib/chartData";
-import { toNumber, type ApiEvent, type ApiMarket, type ApiSparkline } from "@/lib/marketsTypes";
+import { toNumber, type ApiEvent, type ApiMarket } from "@/lib/marketsTypes";
 import { cn } from "@/lib/utils";
 
 const MAX_ROWS = 3;
@@ -21,7 +20,7 @@ function settledLabel(m: ApiMarket): string {
   return m.outcome ?? "Settled";
 }
 
-export default function EventCard({ event, sparklines }: { event: ApiEvent; sparklines?: Map<string, ApiSparkline | null> }) {
+export default function EventCard({ event }: { event: ApiEvent }) {
   const navigate = useNavigate();
   const markets = (event.markets ?? []).filter((m) => !m.archived);
   const sorted = [...markets].sort((a, b) => toNumber(b.currentPrice) - toNumber(a.currentPrice));
@@ -30,7 +29,6 @@ export default function EventCard({ event, sparklines }: { event: ApiEvent; spar
   const shown = sorted.slice(0, MAX_ROWS);
   const hidden = sorted.length - shown.length;
   const settled = event.status === "settled";
-  const leadSpark = lead ? (sparklines?.get(lead.ticker) ?? lead.sparkline ?? null) : null;
   const go = (path: string) => (e: React.MouseEvent) => {
     e.stopPropagation();
     navigate(path);
@@ -98,7 +96,6 @@ export default function EventCard({ event, sparklines }: { event: ApiEvent; spar
       <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3 text-[11px] font-medium text-slate-500">
         <span className="k-num">{compactCC(event.volumeCC)} vol</span>
         <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />{settled ? "Settled" : timeLeft(event.closeTime)}</span>
-        <Sparkline closes={leadSpark?.closes} />
       </div>
     </article>
   );

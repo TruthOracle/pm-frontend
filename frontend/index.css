@@ -403,6 +403,8 @@
   .chart-headline-label { @apply text-sm font-medium text-slate-500; }
   .chart-delta { @apply mt-0.5 text-sm font-semibold; font-variant-numeric: tabular-nums; }
   .chart-plot-area { @apply relative w-full; }
+  /* One "UTC" marker per chart, in the corner under the y labels, instead of a zone on every tick. */
+  .chart-tz { @apply pointer-events-none absolute bottom-[7px] right-0 select-none text-[10px] tracking-[0.04em] text-[#8a9bb0]; font-family: "JetBrains Mono", "DM Mono", monospace; }
   .chart-plot-area .recharts-surface { overflow: visible; }
   /* Kalshi's live pulse: the halo starts at the dot's size, emanates to ~2.8× and fades out,
      then restarts; the dot itself never moves. Origin at the circle centre so it grows in place. */

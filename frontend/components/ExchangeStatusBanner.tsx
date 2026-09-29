@@ -9,6 +9,7 @@ import { AlertTriangle, PauseCircle } from "lucide-react";
 import { probeBackend } from "@/lib/backend";
 import { fetchExchangeStatus } from "@/lib/marketsApi";
 import type { ApiExchangeStatus } from "@/lib/marketsTypes";
+import { formatDateTimeUTC } from "@/lib/time";
 
 const REFRESH_MS = 30_000;
 
@@ -59,7 +60,7 @@ export function ExchangeStatusBanner() {
       <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-900" role="status">
         <PauseCircle className="mr-1.5 inline h-4 w-4" />
         <strong>Trading is paused.</strong> {status.halt.reason ?? "The operator halted trading."}
-        {resume && !Number.isNaN(resume.getTime()) && <> Expected to resume {resume.toLocaleString()}.</>} Redemptions still work.
+        {resume && !Number.isNaN(resume.getTime()) && <> Expected to resume {formatDateTimeUTC(resume)}.</>} Redemptions still work.
       </div>
     );
   }

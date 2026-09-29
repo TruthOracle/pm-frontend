@@ -71,6 +71,7 @@ import MarketSettlementPanel from "./MarketSettlementPanel";
 import type { MainTab, TradeSubTab, LiquiditySubTab } from "./marketTypes";
 import { getPrefetchedMarkets } from "@/utils/marketPrefetch";
 import { debugError } from "@/lib/debugLog";
+import { formatClockUTC, formatDateTimeUTC, formatMonthDayUTC } from "@/lib/time";
 
 async function waitForPositionUpdate(
   partyId: string,
@@ -1162,8 +1163,8 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null }
             </div>
             <div className="k-stat">
               <div className="k-stat-label">{phase === "resolved" || phase === "voided" ? "Settled" : "Closes"}</div>
-              <div className="k-stat-value k-num">{expires.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</div>
-              <div className="k-stat-sub">{phase === "trading" || phase === "liquidity_period" ? `${fmtCountdown(market.expiresAt, nowSecs)} left` : expires.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</div>
+              <div className="k-stat-value k-num" title={formatDateTimeUTC(expires)}>{formatMonthDayUTC(expires)}</div>
+              <div className="k-stat-sub">{phase === "trading" || phase === "liquidity_period" ? `${fmtCountdown(market.expiresAt, nowSecs)} left` : formatClockUTC(expires)}</div>
             </div>
           </div>
 

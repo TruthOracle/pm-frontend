@@ -8,7 +8,7 @@
  */
 import { useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { axisTicks, candlesToPoints, formatAxisTime, formatPercent, formatPointTime, niceYScale, windowDelta, type PricePoint, type Timeframe } from "@/lib/chartData";
+import { axisScale, candlesToPoints, formatAxisTime, formatPercent, formatPointTime, niceYScale, windowDelta, type PricePoint, type Timeframe } from "@/lib/chartData";
 import { useMarketCandles } from "@/lib/marketQueries";
 import { cn } from "@/lib/utils";
 import TimeframeTabs from "./TimeframeTabs";
@@ -67,7 +67,9 @@ export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesL
   const empty = indexed && !query.isLoading && points.length < 2;
   // Axis scaled to the window's data (Polymarket-style), recomputed per timeframe / refetch.
   const yScale = useMemo(() => niceYScale(points.map((p) => p.price)), [points]);
-  const xTicks = useMemo(() => (points.length ? axisTicks(points[0].t, points[points.length - 1].t, tf, variant === "compact" ? 4 : 6) : []), [points, tf, variant]);
+  // UTC-aligned ticks; the granularity decides the labels (clock, day or month).
+  const xScale = useMemo(() => (points.length ? axisScale(points[0].t, points[points.length - 1].t, tf, variant === "compact" ? 4 : 6) : null), [points, tf, variant]);
+  const xTicks = xScale?.ticks ?? [];
 
   return (
     <section className={cn("chart-card", className)}>
@@ -122,7 +124,7 @@ export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesL
                 domain={["dataMin", "dataMax"]}
                 scale="time"
                 padding={X_AXIS_PADDING}
-                tickFormatter={(v: number) => formatAxisTime(v, tf)}
+                tickFormatter={(v: number) => formatAxisTime(v, tf, xScale?.granularity)}
                 ticks={xTicks}
                 interval={0}
                 tick={<InsideXTick />}
@@ -138,6 +140,11 @@ export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesL
           </ResponsiveContainer>
         )}
         {query.isLoading && indexed && <div className="chart-loading" aria-hidden="true" />}
+        {indexed && !query.isError && !empty && (
+          <span className="chart-tz" title="Times are in UTC">
+            UTC
+          </span>
+        )}
       </div>
       {showTabs && <TimeframeTabs value={tf} onChange={setTf} className={cn("mt-3", variant === "full" && "sm:hidden")} />}
     </section>

@@ -5,6 +5,7 @@
  * test/chart-data.test.mjs.
  */
 import { toNumber, type ApiCandle, type ApiEventMarketCandles, type CandlePeriod, type Decimal } from "@/lib/marketsTypes";
+import { formatAxisLabel, formatClockUTC, formatMonthDayUTC, formatShortDateTimeUTC, type AxisGranularity } from "@/lib/time";
 
 export type Timeframe = "1H" | "6H" | "1D" | "1W" | "1M" | "ALL";
 export const TIMEFRAMES: Timeframe[] = ["1H", "6H", "1D", "1W", "1M", "ALL"];
@@ -180,7 +181,7 @@ export function niceYScale(values: number[], opts: { floorAtZero?: boolean; maxT
   return { domain: [roundFrac(lo), roundFrac(hi)], ticks: [roundFrac(lo), roundFrac(hi)] };
 }
 
-/** Candidate x-tick steps per timeframe, in seconds, smallest first; ALL uses calendar months. */
+/** Candidate x-tick steps per timeframe, in seconds, smallest first. */
 const X_STEPS: Record<Exclude<Timeframe, "ALL">, number[]> = {
   "1H": [5 * 60, 10 * 60, 15 * 60, 30 * 60],
   "6H": [30 * 60, 3600, 2 * 3600, 3 * 3600],
@@ -188,56 +189,89 @@ const X_STEPS: Record<Exclude<Timeframe, "ALL">, number[]> = {
   "1W": [86_400, 2 * 86_400],
   "1M": [86_400, 2 * 86_400, 5 * 86_400, 7 * 86_400, 10 * 86_400],
 };
+/** ALL spans from the market's creation, so its steps follow how long that is. */
+const ALL_HOUR_STEPS = [3600, 2 * 3600, 3 * 3600, 4 * 3600, 6 * 3600, 12 * 3600];
+const ALL_DAY_STEPS = [1, 2, 5, 7, 10, 14].map((d) => d * 86_400);
 const MONTH_STEPS = [1, 2, 3, 6, 12];
+const DAY_MS = 86_400_000;
+
+export interface AxisScale {
+  /** Tick instants (ms). */
+  ticks: number[];
+  /** What one step spans: decides how `formatAxisTime` labels a tick. */
+  granularity: AxisGranularity;
+}
+
+/** How a timeframe's ticks are labelled when there is no computed scale. */
+function defaultGranularity(tf: Timeframe): AxisGranularity {
+  if (tf === "1W" || tf === "1M") return "day";
+  if (tf === "ALL") return "month";
+  return "hour";
+}
 
 /**
- * Evenly spaced x ticks (ms) inside `[startMs, endMs]`, aligned to natural boundaries in the
- * viewer's time zone — minutes / hours for intraday presets, local midnight for 1W and 1M, the
- * first of the month for ALL — choosing the smallest step that yields at most `maxTicks`. The
- * last data point is never forced to carry a label; the axis reads like a calendar, not like a
- * ruler ending at "now".
+ * Multiples of the step counted from the epoch. The epoch is 00:00 UTC, so these land on whole
+ * UTC minutes, whole UTC hours and UTC midnights — the same boundaries the backend buckets its
+ * candles on.
  */
-export function axisTicks(startMs: number, endMs: number, tf: Timeframe, maxTicks = 6): number[] {
-  if (!(endMs > startMs) || !Number.isFinite(startMs) || !Number.isFinite(endMs)) return [];
+function evenTicks(startMs: number, endMs: number, stepSec: number): number[] {
+  const stepMs = stepSec * 1000;
+  const ticks: number[] = [];
+  for (let t = Math.ceil(startMs / stepMs) * stepMs; t <= endMs; t += stepMs) ticks.push(t);
+  return ticks;
+}
+
+/** First-of-month (00:00 UTC) ticks every `months` months, from the first one inside the range. */
+function monthTicks(startMs: number, endMs: number, months: number): number[] {
+  const s = new Date(startMs);
+  let year = s.getUTCFullYear();
+  let month = s.getUTCMonth();
+  if (Date.UTC(year, month, 1) < startMs) month += 1;
+  const ticks: number[] = [];
+  for (let t = Date.UTC(year, month, 1); t <= endMs; t = Date.UTC(year, month, 1)) {
+    ticks.push(t);
+    month += months;
+    year += Math.floor(month / 12);
+    month %= 12;
+  }
+  return ticks;
+}
+
+/**
+ * Evenly spaced x ticks inside `[startMs, endMs]` and how to label them, aligned to UTC
+ * boundaries — minutes / hours for intraday presets, midnight for 1W and 1M, and for ALL whichever
+ * of hours, days or first-of-month suits the span — choosing the smallest step that yields at most
+ * `maxTicks`. The last data point is never forced to carry a label: the axis reads like a
+ * calendar, not like a ruler ending at "now".
+ */
+export function axisScale(startMs: number, endMs: number, tf: Timeframe, maxTicks = 6): AxisScale {
+  const none: AxisScale = { ticks: [], granularity: defaultGranularity(tf) };
+  if (!(endMs > startMs) || !Number.isFinite(startMs) || !Number.isFinite(endMs)) return none;
   const limit = Math.max(2, maxTicks);
+  const pick = (steps: number[], granularityOf: (stepSec: number) => AxisGranularity): AxisScale | null => {
+    for (const stepSec of steps) {
+      const ticks = evenTicks(startMs, endMs, stepSec);
+      if (ticks.length <= limit) return { ticks, granularity: granularityOf(stepSec) };
+    }
+    return null;
+  };
   if (tf === "ALL") {
-    const start = new Date(startMs);
+    const span = endMs - startMs;
+    if (span <= 2 * DAY_MS) return pick(ALL_HOUR_STEPS, () => "hour") ?? { ticks: [], granularity: "hour" };
+    if (span <= 90 * DAY_MS) return pick(ALL_DAY_STEPS, () => "day") ?? { ticks: [], granularity: "day" };
     for (const months of MONTH_STEPS) {
-      const ticks: number[] = [];
-      const cursor = new Date(start.getFullYear(), start.getMonth() + (start.getDate() === 1 && start.getHours() === 0 ? 0 : 1), 1);
-      while (cursor.getTime() <= endMs) {
-        if (cursor.getTime() >= startMs) ticks.push(cursor.getTime());
-        cursor.setMonth(cursor.getMonth() + months);
-      }
-      if (ticks.length <= limit) return ticks;
+      const ticks = monthTicks(startMs, endMs, months);
+      if (ticks.length <= limit) return { ticks, granularity: "month" };
     }
-    return [];
+    return { ticks: [], granularity: "month" };
   }
-  const dayAligned = tf === "1W" || tf === "1M";
-  for (const stepSec of X_STEPS[tf]) {
-    const stepMs = stepSec * 1000;
-    const ticks: number[] = [];
-    if (dayAligned) {
-      const d = new Date(startMs);
-      const cursor = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-      if (cursor.getTime() < startMs) cursor.setDate(cursor.getDate() + 1);
-      const days = stepSec / 86_400;
-      while (cursor.getTime() <= endMs) {
-        ticks.push(cursor.getTime());
-        cursor.setDate(cursor.getDate() + days);
-      }
-    } else {
-      // Align to the local wall clock: a 2 h step lands on 2:00, 4:00, … local, not UTC.
-      const offsetMs = new Date(startMs).getTimezoneOffset() * 60_000;
-      let t = Math.ceil((startMs - offsetMs) / stepMs) * stepMs + offsetMs;
-      while (t <= endMs) {
-        ticks.push(t);
-        t += stepMs;
-      }
-    }
-    if (ticks.length <= limit) return ticks;
-  }
-  return [];
+  if (tf === "1W" || tf === "1M") return pick(X_STEPS[tf], () => "day") ?? none;
+  return pick(X_STEPS[tf], (stepSec) => (stepSec < 3600 ? "minute" : "hour")) ?? none;
+}
+
+/** The tick instants of `axisScale`. */
+export function axisTicks(startMs: number, endMs: number, tf: Timeframe, maxTicks = 6): number[] {
+  return axisScale(startMs, endMs, tf, maxTicks).ticks;
 }
 
 export function formatPercent(p: number, digits = 0): string {
@@ -270,31 +304,14 @@ export function windowDelta(points: PricePoint[]): Delta | null {
   return priceDelta(points[points.length - 1].price, points[0].price);
 }
 
-export type Trend = "up" | "down" | "flat";
-
-export function sparklineTrend(closes: Array<Decimal | number>): Trend {
-  if (closes.length < 2) return "flat";
-  const first = toNum(closes[0]);
-  const last = toNum(closes[closes.length - 1]);
-  const diff = Math.round((last - first) * 1000) / 1000;
-  return diff > 0 ? "up" : diff < 0 ? "down" : "flat";
+/** Axis tick label (UTC) for a timestamp (ms): pass the scale's granularity; the timeframe's default otherwise. */
+export function formatAxisTime(tMs: number, tf: Timeframe, granularity?: AxisGranularity): string {
+  return formatAxisLabel(tMs, granularity ?? defaultGranularity(tf));
 }
 
-/** Axis tick label for a timestamp (ms) under a timeframe: clock for intraday, date otherwise. */
-export function formatAxisTime(tMs: number, tf: Timeframe, locale?: string): string {
-  const d = new Date(tMs);
-  if (Number.isNaN(d.getTime())) return "";
-  if (tf === "1H" || tf === "6H" || tf === "1D") return d.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
-  if (tf === "1W" || tf === "1M") return d.toLocaleDateString(locale, { month: "short", day: "numeric" });
-  return d.toLocaleDateString(locale, { month: "short", year: "2-digit" });
-}
-
-/** Tooltip time: full date + time for anything longer than a day. */
-export function formatPointTime(tMs: number, tf: Timeframe, locale?: string): string {
-  const d = new Date(tMs);
-  if (Number.isNaN(d.getTime())) return "";
-  if (tf === "1H" || tf === "6H" || tf === "1D") return d.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
-  return d.toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+/** Tooltip time (UTC): the clock for intraday windows, date and clock for longer ones. */
+export function formatPointTime(tMs: number, tf: Timeframe): string {
+  return tf === "1H" || tf === "6H" || tf === "1D" ? formatClockUTC(tMs) : formatShortDateTimeUTC(tMs);
 }
 
 /** `1.2k CC`, `3.4M CC`, `812 CC` — the compact volume figure of a card. */
@@ -306,12 +323,14 @@ export function compactCC(v: Decimal | number, unit = "CC"): string {
   else if (abs >= 1_000) text = `${(n / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}k`;
   else if (abs >= 100) text = n.toFixed(0);
   else text = n.toFixed(abs >= 10 ? 1 : 2);
-  text = text.replace(/\.0(?=[kM]?$)/, "");
+  // Drop trailing zeros so small figures read naturally: 0.00 → 0, 0.50 → 0.5, 1.0k → 1k.
+  text = text.replace(/(\.\d*?)0+(?=[kM]?$)/, "$1").replace(/\.(?=[kM]?$)/, "");
+  if (text === "-0") text = "0";
   return unit ? `${text} ${unit}` : text;
 }
 
-/** `3m ago`, `2h ago`, `Yesterday`, else a short date. */
-export function relativeTime(iso: string | number, nowMs = Date.now(), locale?: string): string {
+/** `3m ago`, `2h ago`, `Yesterday`, else a short UTC date. */
+export function relativeTime(iso: string | number, nowMs = Date.now()): string {
   const t = typeof iso === "number" ? iso : Date.parse(iso);
   if (!Number.isFinite(t)) return "";
   const s = Math.max(0, Math.floor((nowMs - t) / 1000));
@@ -320,7 +339,7 @@ export function relativeTime(iso: string | number, nowMs = Date.now(), locale?: 
   if (s < 86_400) return `${Math.floor(s / 3600)}h ago`;
   if (s < 2 * 86_400) return "Yesterday";
   if (s < 7 * 86_400) return `${Math.floor(s / 86_400)}d ago`;
-  return new Date(t).toLocaleDateString(locale, { month: "short", day: "numeric" });
+  return formatMonthDayUTC(t);
 }
 
 /** Time left until `iso`: `3d 4h`, `52m`, `Closed`. */

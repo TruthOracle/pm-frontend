@@ -29,6 +29,7 @@ import {
   type SnsWebSdkInstance,
 } from "@/lib/kyc";
 import MockKycForm from "./MockKycForm";
+import { formatDateTimeUTC } from "@/lib/time";
 
 const TONE_CLASSES: Record<KycTone, string> = {
   neutral: "border-slate-200 bg-slate-50 text-slate-600",
@@ -270,7 +271,7 @@ export default function KycPanel() {
               <li key={h.id} className="flex flex-wrap gap-x-2">
                 <span className="font-mono">#{h.attemptNo}</span>
                 <span>{h.status.replace(/_/g, " ")}</span>
-                <span className="text-slate-400">{new Date(h.createdAt).toLocaleString()}</span>
+                <span className="text-slate-400">{formatDateTimeUTC(h.createdAt)}</span>
               </li>
             ))}
           </ul>

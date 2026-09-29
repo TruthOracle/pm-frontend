@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { EVENT_CHART_TOP_N, MUTED_SERIES_COLOR, alignSeries, axisTicks, formatAxisTime, formatPercent, formatPointTime, niceYScale, rankMarketsForChart, seriesColor, type AlignedRow, type Timeframe } from "@/lib/chartData";
+import { EVENT_CHART_TOP_N, MUTED_SERIES_COLOR, alignSeries, axisScale, formatAxisTime, formatPercent, formatPointTime, niceYScale, rankMarketsForChart, seriesColor, type AlignedRow, type Timeframe } from "@/lib/chartData";
 import { useEventCandles } from "@/lib/marketQueries";
 import { toNumber, type ApiMarket } from "@/lib/marketsTypes";
 import { cn } from "@/lib/utils";
@@ -102,7 +102,9 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
     // drawn is derived from `visible` + `ranked`; listing those keeps the memo honest without a new array identity each render
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, visible, ranked]);
-  const xTicks = useMemo(() => (rows.length ? axisTicks(rows[0].t, rows[rows.length - 1].t, tf, variant === "compact" ? 4 : 6) : []), [rows, tf, variant]);
+  // UTC-aligned ticks; the granularity decides the labels (clock, day or month).
+  const xScale = useMemo(() => (rows.length ? axisScale(rows[0].t, rows[rows.length - 1].t, tf, variant === "compact" ? 4 : 6) : null), [rows, tf, variant]);
+  const xTicks = xScale?.ticks ?? [];
   /** Where each drawn line ends: its last row with a value. */
   const lineEnds = useMemo(() => {
     const ends = new Map<string, { t: number; v: number }>();
@@ -151,7 +153,7 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
                 domain={["dataMin", "dataMax"]}
                 scale="time"
                 padding={X_AXIS_PADDING}
-                tickFormatter={(v: number) => formatAxisTime(v, tf)}
+                tickFormatter={(v: number) => formatAxisTime(v, tf, xScale?.granularity)}
                 ticks={xTicks}
                 interval={0}
                 tick={<InsideXTick />}
@@ -188,6 +190,11 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
           </ResponsiveContainer>
         )}
         {query.isLoading && <div className="chart-loading" aria-hidden="true" />}
+        {!query.isError && !empty && (
+          <span className="chart-tz" title="Times are in UTC">
+            UTC
+          </span>
+        )}
       </div>
       {showTabs && <TimeframeTabs value={tf} onChange={setTf} className={cn("mt-3", variant === "full" && "sm:hidden")} />}
       {legend !== "none" && (
