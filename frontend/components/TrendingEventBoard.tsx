@@ -1,11 +1,12 @@
 /**
  * The homepage trending board, modelled on Kalshi's event board: the three most traded events
- * of the day in a manual carousel. Left: series tile and name, the question, a Market / Pays out
- * / Odds table for the likeliest outcomes, the event's figures, and an About blurb. Right: a
- * static legend, the brand mark, and the week-long multi-line chart. Every colour on the board
- * (icon ring, underline, legend dot) is the colour the chart gives that market's line.
+ * of the day in a manual carousel. Top: series tile and name, the carousel controls, the event
+ * title. Left: a Market / Pays out / Odds table, the event's figures and an About blurb. Right:
+ * a static legend, the brand mark and the week-long multi-line chart, which fills the column
+ * down to the About's last line. Every slide has the same geometry (three row slots, one-line
+ * title, three-line About), so paging through the carousel never changes the card's height.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, ChevronLeft, ChevronRight, Clock } from "lucide-react";
@@ -15,10 +16,12 @@ import { initialsOf, leadSentences, outcomeLabel, payoutMultiplier } from "@/lib
 import { fetchSeries } from "@/lib/marketsApi";
 import { toNumber, type ApiEvent, type ApiMarket } from "@/lib/marketsTypes";
 
-/** Outcome rows shown before the "+N more" link. */
+/** Row slots on every slide; events with more outcomes link to the rest. */
 const MAX_ROWS = 3;
 /** The board is fixed to the past week: enough history to read, no range control. */
 const BOARD_TIMEFRAME = "1W" as const;
+/** Underline of the No side of a single binary market (it has no line of its own on the chart). */
+const NO_SIDE_COLOR = "#cbd5e1";
 
 function useSeriesTitle(ticker: string) {
   return useQuery({
@@ -38,20 +41,55 @@ function SeriesTile({ image, label }: { image: string; label: string }) {
   );
 }
 
-function OutcomeIcon({ market, fallbackImage, color }: { market: ApiMarket; fallbackImage: string; color: string }) {
-  const image = market.imageUrl || fallbackImage;
+interface BoardRow {
+  key: string;
+  label: string;
+  title: string;
+  price: number;
+  color: string;
+  image: string;
+  href: string;
+}
+
+/**
+ * The table rows: the likeliest outcomes, one per market. A single binary market has no sibling
+ * outcomes, so its two sides take the rows instead (Yes at its price, No at the complement).
+ */
+function rowsOf(event: ApiEvent, markets: ApiMarket[], colors: Map<string, string>): BoardRow[] {
+  if (markets.length === 1) {
+    const m = markets[0];
+    const p = toNumber(m.currentPrice);
+    const image = m.imageUrl || event.imageUrl;
+    return [
+      { key: `${m.ticker}:yes`, label: m.yesSubTitle || "Yes", title: m.question, price: p, color: colors.get(m.ticker) ?? SERIES_PALETTE[0], image, href: `/markets/${m.ticker}?side=yes` },
+      { key: `${m.ticker}:no`, label: m.noSubTitle || "No", title: m.question, price: 1 - p, color: NO_SIDE_COLOR, image, href: `/markets/${m.ticker}?side=no` },
+    ];
+  }
+  return markets.slice(0, MAX_ROWS).map((m) => ({
+    key: m.ticker,
+    label: outcomeLabel(m),
+    title: m.question,
+    price: toNumber(m.currentPrice),
+    color: colors.get(m.ticker) ?? SERIES_PALETTE[0],
+    image: m.imageUrl || event.imageUrl,
+    href: `/markets/${m.ticker}?side=yes`,
+  }));
+}
+
+function OutcomeImage({ image, label, color }: { image: string; label: string; color: string }) {
+  if (image) return <img src={image} alt="" className="board-icon" />;
   return (
-    <span className="board-icon" style={{ borderColor: color }} aria-hidden="true">
-      {image ? <img src={image} alt="" /> : <span className="board-icon-initials" style={{ color, background: `${color}1a` }}>{initialsOf(outcomeLabel(market))}</span>}
+    <span className="board-icon board-icon-initials" style={{ color, background: `${color}1f` }} aria-hidden="true">
+      {initialsOf(label)}
     </span>
   );
 }
 
-function BoardEvent({ event }: { event: ApiEvent }) {
+function BoardEvent({ event, nav }: { event: ApiEvent; nav: ReactNode }) {
   const markets = [...(event.markets ?? []).filter((m) => !m.archived)].sort((a, b) => toNumber(b.currentPrice) - toNumber(a.currentPrice));
   const colors = marketColorMap(markets);
-  const shown = markets.slice(0, MAX_ROWS);
-  const hidden = markets.length - shown.length;
+  const rows = rowsOf(event, markets, colors);
+  const hidden = markets.length > MAX_ROWS ? markets.length - MAX_ROWS : 0;
   const lead = markets[0];
   const seriesTitle = useSeriesTitle(event.seriesTicker);
   const volume24h = event.volume24hCC !== undefined ? toNumber(event.volume24hCC) : markets.reduce((acc, m) => acc + toNumber(m.volume24hCC), 0);
@@ -62,101 +100,95 @@ function BoardEvent({ event }: { event: ApiEvent }) {
   const legend = markets.slice(0, EVENT_CHART_TOP_N);
 
   return (
-    <div className="board-grid">
-      <div className="min-w-0">
-        <div className="flex items-center gap-3">
+    <>
+      <div className="board-top">
+        <div className="flex min-w-0 items-center gap-3">
           <SeriesTile image={event.imageUrl} label={seriesTitle.data ?? event.seriesTicker} />
           <Link to={`/marketplace?series=${encodeURIComponent(event.seriesTicker)}`} className="board-series hover:text-slate-950">
             {seriesTitle.data ?? event.seriesTicker}
           </Link>
         </div>
-        <Link to={`/events/${event.ticker}`} className="block">
-          <h2 className="board-title">{event.title}</h2>
-        </Link>
+        {nav}
+      </div>
+      <Link to={`/events/${event.ticker}`} className="block min-w-0" title={event.title}>
+        <h2 className="board-title">{event.title}</h2>
+      </Link>
 
-        <div className="board-head">
-          <span>Market</span>
-          <span className="text-right">Pays out</span>
-          <span className="text-right">Odds</span>
-        </div>
-        <ul aria-label="Likeliest outcomes">
-          {shown.map((m) => {
-            const price = toNumber(m.currentPrice);
-            const color = colors.get(m.ticker) ?? SERIES_PALETTE[0];
-            const label = outcomeLabel(m);
-            return (
-              <li key={m.marketId} className="board-row">
+      <div className="board-grid">
+        <div className="board-left">
+          <div className="board-table-head">
+            <span>Market</span>
+            <span className="text-right">Pays out</span>
+            <span className="text-center">Odds</span>
+          </div>
+          <ul className="board-rows" aria-label="Likeliest outcomes">
+            {rows.map((r) => (
+              <li key={r.key} className="board-row">
                 <div className="flex min-w-0 items-center gap-3">
-                  <OutcomeIcon market={m} fallbackImage={event.imageUrl} color={color} />
+                  <OutcomeImage image={r.image} label={r.label} color={r.color} />
                   <span className="board-name">
-                    <Link to={`/markets/${m.ticker}`} className="board-outcome" title={m.question}>
-                      {label}
+                    <Link to={r.href} className="board-outcome" title={r.title}>
+                      {r.label}
                     </Link>
-                    <span className="board-underline" style={{ background: color }} />
+                    <span className="board-underline" style={{ background: r.color }} />
                   </span>
                 </div>
-                <span className="board-payout">{payoutMultiplier(price)}</span>
-                <Link to={`/markets/${m.ticker}?side=yes`} className="board-odds" aria-label={`${label}: ${formatPercent(price)} chance, trade Yes`}>
-                  {formatPercent(price)}
+                <span className="board-payout">{payoutMultiplier(r.price)}</span>
+                <Link to={r.href} className="board-odds" aria-label={`${r.label}: ${formatPercent(r.price)} chance`}>
+                  {formatPercent(r.price)}
                 </Link>
-              </li>
-            );
-          })}
-        </ul>
-        {hidden > 0 && (
-          <Link to={`/events/${event.ticker}`} className="board-more">
-            +{hidden} more outcome{hidden === 1 ? "" : "s"}
-          </Link>
-        )}
-
-        <div className="board-stats">
-          <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span>
-              <b>{compactCC(volume24h)}</b> traded in 24h
-            </span>
-            <span aria-hidden="true">·</span>
-            <span>
-              <b>{compactCC(event.volumeCC)}</b> lifetime
-            </span>
-            <span aria-hidden="true">·</span>
-            <span className="inline-flex items-center gap-1">
-              <Clock className="h-3.5 w-3.5" />
-              {event.status === "settled" ? <b>Settled</b> : <>closes in <b>{timeLeft(event.closeTime)}</b></>}
-            </span>
-          </span>
-          <Link to={`/events/${event.ticker}`} className="board-trade group/trade">
-            Trade <ArrowRight className="h-3.5 w-3.5 opacity-0 transition-opacity group-hover/trade:opacity-100" />
-          </Link>
-        </div>
-
-        {about && (
-          <>
-            <hr className="board-divider" />
-            <p className="board-about">
-              <b>About</b> <span aria-hidden="true">·</span> {about}
-            </p>
-          </>
-        )}
-      </div>
-
-      <div className="min-w-0">
-        <div className="board-chart-head">
-          <ul className="board-legend" aria-label="Markets on the chart">
-            {legend.map((m) => (
-              <li key={m.marketId}>
-                <span className="board-legend-dot" style={{ background: colors.get(m.ticker) ?? SERIES_PALETTE[0] }} />
-                <span className="truncate">{outcomeLabel(m)}</span>
-                <b>{formatPercent(toNumber(m.currentPrice))}</b>
               </li>
             ))}
           </ul>
-          <Link to="/" className="board-wordmark" aria-label="TruthOracle">
-            Truth<span>Oracle</span>
-          </Link>
+
+          <div className="board-stats">
+            <span className="board-stats-line">
+              <b>{compactCC(event.volumeCC)}</b> vol <span aria-hidden="true">·</span> <b>{compactCC(volume24h)}</b> 24h <span aria-hidden="true">·</span>{" "}
+              {event.status === "settled" ? (
+                <b>Settled</b>
+              ) : (
+                <span title="Time until the event closes" aria-label={`closes in ${timeLeft(event.closeTime)}`}>
+                  <Clock className="inline h-3.5 w-3.5 -translate-y-px" aria-hidden="true" /> <b>{timeLeft(event.closeTime)}</b>
+                </span>
+              )}
+            </span>
+            <Link to={`/events/${event.ticker}`} className="board-trade group/trade">
+              {hidden > 0 ? `+${hidden} more` : "Trade"} <ArrowRight className="h-3.5 w-3.5 opacity-0 transition-opacity group-hover/trade:opacity-100" />
+            </Link>
+          </div>
+          <hr className="board-divider" />
+          <p className="board-about">
+            {about ? (
+              <>
+                <b>About</b> <span aria-hidden="true">·</span> {about}
+              </>
+            ) : (
+              " "
+            )}
+          </p>
         </div>
-        <EventPriceChart key={event.ticker} eventTicker={event.ticker} markets={markets} variant="compact" showTabs={false} legend="none" height={264} defaultTimeframe={BOARD_TIMEFRAME} className="board-chart" />
+
+        <div className="board-right">
+          <div className="board-chart-head">
+            <ul className="board-legend" aria-label="Markets on the chart">
+              {legend.map((m) => (
+                <li key={m.marketId}>
+                  <span className="board-legend-dot" style={{ background: colors.get(m.ticker) ?? SERIES_PALETTE[0] }} />
+                  <span className="board-legend-name">{outcomeLabel(m)}</span>
+                  <b>{formatPercent(toNumber(m.currentPrice))}</b>
+                </li>
+              ))}
+            </ul>
+            <Link to="/" className="board-wordmark" aria-label="TruthOracle">
+              Truth<span>Oracle</span>
+            </Link>
+          </div>
+          <div className="board-chart-wrap">
+            <EventPriceChart key={event.ticker} eventTicker={event.ticker} markets={markets} variant="compact" showTabs={false} legend="none" height="100%" defaultTimeframe={BOARD_TIMEFRAME} className="board-chart" />
+          </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -170,46 +202,54 @@ export default function TrendingEventBoard({ events }: { events: ApiEvent[] }) {
   if (!event) return <TrendingEventBoardEmpty />;
   const step = (delta: number) => setIndex((i) => (i + delta + count) % count);
 
+  const nav = (
+    <div className="board-nav">
+      <span className="board-live">
+        <span className="live-dot" /> Trending
+      </span>
+      {count > 1 && (
+        <>
+          <button type="button" className="board-nav-btn" onClick={() => step(-1)} aria-label="Previous trending event">
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <span aria-live="polite">
+            {index + 1} of {count}
+          </span>
+          <button type="button" className="board-nav-btn" onClick={() => step(1)} aria-label="Next trending event">
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </>
+      )}
+    </div>
+  );
+
   return (
     <section className="board" aria-roledescription="carousel" aria-label="Trending events">
-      <div className="flex items-center justify-between gap-4">
-        <p className="eyebrow !mb-0 min-w-0 truncate">
-          <span className="live-dot" /> Trending events
-        </p>
-        {count > 1 && (
-          <div className="board-nav">
-            <button type="button" className="board-nav-btn" onClick={() => step(-1)} aria-label="Previous trending event">
-              <ChevronLeft className="h-5 w-5" />
-            </button>
-            <span aria-live="polite">
-              {index + 1} of {count}
-            </span>
-            <button type="button" className="board-nav-btn" onClick={() => step(1)} aria-label="Next trending event">
-              <ChevronRight className="h-5 w-5" />
-            </button>
-          </div>
-        )}
-      </div>
-      <BoardEvent key={event.ticker} event={event} />
+      {/* Not keyed by event: the arrows stay mounted (keyboard focus survives paging); the chart keys itself. */}
+      <BoardEvent event={event} nav={nav} />
     </section>
   );
 }
 
 export function TrendingEventBoardSkeleton() {
   return (
-    <div className="board-skeleton" aria-label="Loading trending events" aria-busy="true">
-      <div className="flex items-center gap-3">
-        <span className="skeleton h-11 w-11 rounded-[10px]" />
-        <span className="skeleton h-3 w-24" />
-      </div>
-      <div className="skeleton mt-7 h-9 w-2/3" />
-      <div className="board-grid">
-        <div className="space-y-4 pt-4">
-          <span className="skeleton block h-14" />
-          <span className="skeleton block h-14" />
-          <span className="skeleton block h-14" />
+    <div className="board" aria-label="Loading trending events" aria-busy="true">
+      <div className="board-top">
+        <div className="flex items-center gap-3">
+          <span className="skeleton h-8 w-8 rounded-[7px]" />
+          <span className="skeleton h-3 w-28" />
         </div>
-        <span className="skeleton block h-[300px]" />
+        <span className="skeleton h-9 w-36 rounded-full" />
+      </div>
+      <div className="skeleton mt-4 h-7 w-3/5" />
+      <div className="board-grid">
+        <div className="space-y-3 pt-7">
+          <span className="skeleton block h-8" />
+          <span className="skeleton block h-8" />
+          <span className="skeleton block h-8" />
+          <span className="skeleton mt-6 block h-16" />
+        </div>
+        <span className="skeleton block h-[17rem]" />
       </div>
     </div>
   );

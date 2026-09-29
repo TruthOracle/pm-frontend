@@ -21,7 +21,8 @@ export interface EventPriceChartProps {
   /** Highlighted (the market selected in the trade dock); clicking a legend row selects it. */
   selectedTicker?: string | null;
   onSelect?: (ticker: string) => void;
-  height?: number;
+  /** Plot height in px, or a CSS length ("100%" fills a parent with a definite height). */
+  height?: number | string;
   defaultTimeframe?: Timeframe;
   /** `compact` drops the header and shows the legend as a single row of chips (homepage hero). */
   variant?: "full" | "compact";
