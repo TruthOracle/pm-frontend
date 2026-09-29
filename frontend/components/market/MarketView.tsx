@@ -1,4 +1,5 @@
 import { useToast } from "@chakra-ui/react";
+import { StickyColumn } from "@/components/StickyColumn";
 import { ChevronRight, Gavel } from "lucide-react";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -1212,7 +1213,9 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null }
           </p>
         </div>
 
-        <aside className="space-y-4 lg:sticky lg:top-28">{panel}</aside>
+        <aside>
+          <StickyColumn className="space-y-4">{panel}</StickyColumn>
+        </aside>
       </div>
     </div>
   );

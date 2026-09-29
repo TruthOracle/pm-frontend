@@ -427,9 +427,9 @@
   .chart-legend-swatch { @apply inline-block h-2.5 w-2.5 shrink-0 rounded-sm; }
   .chart-legend-compact { @apply mt-2 flex flex-wrap gap-x-2 gap-y-1; }
   .chart-legend-compact .chart-legend-item { @apply w-auto px-1.5 py-1; }
-  .k-criteria { @apply k-card p-5; border-left: 4px solid #16c784; background: linear-gradient(90deg, rgba(22, 199, 132, 0.08) 0%, rgba(22, 199, 132, 0) 36%), #fff; }
+  .k-criteria { @apply k-card p-5; border-left: 4px solid #16c784; background: #fff; }
   .k-criteria-text { @apply whitespace-pre-line text-[15px] leading-7 text-slate-800; }
-  .k-criteria-meta { @apply mt-3 flex flex-wrap items-center gap-1.5 border-t border-emerald-100 pt-3 text-xs text-slate-500; }
+  .k-criteria-meta { @apply mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3 text-xs text-slate-500; }
   .outcome-link { @apply inline-flex min-w-0 items-center gap-1 text-sm font-semibold text-slate-950 underline-offset-4 decoration-2 hover:text-primary hover:underline; }
   .outcome-link svg { @apply opacity-40 transition-opacity; }
   .outcome-link:hover svg { @apply opacity-100; }

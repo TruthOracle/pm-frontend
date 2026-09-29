@@ -5,6 +5,7 @@
  * and KYC gates included), the rules, and the event's trade feed
  * (truthoracle-backend docs/MARKETS.md §3, §5).
  */
+import { StickyColumn } from "@/components/StickyColumn";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowUpRight, ChevronRight, Clock, Gavel, Layers, ShieldCheck } from "lucide-react";
@@ -269,7 +270,8 @@ export default function EventView() {
           </section>
         </div>
 
-        <aside className="space-y-3 lg:sticky lg:top-28">
+        <aside>
+          <StickyColumn className="space-y-3">
           {selectedMarket ? (
             <>
               <MarketView key={selectedMarket.ticker} marketRef={selectedMarket.ticker} variant="dock" initialSide={side} />
@@ -280,6 +282,7 @@ export default function EventView() {
           ) : (
             <div className="k-card p-6 text-center text-sm text-slate-500">Select an outcome to trade.</div>
           )}
+          </StickyColumn>
         </aside>
       </div>
     </div>
