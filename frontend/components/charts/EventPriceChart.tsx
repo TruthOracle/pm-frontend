@@ -118,11 +118,16 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, visible, ranked]);
 
+  // Hiding only makes sense with something left to look at: no hide control for a single market,
+  // and the last visible line can never be hidden (an empty chart reads as broken).
+  const canHide = ranked.length > 1;
   const toggle = (ticker: string) => {
     setVisible((prev) => {
       const next = new Set(prev);
-      if (next.has(ticker)) next.delete(ticker);
-      else next.add(ticker);
+      if (next.has(ticker)) {
+        if (next.size <= 1) return prev;
+        next.delete(ticker);
+      } else next.add(ticker);
       return next;
     });
   };
@@ -218,14 +223,14 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
               <button
                 type="button"
                 className={cn("chart-legend-item", !on && "chart-legend-item-off", selectedTicker === m.ticker && "chart-legend-item-selected")}
-                onClick={() => (onSelect ? onSelect(m.ticker) : toggle(m.ticker))}
-                onDoubleClick={() => toggle(m.ticker)}
-                title={on ? "Click to select · double-click to hide" : "Click to show"}
+                onClick={() => (onSelect ? onSelect(m.ticker) : canHide && toggle(m.ticker))}
+                onDoubleClick={() => canHide && toggle(m.ticker)}
+                title={!canHide ? (onSelect ? "Click to select" : undefined) : on ? "Click to select · double-click to hide" : "Click to show"}
               >
                 <span className="chart-legend-swatch" style={{ background: on ? meta.color : MUTED_SERIES_COLOR }} />
                 <span className="chart-legend-name">{meta.label}</span>
                 <span className="chart-legend-value">{formatPercent(meta.currentPrice)}</span>
-                {onSelect && variant === "full" && (
+                {onSelect && variant === "full" && canHide && (!on || visible.size > 1) && (
                   <span
                     role="button"
                     tabIndex={0}

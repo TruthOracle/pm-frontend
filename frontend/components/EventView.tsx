@@ -206,9 +206,9 @@ export default function EventView() {
                         </div>
                       </div>
                       <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
-                        <div className="w-14 shrink-0 text-right">
+                        <div className="mr-2 w-[4.5rem] shrink-0 text-right sm:mr-3">
                           <div className={cn("k-num text-lg font-bold leading-none", done && "text-slate-950")} style={done ? undefined : { color }}>{done ? (m.status === "Voided" || m.outcome === "VoidOutcome" ? "Void" : m.outcome) : formatPercent(p)}</div>
-                          {delta && !done && <div className={cn("k-num mt-0.5 text-[11px] font-semibold", delta.direction === "up" ? "delta-up" : delta.direction === "down" ? "delta-down" : "delta-flat")}>{delta.text}</div>}
+                          {delta && !done && <div className={cn("k-num mt-0.5 whitespace-nowrap text-[11px] font-semibold", delta.direction === "up" ? "delta-up" : delta.direction === "down" ? "delta-down" : "delta-flat")} title="Change in the last 24 h">{delta.text} pts</div>}
                         </div>
                         {!done && (
                           <div className="flex shrink-0 gap-1.5">
