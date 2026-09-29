@@ -106,6 +106,13 @@ export interface ApiMarket {
   synchronizerId: string | null;
   /** `GET /markets/:market` only. */
   createdEventBlob?: string | null;
+  /** `GET /markets?withSparkline=true` only: the last 24 hourly closes, oldest first. */
+  sparkline?: ApiSparkline | null;
+}
+
+export interface ApiSparkline {
+  periodInterval: 60;
+  closes: Decimal[];
 }
 
 export interface ApiPage<T> {
@@ -157,10 +164,18 @@ export interface ApiEvent {
   marketCount: number;
   volumeCC: Decimal;
   closeTime: string | null;
+  /** `?withNestedMarkets=true`: ordered by current price, highest first. */
   markets?: ApiMarket[];
+  /** Aggregates over the event's markets (list + detail). */
+  volume24hCC?: Decimal;
+  openInterestCC?: Decimal;
+  liquidityCC?: Decimal;
+  topMarket?: { ticker: string; currentPrice: Decimal } | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export type EventSort = "trending" | "newest" | "closing" | "volume";
 
 export type CandlePeriod = 1 | 60 | 1440;
 
@@ -182,6 +197,50 @@ export interface ApiCandlesticks {
   startTs: number;
   endTs: number;
   candlesticks: ApiCandle[];
+}
+
+/** `GET /events/:ticker/candlesticks`: every market of the event, dense and aligned on one `[startTs, endTs)` grid. */
+export interface ApiEventCandlesticks {
+  eventTicker: string;
+  periodInterval: CandlePeriod;
+  startTs: number;
+  endTs: number;
+  markets: ApiEventMarketCandles[];
+}
+
+export interface ApiEventMarketCandles {
+  marketId: number;
+  ticker: string;
+  yesSubTitle: string;
+  noSubTitle: string;
+  status: ApiMarketStatus;
+  currentPrice: Decimal;
+  candlesticks: ApiCandle[];
+}
+
+/** One pool trade (`GET /markets/:market/trades`, `GET /events/:ticker/trades`), newest first. */
+export interface ApiTrade {
+  tradeId: string;
+  marketId: number;
+  ticker: string;
+  /** Spelled like the Daml outcome (`Yes` / `No`); compare case-insensitively. */
+  side: "Yes" | "No" | "yes" | "no";
+  action: "buy" | "sell" | "swap";
+  shares: Decimal;
+  priceBefore: Decimal;
+  priceAfter: Decimal;
+  yesPrice: Decimal;
+  noPrice: Decimal;
+  notionalCC: Decimal;
+  feeCC: Decimal;
+  /** Masked by the backend (`abcd…1234`). */
+  takerParty: string;
+  createdAt: string;
+}
+
+export interface ApiTradeList {
+  items: ApiTrade[];
+  nextCursor: string | null;
 }
 
 export type OrderAction =

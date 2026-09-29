@@ -20,13 +20,17 @@ import { setPrefetchedMarkets } from "@/utils/marketPrefetch";
 import type {
   ApiCandlesticks,
   ApiEvent,
+  ApiEventCandlesticks,
   ApiExchangeStatus,
   ApiMarket,
   ApiPage,
   ApiPreparedOrder,
   ApiQuote,
   ApiSeries,
+  ApiTrade,
+  ApiTradeList,
   CandlePeriod,
+  EventSort,
   EventStatus,
   PrepareOrderRequest,
 } from "@/lib/marketsTypes";
@@ -121,6 +125,8 @@ export interface MarketListQuery {
   series?: string;
   q?: string;
   sort?: "newest" | "oldest" | "volume" | "expiry" | "activity";
+  /** Attach the last 24 hourly closes to every market (cards' sparklines). */
+  withSparkline?: boolean;
   page?: number;
   limit?: number;
 }
@@ -161,6 +167,29 @@ export function fetchCandlesticks(
   return backendFetch<ApiCandlesticks>(`/api/v1/markets/${encodeURIComponent(String(ref))}/candlesticks${qs(opts)}`);
 }
 
+/** Every market of an event on one aligned grid (docs/MARKETS.md §5) — the event chart's single request. */
+export function fetchEventCandlesticks(
+  ticker: string,
+  opts: { startTs?: number; endTs?: number; periodInterval: CandlePeriod },
+): Promise<ApiEventCandlesticks> {
+  return backendFetch<ApiEventCandlesticks>(`/api/v1/events/${encodeURIComponent(ticker)}/candlesticks${qs(opts)}`);
+}
+
+/** The backend answers `{ items, nextCursor }`; an older shape (`trades` / bare array) is tolerated. */
+function asTradeList(raw: unknown): ApiTradeList {
+  if (Array.isArray(raw)) return { items: raw as ApiTrade[], nextCursor: null };
+  const r = (raw ?? {}) as { items?: ApiTrade[]; trades?: ApiTrade[]; nextCursor?: string | null };
+  return { items: r.items ?? r.trades ?? [], nextCursor: r.nextCursor ?? null };
+}
+
+export function fetchMarketTrades(ref: string | number, opts: { limit?: number; cursor?: string } = {}): Promise<ApiTradeList> {
+  return backendFetch<unknown>(`/api/v1/markets/${encodeURIComponent(String(ref))}/trades${qs({ limit: opts.limit ?? 30, cursor: opts.cursor })}`).then(asTradeList);
+}
+
+export function fetchEventTrades(ticker: string, opts: { limit?: number; cursor?: string } = {}): Promise<ApiTradeList> {
+  return backendFetch<unknown>(`/api/v1/events/${encodeURIComponent(ticker)}/trades${qs({ limit: opts.limit ?? 30, cursor: opts.cursor })}`).then(asTradeList);
+}
+
 export function fetchQuote(
   ref: string | number,
   query: { action: "buy" | "sell" | "swap" | "provide_liquidity"; side?: "Yes" | "No"; amountCC?: string; shares?: string; slippageBps?: number },
@@ -183,9 +212,18 @@ export function fetchSeries(ticker: string): Promise<{ series: ApiSeries; events
   return backendFetch<{ series: ApiSeries; events: ApiEvent[] }>(`/api/v1/series/${encodeURIComponent(ticker)}`);
 }
 
-export function fetchEvents(
-  query: { series?: string; status?: EventStatus | "all"; category?: string; q?: string; withNestedMarkets?: boolean; page?: number; limit?: number } = {},
-): Promise<ApiPage<ApiEvent>> {
+export interface EventListQuery {
+  series?: string;
+  status?: EventStatus | "all";
+  category?: string;
+  q?: string;
+  sort?: EventSort;
+  withNestedMarkets?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export function fetchEvents(query: EventListQuery = {}): Promise<ApiPage<ApiEvent>> {
   return backendFetch<ApiPage<ApiEvent>>(`/api/v1/events${qs({ ...query, limit: query.limit ?? 100 })}`);
 }
 

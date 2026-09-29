@@ -1,7 +1,5 @@
 import type { ReactNode } from "react";
 import { Droplets, TrendingUp } from "lucide-react";
-import MarketHistoryChart from "./MarketHistoryChart";
-import { YourPositionBox } from "./MarketPositionCards";
 import { fmtCC, fmtCountdown } from "./marketHelpers";
 import { WALLET_DISPLAY_NAME } from "@/config";
 
@@ -51,23 +49,14 @@ type TradeContext = {
   handleSplitMerge: any;
   userPosition: any;
   holdings: any;
-  /** True when the market came from the backend index (candlestick history exists). */
-  indexed?: boolean;
-  chartRefreshKey?: number;
-  marketRef?: string | number;
 };
 
 export default function MarketTradePanel({ context, walletSlot }: { context: TradeContext; walletSlot?: ReactNode }) {
-  const { setMainTab, subTabBtn, tabHeaderBtn, pillBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs, tradeSide, setTradeSide, selectedSide, setSelectedSide, probYes, probNo, collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage, buyQuote, sellQuote, swapQuote, account, signInFirst = false, tradeLockReason = null, walletCta = null, busy, handleTradeClick, mintMode, setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge, userPosition, holdings, indexed = false, chartRefreshKey = 0, marketRef } = context;
+  const { setMainTab, subTabBtn, tabHeaderBtn, pillBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs, tradeSide, setTradeSide, selectedSide, setSelectedSide, probYes, probNo, collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage, buyQuote, sellQuote, swapQuote, account, tradeLockReason = null, walletCta = null, busy, handleTradeClick, mintMode, setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge, userPosition } = context;
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,.8fr)] lg:items-start">
-      <div className="min-w-0 space-y-6">
-        <MarketHistoryChart probability={probYes} createdAt={market.createdAt} marketRef={marketRef ?? market.marketId} indexed={indexed} refreshKey={chartRefreshKey} />
-        <YourPositionBox account={account} signInFirst={signInFirst} userPosition={userPosition} holdings={holdings} probYes={probYes} probNo={probNo} />
-      </div>
-          <div className="space-y-4">
-            {walletSlot}
-            <div className="rounded-xl border border-border bg-card shadow-sm">
+    <div className="space-y-4">
+      {walletSlot}
+      <div className="k-card overflow-hidden">
             <div className="flex border-b border-border px-2 pt-2">
               <button onClick={() => setMainTab("trade")} className={tabHeaderBtn(true)}>
                 <span className="flex items-center gap-1.5 text-[15px] font-bold">
@@ -321,10 +310,7 @@ export default function MarketTradePanel({ context, walletSlot }: { context: Tra
                 </button>
               </div>
             )}
-            </div>
-          </div>
-
-
+      </div>
     </div>
   );
 }

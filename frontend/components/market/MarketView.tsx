@@ -1,5 +1,5 @@
-import { Skeleton, Text, useToast } from "@chakra-ui/react";
-import { Gavel } from "lucide-react";
+import { useToast } from "@chakra-ui/react";
+import { ChevronRight, Gavel } from "lucide-react";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useCantonWallet } from "@/wallets";
@@ -8,6 +8,11 @@ import { authErrorMessage } from "@/auth/wallet";
 import { TRUTHORACLE_PACKAGE_ID, WALLET_DISPLAY_NAME } from "@/config";
 import { backendErrorMessage } from "@/lib/backendErrors";
 import { fetchMyMarketView, marketSource, prepareOrder, waitForTradeLanding } from "@/lib/marketsApi";
+import { useMarketTrades } from "@/lib/marketQueries";
+import { compactCC, formatCents, formatPercent, priceDelta } from "@/lib/chartData";
+import PriceChart from "@/components/charts/PriceChart";
+import TradeFeed from "@/components/TradeFeed";
+import { YourLpBox, YourPositionBox } from "./MarketPositionCards";
 import type { ApiPreparedOrder, PrepareOrderRequest } from "@/lib/marketsTypes";
 import type { PrepareExecuteParams } from "@/lib/cantonDapp";
 import { useExchangeStatus } from "@/components/ExchangeStatusBanner";
@@ -82,27 +87,25 @@ async function waitForPositionUpdate(
   return null;
 }
 
-/** Market-header stat box. */
-function StatBox({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-card px-4 py-3">
-      <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className={`mt-1 text-xl font-bold ${accent ?? "text-foreground"}`}>{value}</div>
-      {sub && <div className="text-[11px] text-muted-foreground">{sub}</div>}
-    </div>
-  );
-}
-
 /** `/market/:id` takes a numeric market id or a ticker (truthoracle-backend docs/MARKETS.md §2). */
 function matchesRef(m: PredictionMarketRecord, ref: string): boolean {
   if (/^\d+$/.test(ref)) return m.marketId === Number(ref);
   return (m.ticker ?? "").toUpperCase() === ref.toUpperCase();
 }
 
-const MarketView = () => {
+export interface MarketViewProps {
+  /** Id or ticker; defaults to the route's `:id`. The event page passes the selected market. */
+  marketRef?: string;
+  /** `dock` = the trade panel alone (event page's sticky column); `page` = the full market page. */
+  variant?: "page" | "dock";
+  /** Preselects Yes / No (the event page's price pills); the page variant reads `?side=` instead. */
+  initialSide?: "yes" | "no" | null;
+}
+
+const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null }: MarketViewProps = {}) => {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
-  const marketRef = id ?? "";
+  const marketRef = refProp ?? id ?? "";
 
   const [market, setMarket] = useState<PredictionMarketRecord | null>(() => {
     const prefetched = getPrefetchedMarkets();
@@ -144,6 +147,8 @@ const MarketView = () => {
   const adminPartyForCC = enterpriseWalletPartyId();
   const isAdmin = useIsAdmin();
   const toast = useToast();
+  // Recent pool trades (index only); refetched with the page's 15 s cadence.
+  const tradesQuery = useMarketTrades(indexed && market ? market.ticker || market.marketId : null, 30, variant === "page");
 
   // Account signed in with a linked, NON-primary wallet connected (ARCHITECTURE §16
   // state B): the in-app balance lives on the primary party's UserWallet, and every
@@ -223,6 +228,9 @@ const MarketView = () => {
     const side = searchParams.get("side");
     if (side === "yes" || side === "no") setSelectedSide(side);
   }, [searchParams]);
+  useEffect(() => {
+    if (initialSide) setSelectedSide(initialSide);
+  }, [initialSide, marketRef]);
 
   const refreshUserData = useCallback(async () => {
     if (!account?.address || isNaN(marketIdNum)) {
@@ -936,19 +944,29 @@ const MarketView = () => {
   // -------------------------------------------------------------------------
 
   if (loading && !market) {
-    return (
-      <div className="space-y-4 py-8">
-        <Skeleton height="32px" borderRadius="lg" />
-        <Skeleton height="20px" borderRadius="lg" />
-        <Skeleton height="120px" borderRadius="xl" />
+    return variant === "dock" ? (
+      <div className="k-card space-y-3 p-4">
+        <div className="skeleton h-5 w-2/3" />
+        <div className="skeleton h-10 w-full" />
+        <div className="skeleton h-40 w-full" />
+      </div>
+    ) : (
+      <div className="space-y-5 py-2">
+        <div className="skeleton h-4 w-40" />
+        <div className="skeleton h-8 w-3/4" />
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="skeleton h-80 w-full rounded-xl" />
+          <div className="skeleton h-80 w-full rounded-xl" />
+        </div>
       </div>
     );
   }
 
   if (!market) {
     return (
-      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-2">
-        <Text fontSize="lg" color="gray.400">Market #{id} not found.</Text>
+      <div className="k-card flex min-h-[40vh] flex-col items-center justify-center gap-2 p-8 text-center">
+        <p className="text-base font-semibold text-slate-950">Market {marketRef} not found</p>
+        <Link to="/marketplace" className="quiet-link text-xs">Back to markets</Link>
       </div>
     );
   }
@@ -974,33 +992,18 @@ const MarketView = () => {
   const showResolveTab = (isAdmin || market.policy.challengeSecs > 0) && (phase === "expired" || phase === "proposed");
   const showSettleTab = phase === "resolved" || phase === "voided";
 
-  const tabs: { key: MainTab; label: string; visible: boolean }[] = [
-    { key: "trade", label: "Trade", visible: true },
-    { key: "liquidity", label: "Liquidity", visible: true },
-    { key: "resolve", label: "Resolve", visible: showResolveTab },
-    { key: "settle", label: "Settle", visible: showSettleTab },
-  ];
-
   const subTabBtn = (active: boolean) =>
     `flex-1 rounded-md py-1.5 text-sm font-semibold transition-all ${
-      active ? "bg-oracle-purple text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+      active ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 hover:text-slate-950"
     }`;
-
-  // Trade/Liquidity header tabs: label + one-line description, primary underline on
-  // the active tab (see the reference layout in PR discussion).
+  // Trade / Liquidity header tabs of the panel: the active one underlined in the brand colour.
   const tabHeaderBtn = (active: boolean) =>
-    `flex-1 rounded-t-lg border-b-[3px] pl-2.5 pr-1 pt-2 pb-2.5 text-left transition-colors ${
-      active
-        ? "border-primary bg-primary/5 text-foreground"
-        : "border-transparent text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+    `flex-1 border-b-[3px] pl-3 pr-1 pt-2.5 pb-2 text-left transition-colors ${
+      active ? "border-primary text-slate-950" : "border-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-950"
     }`;
-  // Mode pills (Swap Tokens / Mint Set, Add / Remove Liquidity): two separated
-  // buttons, the active one filled.
   const pillBtn = (active: boolean) =>
-    `flex-1 rounded-lg py-2.5 text-sm font-semibold transition-all ${
-      active
-        ? "bg-slate-900 text-white shadow-sm"
-        : "border border-border bg-secondary text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
+    `flex-1 rounded-lg py-2 text-sm font-semibold transition-all ${
+      active ? "bg-slate-950 text-white shadow-sm" : "border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-950"
     }`;
 
   const tradeContext = {
@@ -1012,9 +1015,7 @@ const MarketView = () => {
     // CTAs and labels them — requireWallet() blocks the submit itself either way.
     buyQuote, sellQuote, swapQuote, account, signInFirst: signInRequired, tradeLockReason, walletCta, busy, handleTradeClick, mintMode,
     setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge,
-    userPosition, holdings, wallet,
-    // chart: the backend's candlesticks when the market came from the index
-    indexed, chartRefreshKey, marketRef: market.ticker ?? market.marketId,
+    userPosition, holdings,
   };
   const liquidityContext = {
     setMainTab, subTabBtn, tabHeaderBtn, pillBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity,
@@ -1034,8 +1035,8 @@ const MarketView = () => {
     holdings, probYes, probNo,
   };
 
-  // Rendered inside the panels' right column, next to the trade actions it funds. The
-  // card itself decides what a visitor without a wallet sees (sign in, or connect).
+  // Rendered at the top of the trade column, next to the actions it funds. The card itself
+  // decides what a visitor without a wallet sees (sign in, or connect).
   const walletSlot = (
     <>
       {tradeLockReason && (
@@ -1048,117 +1049,171 @@ const MarketView = () => {
     </>
   );
 
-  const resolutionSlot = market.resolutionDescription ? (
-    <div className="rounded-xl border border-primary/20 border-l-4 border-l-primary bg-card p-5 shadow-sm">
-      <div className="mb-2 flex items-center gap-2">
-        <Gavel className="h-4 w-4 text-primary" />
-        <h2 className="text-sm font-semibold text-foreground">Resolution criteria</h2>
-      </div>
-      <p className="text-sm text-foreground/80">{market.resolutionDescription}</p>
-      {tiers.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3 text-xs">
-          <span className="font-semibold text-foreground">Policy</span>
-          {tiers.map((t) => (
-            <span key={t} className="rounded-full bg-primary/10 px-2.5 py-0.5 font-medium text-primary">{t}</span>
-          ))}
-          {market.policy.sources.length > 0 && (
-            <span className="text-muted-foreground">Sources: {market.policy.sources.join(", ")}</span>
-          )}
-        </div>
-      )}
-    </div>
-  ) : null;
+  const panel = mainTab === "liquidity" ? <MarketLiquidityPanel context={liquidityContext} walletSlot={walletSlot} /> : <MarketTradePanel context={tradeContext} walletSlot={walletSlot} />;
 
-  return (
-    <div className="space-y-6">
-      {/* ---------------- Market header ---------------- */}
-      <div>
-        <div className="mb-2 inline-flex flex-wrap items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs font-medium text-muted-foreground">
-          <span className="font-mono text-foreground">{market.ticker}</span>
-          <Link to={`/events/${market.eventTicker}`} className="text-oracle-purple hover:underline">
-            Event {market.eventTicker}
+  const delta24 = priceDelta(probYes, market.previousPrice ?? null);
+  const phaseLabel: Record<typeof phase, string> = {
+    liquidity_period: "Liquidity period",
+    trading: "Trading",
+    expired: "Awaiting resolution",
+    proposed: "Outcome proposed",
+    resolved: "Resolved",
+    voided: "Voided",
+  };
+  const yesLabel = market.yesSubTitle && market.yesSubTitle.toLowerCase() !== "yes" ? market.yesSubTitle : "Yes";
+  const noLabel = market.noSubTitle && market.noSubTitle.toLowerCase() !== "no" ? market.noSubTitle : "No";
+  const expires = new Date(market.expiresAt * 1000);
+
+  // ── Dock: the trade panel alone, for the event page's sticky column ──
+  if (variant === "dock") {
+    return (
+      <div className="space-y-3">
+        <div className="k-card px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="k-eyebrow">{phaseLabel[phase]}</div>
+              <div className="mt-0.5 truncate text-sm font-bold text-slate-950" title={market.question}>{yesLabel === "Yes" ? market.question : yesLabel}</div>
+              {yesLabel !== "Yes" && <div className="truncate text-xs text-slate-500">{market.question}</div>}
+            </div>
+            <div className="shrink-0 text-right">
+              <div className="k-num text-2xl font-bold leading-none tracking-[-0.03em] text-slate-950">{formatPercent(probYes)}</div>
+              {delta24 && <div className={`k-num mt-0.5 text-[11px] font-semibold ${delta24.direction === "up" ? "delta-up" : delta24.direction === "down" ? "delta-down" : "delta-flat"}`}>{delta24.text} today</div>}
+            </div>
+          </div>
+        </div>
+        {panel}
+        {(showResolveTab || showSettleTab) && (
+          <Link to={`/markets/${market.ticker || market.marketId}`} className="quiet-link text-xs">
+            {showSettleTab ? "Redeem and settle on the market page" : "Resolution on the market page"} <ChevronRight className="h-3.5 w-3.5" />
           </Link>
-          {market.category && <span className="text-oracle-blue">{market.category}</span>}
-          {market.isDynamic && <span className="text-oracle-purple">dynamic pm-AMM</span>}
-        </div>
-        <h1 className="text-2xl font-bold leading-tight text-foreground sm:text-3xl">{market.question}</h1>
-        {(market.yesSubTitle || market.noSubTitle) && (
-          <p className="mt-1 text-sm text-muted-foreground">
-            <span className="font-semibold text-oracle-yes">Yes</span> = {market.yesSubTitle || "Yes"} · <span className="font-semibold text-oracle-no">No</span> = {market.noSubTitle || "No"}
-          </p>
         )}
-        {market.description && <p className="mt-2 text-base text-muted-foreground">{market.description}</p>}
       </div>
+    );
+  }
 
-      {/* ---------------- Market stat boxes ---------------- */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatBox
-          label="Current Probability"
-          value={`${(probYes * 100).toFixed(1)}%`}
-          sub="chance of Yes"
-          accent="text-oracle-yes"
-        />
-        <StatBox
-          label={market.volume24hCC !== undefined ? "24h Volume" : "Cumulative Token Volume"}
-          value={`${fmtCC(market.volume24hCC ?? market.totalVolumeCC, 2)} CC`}
-          sub={market.volume24hCC !== undefined ? `${fmtCC(market.totalVolumeCC, 2)} CC lifetime · ${market.tradeCount ?? 0} trades` : "lifetime traded collateral"}
-        />
-        <StatBox
-          label={market.openInterest !== undefined ? "Open Interest" : "Reserve Inventory"}
-          value={fmtCC(market.openInterest ?? reserveInventory, 2)}
-          sub={market.openInterest !== undefined ? `shares outstanding · ${fmtCC(reserveInventory, 2)} in reserves` : `${fmtCC(market.reserveYes, 2)} YES · ${fmtCC(market.reserveNo, 2)} NO`}
-        />
-        <StatBox
-          label="Liquidity · Fee"
-          value={`${fmtCC(market.liquidityCC ?? currentPoolValue, 2)} CC`}
-          sub={`pool value · ${(market.feeBps / 100).toFixed(2)}% fee${market.priceChange24h != null ? ` · ${market.priceChange24h >= 0 ? "+" : ""}${(market.priceChange24h * 100).toFixed(1)} pts 24h` : ""}`}
-        />
-      </div>
+  // ── Page ──
+  return (
+    <div className="space-y-5">
+      <nav className="k-breadcrumb" aria-label="Breadcrumb">
+        <Link to="/marketplace">Markets</Link>
+        {market.seriesTicker && (
+          <>
+            <ChevronRight className="k-breadcrumb-sep h-3.5 w-3.5" />
+            <Link to={`/marketplace?series=${encodeURIComponent(market.seriesTicker)}`}>{market.seriesTicker}</Link>
+          </>
+        )}
+        <ChevronRight className="k-breadcrumb-sep h-3.5 w-3.5" />
+        <Link to={`/events/${market.eventTicker}`}>{market.eventTicker}</Link>
+        <ChevronRight className="k-breadcrumb-sep h-3.5 w-3.5" />
+        <span className="font-mono text-slate-700">{market.ticker}</span>
+      </nav>
 
-      {/* ---------------- Secondary tabs ---------------- */}
-      {tabs.some((t) => t.visible && t.key !== "trade" && t.key !== "liquidity") && (
-        <div className="flex gap-1 rounded-full bg-secondary p-1">
-          {tabs.filter((t) => t.visible && t.key !== "trade" && t.key !== "liquidity").map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setMainTab(t.key)}
-              className={`tab-pill ${mainTab === t.key ? "tab-pill-active" : "tab-pill-inactive"}`}
-            >
-              {t.label}
-            </button>
-          ))}
+      <header className="flex items-start gap-4">
+        {market.imageUrl && (
+          <div className="hidden h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-200/70 sm:block">
+            <img src={market.imageUrl} alt="" className="h-full w-full object-cover" onError={(e) => ((e.target as HTMLImageElement).style.display = "none")} />
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+            {market.category && <span className="k-chip-soft">{market.category}</span>}
+            <span className={`k-chip-soft ${phase === "trading" ? "text-emerald-700" : ""}`}>{phaseLabel[phase]}</span>
+            {market.isDynamic && <span className="k-chip-soft text-violet-700">dynamic pm-AMM</span>}
+          </div>
+          <h1 className="text-2xl font-bold leading-tight tracking-[-0.02em] text-slate-950 sm:text-[28px]">{market.question}</h1>
+          <p className="mt-1.5 text-sm text-slate-500">
+            <span className="font-semibold text-oracle-yes">Yes</span> {yesLabel !== "Yes" ? `= ${yesLabel}` : ""} · <span className="font-semibold text-oracle-no">No</span> {noLabel !== "No" ? `= ${noLabel}` : ""}
+            {yesLabel === "Yes" && noLabel === "No" && <span> — binary market</span>}
+          </p>
+          {market.description && <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{market.description}</p>}
         </div>
-      )}
+      </header>
 
-      {/* ================= TRADE TAB ================= */}
-      {mainTab === "trade" && (
-        <MarketTradePanel context={tradeContext} walletSlot={walletSlot} />
-      )}
-      {mainTab === "liquidity" && (
-        <MarketLiquidityPanel context={liquidityContext} walletSlot={walletSlot} />
-      )}
-      {/* ================= RESOLVE TAB ================= */}
-      {mainTab === "resolve" && showResolveTab && (
-        <MarketResolutionPanel context={resolutionContext} />
-      )}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+        <div className="min-w-0 space-y-5">
+          <PriceChart marketRef={market.ticker || market.marketId} createdAtSec={market.createdAt} currentPrice={probYes} yesLabel={yesLabel !== "Yes" ? yesLabel : undefined} indexed={indexed} refreshKey={chartRefreshKey} height={280} />
 
-      {/* ================= SETTLE TAB ================= */}
-      {mainTab === "settle" && showSettleTab && (
-        <MarketSettlementPanel context={settlementContext} />
-      )}
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6">
+            <div className="k-stat">
+              <div className="k-stat-label">24h change</div>
+              <div className={`k-stat-value k-num ${delta24 ? (delta24.direction === "up" ? "delta-up" : delta24.direction === "down" ? "delta-down" : "") : ""}`}>{delta24 ? `${delta24.text} pts` : "—"}</div>
+              <div className="k-stat-sub">from {market.previousPrice != null ? formatPercent(market.previousPrice) : "—"}</div>
+            </div>
+            <div className="k-stat">
+              <div className="k-stat-label">Volume 24h</div>
+              <div className="k-stat-value k-num">{compactCC(market.volume24hCC ?? 0, "")}</div>
+              <div className="k-stat-sub">{compactCC(market.totalVolumeCC)} lifetime</div>
+            </div>
+            <div className="k-stat">
+              <div className="k-stat-label">Open interest</div>
+              <div className="k-stat-value k-num">{compactCC(market.openInterest ?? reserveInventory, "")}</div>
+              <div className="k-stat-sub">shares outstanding</div>
+            </div>
+            <div className="k-stat">
+              <div className="k-stat-label">Liquidity</div>
+              <div className="k-stat-value k-num">{compactCC(market.liquidityCC ?? currentPoolValue, "")}</div>
+              <div className="k-stat-sub">pool value · {(market.feeBps / 100).toFixed(2)}% fee</div>
+            </div>
+            <div className="k-stat">
+              <div className="k-stat-label">Trades</div>
+              <div className="k-stat-value k-num">{market.tradeCount ?? "—"}</div>
+              <div className="k-stat-sub">{market.book ? `bid ${formatCents(market.book.yesBid)} · ask ${formatCents(market.book.yesAsk)}` : "on the pool"}</div>
+            </div>
+            <div className="k-stat">
+              <div className="k-stat-label">{phase === "resolved" || phase === "voided" ? "Settled" : "Closes"}</div>
+              <div className="k-stat-value k-num">{expires.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</div>
+              <div className="k-stat-sub">{phase === "trading" || phase === "liquidity_period" ? `${fmtCountdown(market.expiresAt, nowSecs)} left` : expires.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</div>
+            </div>
+          </div>
 
-      {resolutionSlot}
+          {mainTab === "liquidity" ? (
+            <YourLpBox account={account} signInFirst={signInRequired} lpPosition={lpPosition} market={market} />
+          ) : (
+            <YourPositionBox account={account} signInFirst={signInRequired} userPosition={userPosition} holdings={holdings} probYes={probYes} probNo={probNo} />
+          )}
 
-      {/* About pm-AMM */}
-      <div className="rounded-xl border border-border bg-card/50 p-5">
-        <h2 className="mb-2 text-sm font-semibold text-foreground">About pm-AMM pricing</h2>
-        <p className="text-sm text-muted-foreground">
-          This market runs on Paradigm's prediction-market AMM design: the YES price is the normal CDF
-          Φ((y−x)/L) of the pool's reserve imbalance, so quotes are calibrated probabilities that
-          always stay between 0 and 1. {market.isDynamic && "Liquidity decays as L·√(T−t) toward expiry, holding LP loss-versus-rebalancing uniform over the market's life."}
-        </p>
+          {showResolveTab && <MarketResolutionPanel context={resolutionContext} />}
+          {showSettleTab && <MarketSettlementPanel context={settlementContext} />}
+
+          <section className="k-card p-5">
+            <div className="mb-2 flex items-center gap-2">
+              <Gavel className="h-4 w-4 text-primary" />
+              <h2 className="k-section-title">Rules</h2>
+            </div>
+            {market.resolutionDescription ? (
+              <p className="whitespace-pre-line text-sm leading-6 text-slate-700">{market.resolutionDescription}</p>
+            ) : (
+              <p className="text-sm text-slate-500">No resolution criteria were written for this market.</p>
+            )}
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3 text-xs">
+              <span className="font-semibold text-slate-950">Resolution policy</span>
+              {tiers.map((t) => (
+                <span key={t} className="k-chip-soft">{t}</span>
+              ))}
+              {tiers.length === 0 && <span className="text-slate-500">none configured</span>}
+              {market.policy.sources.length > 0 && <span className="text-slate-500">Sources: {market.policy.sources.join(", ")}</span>}
+              <span className="ml-auto text-slate-500">Grace {Math.round(market.gracePeriodSecs / 3600)}h after close</span>
+            </div>
+          </section>
+
+          {indexed && (
+            <section className="k-card overflow-hidden">
+              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                <h2 className="k-section-title">Recent trades</h2>
+                <span className="text-xs text-slate-500">{market.tradeCount ?? 0} total</span>
+              </div>
+              <TradeFeed trades={tradesQuery.data?.items ?? []} loading={tradesQuery.isLoading} limit={20} emptyText="No trades on this market yet." />
+            </section>
+          )}
+
+          <p className="px-1 text-xs leading-5 text-slate-500">
+            Prices come from Paradigm's pm-AMM: the Yes price is Φ((y−x)/L) of the pool's reserve imbalance, so every quote is a calibrated probability between 0 and 1.
+            {market.isDynamic && " Liquidity decays as L·√(T−t) toward expiry, keeping LP loss-versus-rebalancing uniform over the market's life."}
+          </p>
+        </div>
+
+        <aside className="space-y-4 lg:sticky lg:top-28">{panel}</aside>
       </div>
-
     </div>
   );
 };

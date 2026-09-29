@@ -1,7 +1,5 @@
 import type { ReactNode } from "react";
 import { Droplets, TrendingUp } from "lucide-react";
-import MarketHistoryChart from "./MarketHistoryChart";
-import { YourLpBox } from "./MarketPositionCards";
 import { fmtCC } from "./marketHelpers";
 
 type LiquidityContext = {
@@ -31,16 +29,11 @@ type LiquidityContext = {
 };
 
 export default function MarketLiquidityPanel({ context, walletSlot }: { context: LiquidityContext; walletSlot?: ReactNode }) {
-  const { setMainTab, tabHeaderBtn, pillBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity, liquidityValue, setLiquidityValue, liquidityQuote, busy, handleProvideLiquidity, lpPosition, market, phase, withdrawPct, setWithdrawPct, handleWithdrawLiquidity, account, signInFirst = false, tradeLockReason = null } = context;
+  const { setMainTab, tabHeaderBtn, pillBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity, liquidityValue, setLiquidityValue, liquidityQuote, busy, handleProvideLiquidity, lpPosition, market, phase, withdrawPct, setWithdrawPct, handleWithdrawLiquidity, account, tradeLockReason = null } = context;
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,.8fr)] lg:items-start">
-      <div className="min-w-0 space-y-6">
-        <MarketHistoryChart probability={market.currentPrice} createdAt={market.createdAt} />
-        <YourLpBox account={account} signInFirst={signInFirst} lpPosition={lpPosition} market={market} />
-      </div>
-          <div className="space-y-4">
-            {walletSlot}
-            <div className="rounded-xl border border-border bg-card shadow-sm">
+    <div className="space-y-4">
+      {walletSlot}
+      <div className="k-card overflow-hidden">
             <div className="flex border-b border-border px-2 pt-2">
               <button onClick={() => setMainTab("trade")} className={tabHeaderBtn(false)}>
                 <span className="flex items-center gap-1.5 text-[15px] font-bold">
@@ -167,10 +160,7 @@ export default function MarketLiquidityPanel({ context, walletSlot }: { context:
                 )}
               </div>
             )}
-            </div>
-          </div>
-
-
+      </div>
     </div>
   );
 }
