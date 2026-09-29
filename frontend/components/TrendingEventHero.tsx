@@ -8,7 +8,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight, Clock } from "lucide-react";
 import EventPriceChart from "@/components/charts/EventPriceChart";
 import PriceChart from "@/components/charts/PriceChart";
-import { compactCC, formatCents, formatPercent, priceDelta, timeLeft } from "@/lib/chartData";
+import { compactCC, formatCents, formatPercent, marketColorMap, priceDelta, timeLeft } from "@/lib/chartData";
 import { toNumber, type ApiEvent, type ApiMarket } from "@/lib/marketsTypes";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +22,8 @@ export default function TrendingEventHero({ event }: { event: ApiEvent }) {
   const markets = [...(event.markets ?? []).filter((m) => !m.archived)].sort((a, b) => toNumber(b.currentPrice) - toNumber(a.currentPrice));
   const binary = markets.length === 1;
   const lead = markets[0];
+  // The same palette the chart assigns, so a row's figure matches its line.
+  const colors = marketColorMap(markets);
   const shown = markets.slice(0, MAX_ROWS);
   const hidden = markets.length - shown.length;
   const leadPrice = lead ? toNumber(lead.currentPrice) : 0;
@@ -60,16 +62,17 @@ export default function TrendingEventHero({ event }: { event: ApiEvent }) {
             {shown.map((m) => {
               const p = toNumber(m.currentPrice);
               const delta = priceDelta(p, m.previousPrice === null ? null : toNumber(m.previousPrice));
+              const color = colors.get(m.ticker);
               return (
                 <li key={m.marketId} className="flex items-center gap-2 rounded-lg px-1 py-2">
                   <div className="min-w-0 flex-1">
                     <Link to={`/markets/${m.ticker}`} className="outcome-link" title={m.question}>
                       <span className="truncate">{outcomeLabel(m)}</span>
                     </Link>
-                    <div className="outcome-bar mt-1.5 max-w-[11rem]"><span style={{ width: `${Math.round(p * 100)}%` }} /></div>
+                    <div className="outcome-bar mt-1.5 max-w-[11rem]"><span style={{ width: `${Math.round(p * 100)}%`, background: color }} /></div>
                   </div>
                   <div className="w-14 shrink-0 text-right">
-                    <div className="k-num text-base font-bold leading-none text-slate-950">{formatPercent(p)}</div>
+                    <div className="k-num text-base font-bold leading-none" style={{ color }}>{formatPercent(p)}</div>
                     {delta && delta.direction !== "flat" && <div className={cn("k-num mt-0.5 text-[10px] font-semibold", delta.direction === "up" ? "delta-up" : "delta-down")}>{delta.text}</div>}
                   </div>
                   <Link to={`/markets/${m.ticker}?side=yes`} className="pill-yes">Yes {formatCents(p)}</Link>
@@ -85,9 +88,9 @@ export default function TrendingEventHero({ event }: { event: ApiEvent }) {
           </ul>
         )}
         {binary && lead ? (
-          <PriceChart marketRef={lead.ticker} createdAtSec={Math.floor(Date.parse(lead.createdAt) / 1000)} currentPrice={leadPrice} variant="compact" height={168} defaultTimeframe="1W" className="!p-3" />
+          <PriceChart marketRef={lead.ticker} createdAtSec={Math.floor(Date.parse(lead.createdAt) / 1000)} currentPrice={leadPrice} variant="compact" showTabs={false} height={176} defaultTimeframe="1W" className="!p-3" />
         ) : (
-          <EventPriceChart eventTicker={event.ticker} markets={markets} variant="compact" height={168} defaultTimeframe="1W" className="!p-3" />
+          <EventPriceChart eventTicker={event.ticker} markets={markets} variant="compact" showTabs={false} legend="static" height={176} defaultTimeframe="1W" className="!p-3" />
         )}
       </div>
 

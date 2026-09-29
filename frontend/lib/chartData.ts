@@ -105,6 +105,141 @@ function toNum(v: Decimal | number | undefined): number {
   return typeof v === "number" ? v : v == null ? 0 : Number(v);
 }
 
+/**
+ * Colours per market for an event, from the same ranking the event chart uses, so outcome
+ * rows, legend and lines always agree. Archived markets are skipped like the chart skips them.
+ */
+export function marketColorMap<T extends { ticker: string; archived?: boolean; totalVolumeCC?: Decimal | number; currentPrice: Decimal | number }>(markets: T[]): Map<string, string> {
+  const map = new Map<string, string>();
+  rankMarketsForChart(markets.filter((m) => !m.archived)).forEach((m, i) => map.set(m.ticker, seriesColor(i)));
+  return map;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Axis scaling
+// ---------------------------------------------------------------------------------------------
+
+/** Tick steps in percentage points a y axis may use. */
+const Y_STEPS = [5, 10, 15, 20, 25, 50];
+
+export interface YScale {
+  /** Fractions 0..1, as recharts' `domain`. */
+  domain: [number, number];
+  /** Fractions 0..1, ascending, as recharts' `ticks`. */
+  ticks: number[];
+}
+
+const FULL_SCALE: YScale = { domain: [0, 1], ticks: [0, 0.25, 0.5, 0.75, 1] };
+
+function roundFrac(pct: number): number {
+  return Math.round(pct * 100) / 10_000;
+}
+
+/**
+ * A y axis scaled to the data instead of a fixed 0–100 %, the way Polymarket draws it: the
+ * ticks are multiples of one "nice" step, at most `maxTicks` of them, and the domain reaches a
+ * little past the extreme values so no line touches the frame. `floorAtZero` keeps 0 % as the
+ * base (multi-market charts, where the lines are chances that sum to ~100 %); otherwise both
+ * ends are padded around the data (one market hovering near 55 % gets a readable band, not a
+ * flat stripe). Values are fractions 0..1; nothing to show → the full 0–100 % axis.
+ */
+export function niceYScale(values: number[], opts: { floorAtZero?: boolean; maxTicks?: number } = {}): YScale {
+  const pct = values.filter((v) => Number.isFinite(v)).map((v) => clamp01(v) * 100);
+  if (pct.length === 0) return FULL_SCALE;
+  const maxTicks = Math.max(2, opts.maxTicks ?? 5);
+  const max = Math.max(...pct);
+  const min = Math.min(...pct);
+  let lo: number;
+  let hi: number;
+  if (opts.floorAtZero) {
+    lo = 0;
+    hi = Math.min(100, max + Math.max(3, max * 0.12));
+    if (hi < 10) hi = 10;
+  } else {
+    const range = max - min;
+    const pad = Math.max(3, range * 0.2);
+    lo = Math.max(0, min - pad);
+    hi = Math.min(100, max + pad);
+    if (hi - lo < 12) {
+      const mid = (lo + hi) / 2;
+      lo = Math.max(0, mid - 6);
+      hi = Math.min(100, mid + 6);
+      if (hi - lo < 12) (lo === 0 ? (hi = 12) : (lo = 88));
+    }
+  }
+  for (const step of Y_STEPS) {
+    const first = Math.ceil(lo / step) * step;
+    const last = Math.floor(hi / step) * step;
+    const count = last >= first ? Math.floor((last - first) / step) + 1 : 0;
+    if (count <= maxTicks && count >= 2) {
+      const ticks: number[] = [];
+      for (let v = first; v <= last + 1e-9; v += step) ticks.push(roundFrac(v));
+      return { domain: [roundFrac(lo), roundFrac(hi)], ticks };
+    }
+  }
+  return { domain: [roundFrac(lo), roundFrac(hi)], ticks: [roundFrac(lo), roundFrac(hi)] };
+}
+
+/** Candidate x-tick steps per timeframe, in seconds, smallest first; ALL uses calendar months. */
+const X_STEPS: Record<Exclude<Timeframe, "ALL">, number[]> = {
+  "1H": [5 * 60, 10 * 60, 15 * 60, 30 * 60],
+  "6H": [30 * 60, 3600, 2 * 3600, 3 * 3600],
+  "1D": [2 * 3600, 3 * 3600, 4 * 3600, 6 * 3600, 12 * 3600],
+  "1W": [86_400, 2 * 86_400],
+  "1M": [86_400, 2 * 86_400, 5 * 86_400, 7 * 86_400, 10 * 86_400],
+};
+const MONTH_STEPS = [1, 2, 3, 6, 12];
+
+/**
+ * Evenly spaced x ticks (ms) inside `[startMs, endMs]`, aligned to natural boundaries in the
+ * viewer's time zone — minutes / hours for intraday presets, local midnight for 1W and 1M, the
+ * first of the month for ALL — choosing the smallest step that yields at most `maxTicks`. The
+ * last data point is never forced to carry a label; the axis reads like a calendar, not like a
+ * ruler ending at "now".
+ */
+export function axisTicks(startMs: number, endMs: number, tf: Timeframe, maxTicks = 6): number[] {
+  if (!(endMs > startMs) || !Number.isFinite(startMs) || !Number.isFinite(endMs)) return [];
+  const limit = Math.max(2, maxTicks);
+  if (tf === "ALL") {
+    const start = new Date(startMs);
+    for (const months of MONTH_STEPS) {
+      const ticks: number[] = [];
+      const cursor = new Date(start.getFullYear(), start.getMonth() + (start.getDate() === 1 && start.getHours() === 0 ? 0 : 1), 1);
+      while (cursor.getTime() <= endMs) {
+        if (cursor.getTime() >= startMs) ticks.push(cursor.getTime());
+        cursor.setMonth(cursor.getMonth() + months);
+      }
+      if (ticks.length <= limit) return ticks;
+    }
+    return [];
+  }
+  const dayAligned = tf === "1W" || tf === "1M";
+  for (const stepSec of X_STEPS[tf]) {
+    const stepMs = stepSec * 1000;
+    const ticks: number[] = [];
+    if (dayAligned) {
+      const d = new Date(startMs);
+      const cursor = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      if (cursor.getTime() < startMs) cursor.setDate(cursor.getDate() + 1);
+      const days = stepSec / 86_400;
+      while (cursor.getTime() <= endMs) {
+        ticks.push(cursor.getTime());
+        cursor.setDate(cursor.getDate() + days);
+      }
+    } else {
+      // Align to the local wall clock: a 2 h step lands on 2:00, 4:00, … local, not UTC.
+      const offsetMs = new Date(startMs).getTimezoneOffset() * 60_000;
+      let t = Math.ceil((startMs - offsetMs) / stepMs) * stepMs + offsetMs;
+      while (t <= endMs) {
+        ticks.push(t);
+        t += stepMs;
+      }
+    }
+    if (ticks.length <= limit) return ticks;
+  }
+  return [];
+}
+
 export function formatPercent(p: number, digits = 0): string {
   return `${(clamp01(p) * 100).toFixed(digits)}%`;
 }

@@ -8,12 +8,12 @@
  */
 import { useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { candlesToPoints, formatAxisTime, formatPercent, formatPointTime, windowDelta, type PricePoint, type Timeframe } from "@/lib/chartData";
+import { axisTicks, candlesToPoints, formatAxisTime, formatPercent, formatPointTime, niceYScale, windowDelta, type PricePoint, type Timeframe } from "@/lib/chartData";
 import { useMarketCandles } from "@/lib/marketQueries";
 import { cn } from "@/lib/utils";
 import TimeframeTabs from "./TimeframeTabs";
-import { AXIS_TICK_STYLE, CHART_CURSOR, CHART_GRID, NO_COLOR, PERCENT_TICKS, SHOW_GRID, YES_COLOR, percentTick } from "./chartTheme";
-import { CHART_MARGIN, InsideXTick, X_AXIS_PADDING, Y_AXIS_WIDTH } from "./axis";
+import { AXIS_TICK_STYLE, CHART_CURSOR, GRID_LINE_PROPS, NO_COLOR, SHOW_GRID, YES_COLOR, percentTick } from "./chartTheme";
+import { CHART_MARGIN, InsideXTick, LiveDot, X_AXIS_PADDING, Y_AXIS_WIDTH } from "./axis";
 
 export interface PriceChartProps {
   marketRef: string | number;
@@ -26,6 +26,8 @@ export interface PriceChartProps {
   indexed?: boolean;
   /** `compact` drops the headline (the caller shows the price) and the tabs sit below. */
   variant?: "full" | "compact";
+  /** False pins the chart to `defaultTimeframe` with no range control (homepage hero). */
+  showTabs?: boolean;
   height?: number;
   defaultTimeframe?: Timeframe;
   /** Bumps when a trade of this tab landed, to refetch at once. */
@@ -44,7 +46,7 @@ function TooltipBody({ active, payload, tf }: { active?: boolean; payload?: Arra
   );
 }
 
-export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesLabel, indexed = true, variant = "full", height = 260, defaultTimeframe = "1D", refreshKey = 0, className }: PriceChartProps) {
+export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesLabel, indexed = true, variant = "full", showTabs = true, height = 260, defaultTimeframe = "1D", refreshKey = 0, className }: PriceChartProps) {
   const [tf, setTf] = useState<Timeframe>(defaultTimeframe);
   const query = useMarketCandles(marketRef, tf, createdAtSec, indexed);
   const points = useMemo(() => {
@@ -63,6 +65,9 @@ export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesL
   const lineColor = delta?.direction === "down" ? NO_COLOR : YES_COLOR;
   const last = points[points.length - 1];
   const empty = indexed && !query.isLoading && points.length < 2;
+  // Axis scaled to the window's data (Polymarket-style), recomputed per timeframe / refetch.
+  const yScale = useMemo(() => niceYScale(points.map((p) => p.price)), [points]);
+  const xTicks = useMemo(() => (points.length ? axisTicks(points[0].t, points[points.length - 1].t, tf, variant === "compact" ? 4 : 6) : []), [points, tf, variant]);
 
   return (
     <section className={cn("chart-card", className)}>
@@ -77,7 +82,7 @@ export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesL
               {delta ? `${delta.text} pts` : "—"} <span className="text-slate-400">{tf === "ALL" ? "all time" : `past ${tf.toLowerCase()}`}</span>
             </div>
           </div>
-          <TimeframeTabs value={tf} onChange={setTf} className="hidden sm:flex" />
+          {showTabs && <TimeframeTabs value={tf} onChange={setTf} className="hidden sm:flex" />}
         </header>
       )}
       <div className="chart-plot-area" style={{ height }}>
@@ -102,7 +107,7 @@ export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesL
                   <stop offset="100%" stopColor={lineColor} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              {SHOW_GRID && <CartesianGrid stroke={CHART_GRID} strokeWidth={1} vertical={false} />}
+              {SHOW_GRID && <CartesianGrid {...GRID_LINE_PROPS} />}
               <XAxis
                 dataKey="t"
                 type="number"
@@ -110,23 +115,23 @@ export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesL
                 scale="time"
                 padding={X_AXIS_PADDING}
                 tickFormatter={(v: number) => formatAxisTime(v, tf)}
+                ticks={xTicks}
+                interval={0}
                 tick={<InsideXTick />}
                 tickMargin={6}
                 axisLine={false}
                 tickLine={false}
-                minTickGap={56}
-                interval="preserveStartEnd"
               />
-              <YAxis domain={[0, 1]} ticks={PERCENT_TICKS} tickFormatter={percentTick} tick={AXIS_TICK_STYLE} tickMargin={4} axisLine={false} tickLine={false} width={Y_AXIS_WIDTH} orientation="right" />
+              <YAxis domain={yScale.domain} ticks={yScale.ticks} allowDataOverflow tickFormatter={percentTick} tick={AXIS_TICK_STYLE} tickMargin={4} axisLine={false} tickLine={false} width={Y_AXIS_WIDTH} orientation="right" />
               <Tooltip content={<TooltipBody tf={tf} />} cursor={{ stroke: CHART_CURSOR, strokeDasharray: "3 4", strokeWidth: 1 }} isAnimationActive={false} />
               <Area type="monotone" dataKey="price" stroke={lineColor} strokeWidth={2.25} fill={`url(#price-fill-${String(marketRef)})`} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: "#fff", fill: lineColor }} isAnimationActive={false} />
-              {last && <ReferenceDot x={last.t} y={last.price} r={4.5} fill={lineColor} stroke="#fff" strokeWidth={2} />}
+              {last && <ReferenceDot x={last.t} y={last.price} shape={<LiveDot color={lineColor} />} />}
             </AreaChart>
           </ResponsiveContainer>
         )}
         {query.isLoading && indexed && <div className="chart-loading" aria-hidden="true" />}
       </div>
-      <TimeframeTabs value={tf} onChange={setTf} className={cn("mt-3", variant === "full" && "sm:hidden")} />
+      {showTabs && <TimeframeTabs value={tf} onChange={setTf} className={cn("mt-3", variant === "full" && "sm:hidden")} />}
     </section>
   );
 }

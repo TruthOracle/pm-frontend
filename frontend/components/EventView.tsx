@@ -13,7 +13,7 @@ import EventPriceChart from "@/components/charts/EventPriceChart";
 import Sparkline from "@/components/charts/Sparkline";
 import TradeFeed from "@/components/TradeFeed";
 import MarketView from "@/components/market/MarketView";
-import { compactCC, formatCents, formatPercent, priceDelta, timeLeft } from "@/lib/chartData";
+import { marketColorMap, compactCC, formatCents, formatPercent, priceDelta, timeLeft } from "@/lib/chartData";
 import { useEvent, useEventTrades } from "@/lib/marketQueries";
 import { toNumber, type ApiEvent, type ApiMarket } from "@/lib/marketsTypes";
 import { cn } from "@/lib/utils";
@@ -56,6 +56,8 @@ export default function EventView() {
     setParams(next, { replace: true });
   };
   const selectedMarket = markets.find((m) => m.ticker === selected) ?? null;
+  // One colour per market from the chart's own ranking: rows, legend and lines agree.
+  const colors = useMemo(() => marketColorMap(markets), [markets]);
   const trades = useEventTrades(event ? event.ticker : null, 40, !!event);
 
   if (query.isLoading && !event) {
@@ -186,6 +188,7 @@ export default function EventView() {
                   const delta = priceDelta(p, m.previousPrice === null ? null : toNumber(m.previousPrice));
                   const done = m.status === "Resolved" || m.status === "Voided";
                   const active = selected === m.ticker;
+                  const color = colors.get(m.ticker);
                   return (
                     <li key={m.marketId} className={cn("outcome-row flex-wrap sm:flex-nowrap border-t border-slate-100 first:border-t-0", active && "outcome-row-selected")} onClick={() => select(m.ticker)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") select(m.ticker); }}>
                       <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
@@ -198,13 +201,13 @@ export default function EventView() {
                         </div>
                         {outcomeLabel(m) !== m.question && <div className="truncate text-xs text-slate-500">{m.question}</div>}
                         <div className="mt-1.5 flex items-center gap-2">
-                          <div className="outcome-bar max-w-[12rem]"><span style={{ width: `${Math.round(p * 100)}%` }} /></div>
+                          <div className="outcome-bar max-w-[12rem]"><span style={{ width: `${Math.round(p * 100)}%`, background: color }} /></div>
                           <span className="k-num text-[11px] text-slate-500">{compactCC(m.totalVolumeCC)}</span>
                         </div>
                       </div>
                       <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
                         <div className="w-14 shrink-0 text-right">
-                          <div className="k-num text-lg font-bold leading-none text-slate-950">{done ? (m.status === "Voided" || m.outcome === "VoidOutcome" ? "Void" : m.outcome) : formatPercent(p)}</div>
+                          <div className={cn("k-num text-lg font-bold leading-none", done && "text-slate-950")} style={done ? undefined : { color }}>{done ? (m.status === "Voided" || m.outcome === "VoidOutcome" ? "Void" : m.outcome) : formatPercent(p)}</div>
                           {delta && !done && <div className={cn("k-num mt-0.5 text-[11px] font-semibold", delta.direction === "up" ? "delta-up" : delta.direction === "down" ? "delta-down" : "delta-flat")}>{delta.text}</div>}
                         </div>
                         <Sparkline closes={m.sparkline?.closes} className="hidden md:inline-block" />

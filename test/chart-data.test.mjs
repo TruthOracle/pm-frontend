@@ -119,3 +119,89 @@ describe("deltas and formatting", () => {
     assert.equal(chart.maskParty("short"), "short");
   });
 });
+
+describe("axis scaling (Polymarket-style)", () => {
+  it("floorAtZero: ticks are one nice step from 0 %, at most five, domain a little past the max", () => {
+    const s = chart.niceYScale([0.1, 0.3, 0.62], { floorAtZero: true });
+    assert.equal(s.domain[0], 0);
+    assert.ok(s.domain[1] > 0.62 && s.domain[1] <= 1, `top ${s.domain[1]}`);
+    assert.deepEqual(s.ticks, [0, 0.15, 0.3, 0.45, 0.6]);
+  });
+  it("floorAtZero: a chart near 100 % still ends at 100 %", () => {
+    const s = chart.niceYScale([0.5, 0.97], { floorAtZero: true });
+    assert.equal(s.domain[1], 1);
+    assert.deepEqual(s.ticks, [0, 0.25, 0.5, 0.75, 1]);
+  });
+  it("padded: a line hovering around 55 % gets a band around it, not the whole axis", () => {
+    const s = chart.niceYScale([0.53, 0.55, 0.58, 0.54]);
+    assert.ok(s.domain[0] > 0.3 && s.domain[0] < 0.53, `floor ${s.domain[0]}`);
+    assert.ok(s.domain[1] > 0.58 && s.domain[1] < 0.8, `ceiling ${s.domain[1]}`);
+    assert.ok(s.ticks.length >= 2 && s.ticks.length <= 5);
+    for (const t of s.ticks) assert.ok(t >= s.domain[0] && t <= s.domain[1]);
+    assert.ok(s.ticks.every((t, i) => i === 0 || Math.abs(t - s.ticks[i - 1] - (s.ticks[1] - s.ticks[0])) < 1e-9), "even steps");
+  });
+  it("padded: never leaves 0..1 and a flat line still gets a visible band", () => {
+    const lo = chart.niceYScale([0.01, 0.02]);
+    assert.equal(lo.domain[0], 0);
+    const hi = chart.niceYScale([0.99, 0.985]);
+    assert.equal(hi.domain[1], 1);
+    const flat = chart.niceYScale([0.4, 0.4, 0.4]);
+    assert.ok(flat.domain[1] - flat.domain[0] >= 0.12);
+  });
+  it("nothing to plot → the full 0–100 % axis", () => {
+    assert.deepEqual(chart.niceYScale([]), { domain: [0, 1], ticks: [0, 0.25, 0.5, 0.75, 1] });
+  });
+});
+
+describe("axis ticks", () => {
+  const day = 86_400_000;
+  it("1W: one tick per local midnight, evenly spaced, inside the window, at most six", () => {
+    const end = Date.now();
+    const start = end - 7 * day;
+    const ticks = chart.axisTicks(start, end, "1W", 6);
+    assert.ok(ticks.length >= 3 && ticks.length <= 6, `count ${ticks.length}`);
+    for (const t of ticks) {
+      assert.ok(t >= start && t <= end);
+      const d = new Date(t);
+      assert.equal(d.getHours() + d.getMinutes(), 0, "local midnight");
+    }
+    const steps = new Set(ticks.slice(1).map((t, i) => Math.round((t - ticks[i]) / 3_600_000)));
+    assert.ok(steps.size === 1 || (steps.size === 2 && [...steps].every((h) => h === 24 || h === 23 || h === 25 || h === 48 || h === 47 || h === 49)), `steps ${[...steps]}`);
+  });
+  it("1D: hour-aligned local ticks with the smallest step that fits", () => {
+    const end = Date.now();
+    const ticks = chart.axisTicks(end - day, end, "1D", 6);
+    assert.ok(ticks.length >= 4 && ticks.length <= 6, `count ${ticks.length}`);
+    for (const t of ticks) assert.equal(new Date(t).getMinutes(), 0);
+    const step = ticks[1] - ticks[0];
+    for (let i = 2; i < ticks.length; i += 1) assert.equal(ticks[i] - ticks[i - 1], step);
+  });
+  it("compact charts ask for fewer ticks and get a larger step", () => {
+    const end = Date.now();
+    const many = chart.axisTicks(end - 30 * day, end, "1M", 6);
+    const few = chart.axisTicks(end - 30 * day, end, "1M", 4);
+    assert.ok(few.length <= 4 && few.length < many.length);
+  });
+  it("ALL: first-of-month ticks", () => {
+    const end = Date.UTC(2026, 8, 29, 12);
+    const ticks = chart.axisTicks(end - 365 * day, end, "ALL", 6);
+    assert.ok(ticks.length >= 2 && ticks.length <= 6);
+    for (const t of ticks) assert.equal(new Date(t).getDate(), 1);
+  });
+  it("an empty or inverted window yields no ticks", () => {
+    assert.deepEqual(chart.axisTicks(10, 5, "1H"), []);
+  });
+});
+
+describe("marketColorMap", () => {
+  it("follows the chart ranking (volume, then price) and skips archived markets", () => {
+    const map = chart.marketColorMap([
+      { ticker: "A", currentPrice: "0.2", totalVolumeCC: "10" },
+      { ticker: "B", currentPrice: "0.6", totalVolumeCC: "50" },
+      { ticker: "Z", currentPrice: "0.9", totalVolumeCC: "999", archived: true },
+    ]);
+    assert.equal(map.get("B"), chart.SERIES_PALETTE[0]);
+    assert.equal(map.get("A"), chart.SERIES_PALETTE[1]);
+    assert.equal(map.has("Z"), false);
+  });
+});

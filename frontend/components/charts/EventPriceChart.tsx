@@ -6,14 +6,14 @@
  * returns every market dense on one grid), polled every 15 s.
  */
 import { useEffect, useMemo, useState } from "react";
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { EVENT_CHART_TOP_N, MUTED_SERIES_COLOR, alignSeries, formatAxisTime, formatPercent, formatPointTime, rankMarketsForChart, seriesColor, type AlignedRow, type Timeframe } from "@/lib/chartData";
+import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { EVENT_CHART_TOP_N, MUTED_SERIES_COLOR, alignSeries, axisTicks, formatAxisTime, formatPercent, formatPointTime, niceYScale, rankMarketsForChart, seriesColor, type AlignedRow, type Timeframe } from "@/lib/chartData";
 import { useEventCandles } from "@/lib/marketQueries";
 import { toNumber, type ApiMarket } from "@/lib/marketsTypes";
 import { cn } from "@/lib/utils";
 import TimeframeTabs from "./TimeframeTabs";
-import { AXIS_TICK_STYLE, CHART_CURSOR, CHART_GRID, PERCENT_TICKS, SHOW_GRID, percentTick } from "./chartTheme";
-import { CHART_MARGIN, InsideXTick, X_AXIS_PADDING, Y_AXIS_WIDTH } from "./axis";
+import { AXIS_TICK_STYLE, CHART_CURSOR, GRID_LINE_PROPS, SHOW_GRID, percentTick } from "./chartTheme";
+import { CHART_MARGIN, InsideXTick, LiveDot, X_AXIS_PADDING, Y_AXIS_WIDTH } from "./axis";
 
 export interface EventPriceChartProps {
   eventTicker: string;
@@ -25,6 +25,10 @@ export interface EventPriceChartProps {
   defaultTimeframe?: Timeframe;
   /** `compact` drops the header and shows the legend as a single row of chips (homepage hero). */
   variant?: "full" | "compact";
+  /** False pins the chart to `defaultTimeframe` with no range control (homepage hero). */
+  showTabs?: boolean;
+  /** `static` renders the legend as plain indicators: no select, no hide / show, no hover (hero). */
+  legend?: "interactive" | "static";
   className?: string;
 }
 
@@ -56,7 +60,7 @@ function TooltipBody({ active, payload, label, series, tf }: { active?: boolean;
   );
 }
 
-export default function EventPriceChart({ eventTicker, markets, selectedTicker = null, onSelect, height = 300, defaultTimeframe = "1W", variant = "full", className }: EventPriceChartProps) {
+export default function EventPriceChart({ eventTicker, markets, selectedTicker = null, onSelect, height = 300, defaultTimeframe = "1W", variant = "full", showTabs = true, legend = "interactive", className }: EventPriceChartProps) {
   const [tf, setTf] = useState<Timeframe>(defaultTimeframe);
   const ranked = useMemo(() => rankMarketsForChart(markets.filter((m) => !m.archived)), [markets]);
   const createdAt = useMemo(() => {
@@ -88,6 +92,28 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
   const rows: AlignedRow[] = useMemo(() => alignSeries(query.data?.markets ?? []), [query.data]);
   const drawn = ranked.filter((m) => visible.has(m.ticker));
   const empty = !query.isLoading && rows.length < 2;
+  // Axis scaled to the visible lines (floor stays at 0 %: these are chances), recomputed when the
+  // window or the visible set changes.
+  const yScale = useMemo(() => {
+    const values: number[] = [];
+    for (const row of rows) for (const m of drawn) { const v = row[m.ticker]; if (typeof v === "number") values.push(v); }
+    return niceYScale(values, { floorAtZero: true });
+    // drawn is derived from `visible` + `ranked`; listing those keeps the memo honest without a new array identity each render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, visible, ranked]);
+  const xTicks = useMemo(() => (rows.length ? axisTicks(rows[0].t, rows[rows.length - 1].t, tf, variant === "compact" ? 4 : 6) : []), [rows, tf, variant]);
+  /** Where each drawn line ends: its last row with a value. */
+  const lineEnds = useMemo(() => {
+    const ends = new Map<string, { t: number; v: number }>();
+    for (const m of drawn) {
+      for (let i = rows.length - 1; i >= 0; i -= 1) {
+        const v = rows[i][m.ticker];
+        if (typeof v === "number") { ends.set(m.ticker, { t: rows[i].t, v }); break; }
+      }
+    }
+    return ends;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, visible, ranked]);
 
   const toggle = (ticker: string) => {
     setVisible((prev) => {
@@ -106,7 +132,7 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
             <div className="chart-title">Chance of each outcome</div>
             <div className="chart-subtitle">{ranked.length} market{ranked.length === 1 ? "" : "s"} · Yes price · {tf === "ALL" ? "all time" : `past ${tf.toLowerCase()}`}</div>
           </div>
-          <TimeframeTabs value={tf} onChange={setTf} className="hidden sm:flex" />
+          {showTabs && <TimeframeTabs value={tf} onChange={setTf} className="hidden sm:flex" />}
         </header>
       )}
       <div className="chart-plot-area" style={{ height }}>
@@ -117,7 +143,7 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={rows} margin={CHART_MARGIN}>
-              {SHOW_GRID && <CartesianGrid stroke={CHART_GRID} strokeWidth={1} vertical={false} />}
+              {SHOW_GRID && <CartesianGrid {...GRID_LINE_PROPS} />}
               <XAxis
                 dataKey="t"
                 type="number"
@@ -125,14 +151,14 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
                 scale="time"
                 padding={X_AXIS_PADDING}
                 tickFormatter={(v: number) => formatAxisTime(v, tf)}
+                ticks={xTicks}
+                interval={0}
                 tick={<InsideXTick />}
                 tickMargin={6}
                 axisLine={false}
                 tickLine={false}
-                minTickGap={56}
-                interval="preserveStartEnd"
               />
-              <YAxis domain={[0, 1]} ticks={PERCENT_TICKS} tickFormatter={percentTick} tick={AXIS_TICK_STYLE} tickMargin={4} axisLine={false} tickLine={false} width={Y_AXIS_WIDTH} orientation="right" />
+              <YAxis domain={yScale.domain} ticks={yScale.ticks} allowDataOverflow tickFormatter={percentTick} tick={AXIS_TICK_STYLE} tickMargin={4} axisLine={false} tickLine={false} width={Y_AXIS_WIDTH} orientation="right" />
               <Tooltip content={<TooltipBody series={series} tf={tf} />} cursor={{ stroke: CHART_CURSOR, strokeDasharray: "3 4", strokeWidth: 1 }} isAnimationActive={false} />
               {drawn.map((m) => {
                 const meta = series.get(m.ticker)!;
@@ -153,16 +179,31 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
                   />
                 );
               })}
+              {drawn.map((m) => {
+                const end = lineEnds.get(m.ticker);
+                return end ? <ReferenceDot key={`${m.ticker}-live`} x={end.t} y={end.v} shape={<LiveDot color={series.get(m.ticker)!.color} />} /> : null;
+              })}
             </LineChart>
           </ResponsiveContainer>
         )}
         {query.isLoading && <div className="chart-loading" aria-hidden="true" />}
       </div>
-      <TimeframeTabs value={tf} onChange={setTf} className={cn("mt-3", variant === "full" && "sm:hidden")} />
+      {showTabs && <TimeframeTabs value={tf} onChange={setTf} className={cn("mt-3", variant === "full" && "sm:hidden")} />}
       <ul className={cn("chart-legend", variant === "compact" && "chart-legend-compact")} aria-label="Markets on this chart">
         {ranked.map((m) => {
           const meta = series.get(m.ticker)!;
           const on = visible.has(m.ticker);
+          if (legend === "static") {
+            return (
+              <li key={m.ticker}>
+                <span className="chart-legend-item chart-legend-item-static">
+                  <span className="chart-legend-swatch" style={{ background: meta.color }} />
+                  <span className="chart-legend-name">{meta.label}</span>
+                  <span className="chart-legend-value">{formatPercent(meta.currentPrice)}</span>
+                </span>
+              </li>
+            );
+          }
           return (
             <li key={m.ticker}>
               <button

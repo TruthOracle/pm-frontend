@@ -404,6 +404,11 @@
   .chart-delta { @apply mt-0.5 text-sm font-semibold; font-variant-numeric: tabular-nums; }
   .chart-plot-area { @apply relative w-full; }
   .chart-plot-area .recharts-surface { overflow: visible; }
+  /* Kalshi's live pulse: the halo starts at the dot's size, emanates to ~2.8× and fades out,
+     then restarts; the dot itself never moves. Origin at the circle centre so it grows in place. */
+  .chart-live-halo { opacity: 0.45; transform-box: fill-box; transform-origin: center; animation: chart-live-pulse 1.8s ease-out infinite; }
+  @keyframes chart-live-pulse { 0% { opacity: 0.45; transform: scale(1); } 100% { opacity: 0; transform: scale(2.8); } }
+  @media (prefers-reduced-motion: reduce) { .chart-live-halo { animation: none; opacity: 0.22; transform: scale(2.4); } }
   .chart-loading { @apply pointer-events-none absolute inset-x-0 top-0 h-0.5 animate-pulse bg-emerald-300; }
   .chart-empty { @apply flex h-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-200 px-6 text-center text-xs text-slate-500; }
   .chart-empty-value { @apply text-2xl font-bold text-slate-950; }
@@ -427,6 +432,7 @@
   .chart-legend-swatch { @apply inline-block h-2.5 w-2.5 shrink-0 rounded-sm; }
   .chart-legend-compact { @apply mt-2 flex flex-wrap gap-x-2 gap-y-1; }
   .chart-legend-compact .chart-legend-item { @apply w-auto px-1.5 py-1; }
+  .chart-legend-item-static { cursor: default; pointer-events: none; background: transparent !important; box-shadow: none !important; }
   .k-criteria { @apply k-card p-5; border-left: 4px solid #16c784; background: #fff; }
   /* The trade column beside the page body (Polymarket-style): on desktop it stays put under the
      header and, when taller than the viewport, scrolls inside itself with the scrollbar hidden;
