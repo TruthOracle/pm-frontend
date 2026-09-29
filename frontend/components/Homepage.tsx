@@ -106,7 +106,7 @@ function Homepage() {
             Explore all markets <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
-        <div className={indexed ? "featured-grid featured-grid-board" : "featured-grid"}>
+        <div className="featured-grid">
           {indexed ? (
             trendingEvents.isLoading && !trendingEvents.data ? (
               <TrendingEventBoardSkeleton />
@@ -161,7 +161,7 @@ function Homepage() {
               <span>Loading trending event</span>
             </div>
           )}
-          <aside className={indexed ? "signal-panel signal-panel-wide" : "signal-panel"}>
+          <aside className="signal-panel">
             <div className="flex items-center gap-2">
               <span className="icon-tile">
                 <TrendingUp className="h-4 w-4" />
