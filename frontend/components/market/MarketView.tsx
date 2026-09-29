@@ -1,11 +1,16 @@
 import { Skeleton, Text, useToast } from "@chakra-ui/react";
 import { Gavel } from "lucide-react";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useCantonWallet } from "@/wallets";
 import { useAccountWallet, useAuth } from "@/auth/AuthContext";
 import { authErrorMessage } from "@/auth/wallet";
-import { WALLET_DISPLAY_NAME } from "@/config";
+import { TRUTHORACLE_PACKAGE_ID, WALLET_DISPLAY_NAME } from "@/config";
+import { backendErrorMessage } from "@/lib/backendErrors";
+import { fetchMyMarketView, marketSource, prepareOrder, waitForTradeLanding } from "@/lib/marketsApi";
+import type { ApiPreparedOrder, PrepareOrderRequest } from "@/lib/marketsTypes";
+import type { PrepareExecuteParams } from "@/lib/cantonDapp";
+import { useExchangeStatus } from "@/components/ExchangeStatusBanner";
 import { useIsAdmin } from "@/lib/useIsAdmin";
 import { shortPartyId } from "@/lib/party";
 import {
@@ -28,7 +33,6 @@ import {
   type OutcomeArg,
 } from "@/utils/cantonCommands";
 import {
-  fetchAllPredictionMarkets,
   fetchUserPosition,
   fetchUserLpPosition,
   fetchUserWallet,
@@ -89,15 +93,26 @@ function StatBox({ label, value, sub, accent }: { label: string; value: string; 
   );
 }
 
+/** `/market/:id` takes a numeric market id or a ticker (truthoracle-backend docs/MARKETS.md §2). */
+function matchesRef(m: PredictionMarketRecord, ref: string): boolean {
+  if (/^\d+$/.test(ref)) return m.marketId === Number(ref);
+  return (m.ticker ?? "").toUpperCase() === ref.toUpperCase();
+}
+
 const MarketView = () => {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
-  const marketIdNum = id != null && id !== "" ? Number(id) : NaN;
+  const marketRef = id ?? "";
 
   const [market, setMarket] = useState<PredictionMarketRecord | null>(() => {
     const prefetched = getPrefetchedMarkets();
-    return prefetched?.find((item) => item.marketId === marketIdNum) ?? null;
+    return prefetched?.find((item) => matchesRef(item, marketRef)) ?? null;
   });
+  // True when the market came from the backend index: candles, the catalog and prepared
+  // orders exist; the account's own contracts are read from the index too.
+  const [indexed, setIndexed] = useState<boolean>(() => Boolean(getPrefetchedMarkets()?.find((item) => matchesRef(item, marketRef))?.ticker));
+  const marketIdNum = market?.marketId ?? NaN;
+  const [chartRefreshKey, setChartRefreshKey] = useState(0);
   const [loading, setLoading] = useState(() => market === null);
   const [nowSecs, setNowSecs] = useState(Math.floor(Date.now() / 1000));
   const [mainTab, setMainTab] = useState<MainTab>("trade");
@@ -123,6 +138,9 @@ const MarketView = () => {
   const { account, connect, signAndSubmitTransaction } = useCantonWallet();
   const { primaryPartyId: primaryParty, walletState, signInRequired } = useAccountWallet();
   const auth = useAuth();
+  const { tradingActive } = useExchangeStatus();
+  // Prepared orders: the index knows the active market version and the account's contracts.
+  const usePrepared = indexed && auth.status === "authenticated";
   const adminPartyForCC = enterpriseWalletPartyId();
   const isAdmin = useIsAdmin();
   const toast = useToast();
@@ -145,6 +163,8 @@ const MarketView = () => {
       ? { label: "Checking your account…" }
       : auth.status === "unavailable"
         ? { label: "Trading is disabled on this deployment" }
+        : !tradingActive
+          ? { label: "Trading is paused by the operator" }
         : signInRequired
           ? { label: "Sign in to trade", onClick: () => auth.openLogin() }
           : auth.status === "unreachable" && !auth.me
@@ -177,18 +197,18 @@ const MarketView = () => {
 
   const refreshMarket = useCallback(
     async (opts?: { silent?: boolean }): Promise<PredictionMarketRecord | null> => {
-      if (isNaN(marketIdNum)) return null;
+      if (!marketRef) return null;
       if (!opts?.silent) setLoading(true);
       try {
-        const all = await fetchAllPredictionMarkets();
-        const m = all.find((x) => x.marketId === marketIdNum) ?? null;
+        const { market: m, source } = await marketSource.one(marketRef);
         setMarket(m);
+        setIndexed(source === "index");
         return m;
       } finally {
         if (!opts?.silent) setLoading(false);
       }
     },
-    [marketIdNum]
+    [marketRef]
   );
 
   useEffect(() => {
@@ -214,10 +234,14 @@ const MarketView = () => {
       return;
     }
     setUserDataLoaded(false);
+    // With the index and an account, the account's contracts come from the backend (read as the
+    // treasury — the participant answers an external party's own reads with nothing on mainnet);
+    // the ledger reads stay as the fallback and for anonymous wallets.
+    const viaIndex = usePrepared ? await fetchMyMarketView(marketIdNum).catch(() => null) : null;
     const [pos, lp, w, h] = await Promise.all([
-      fetchUserPosition(account.address, marketIdNum),
-      fetchUserLpPosition(account.address, marketIdNum),
-      fetchUserWallet(walletParty ?? account.address),
+      viaIndex ? Promise.resolve(viaIndex.position) : fetchUserPosition(account.address, marketIdNum),
+      viaIndex ? Promise.resolve(viaIndex.lpPosition) : fetchUserLpPosition(account.address, marketIdNum),
+      viaIndex ? Promise.resolve(viaIndex.wallet) : fetchUserWallet(walletParty ?? account.address),
       getCantonCoinHoldings(),
     ]);
     setUserPosition(pos);
@@ -225,7 +249,7 @@ const MarketView = () => {
     setWallet(w);
     setHoldings(h);
     setUserDataLoaded(true);
-  }, [account?.address, walletParty, marketIdNum]);
+  }, [account?.address, walletParty, marketIdNum, usePrepared]);
 
   useEffect(() => {
     refreshUserData();
@@ -291,7 +315,51 @@ const MarketView = () => {
     w.refreshMarketplace?.();
     await refreshMarket({ silent: true });
     await refreshUserData();
+    setChartRefreshKey((k) => k + 1);
   };
+
+  /**
+   * Submit a market choice. With the index and a signed-in account the command comes from
+   * `POST /markets/:market/orders/prepare` (docs/MARKETS.md §7): the backend assembles the exact
+   * ExerciseCommand with the active market version, its disclosed blob and the account's
+   * UserWallet / Position contract ids, pre-checks every rule the Daml choice asserts, and the
+   * wallet signs it as-is; the page then waits for the index to reflect the trade. Otherwise the
+   * legacy builder assembles the command from what this tab read itself.
+   */
+  const runPrepared = async (
+    label: string,
+    request: PrepareOrderRequest,
+    legacy: () => ReturnType<typeof buildBuyParams> | null,
+  ): Promise<boolean> => {
+    if (usePrepared && market) {
+      let prepared: ApiPreparedOrder;
+      try {
+        prepared = await prepareOrder(market.marketId, request);
+      } catch (e) {
+        debugError("Order preparation refused", e);
+        toast({ title: `${label} not possible`, description: backendErrorMessage(e), status: "warning", duration: 7000, isClosable: true });
+        return false;
+      }
+      const params: PrepareExecuteParams = {
+        actAs: [prepared.actAs],
+        commands: [prepared.command],
+        disclosedContracts: prepared.disclosedContracts.map((d) => ({
+          templateId: d.templateId,
+          contractId: d.contractId,
+          createdEventBlob: d.createdEventBlob,
+          ...(d.synchronizerId ? { synchronizerId: d.synchronizerId } : {}),
+        })),
+        packageIdSelectionPreference: [TRUTHORACLE_PACKAGE_ID],
+      };
+      const ok = await runUserChoice(label, params);
+      if (ok) await waitForTradeLanding(prepared);
+      return ok;
+    }
+    const params = legacy();
+    if (!params) return false;
+    return runUserChoice(label, params);
+  };
+  const slippageBps = Math.round(slippage * 10_000);
 
   /** Exercise a choice via the user's wallet, standard error toasts. */
   const runUserChoice = async (label: string, params: ReturnType<typeof buildBuyParams>): Promise<boolean> => {
@@ -369,34 +437,38 @@ const MarketView = () => {
         toast({ title: "Enter CC amount to spend", status: "info", duration: 3000, isClosable: true });
         return;
       }
-      const spendWallet = requireWallet(collateralIn);
-      if (!spendWallet) return;
+      const spendWallet = usePrepared ? null : requireWallet(collateralIn);
+      if (!usePrepared && !spendWallet) return;
       const minSharesOut = buyQuote.sharesOut * (1 - slippage);
       const prevSideShares = selectedSide === "yes" ? (userPosition?.yesShares ?? 0) : (userPosition?.noShares ?? 0);
       setBusy("trade");
       try {
-        const ok = await runUserChoice(
+        const ok = await runPrepared(
           "Buy",
-          buildBuyParams(
-            account.address,
-            market.contractId,
-            sideArg,
-            collateralIn,
-            minSharesOut,
-            userPosition?.contractId ?? null,
-            spendWallet.contractId,
-            disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
-          ),
+          { action: "buy", side: sideArg === "Yes" ? "Yes" : "No", amountCC: collateralIn.toFixed(10), slippageBps },
+          () =>
+            buildBuyParams(
+              account.address,
+              market.contractId,
+              sideArg,
+              collateralIn,
+              minSharesOut,
+              userPosition?.contractId ?? null,
+              spendWallet!.contractId,
+              disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+            ),
         );
         if (!ok) return;
-        const verified = await waitForPositionUpdate(
-          account.address,
-          marketIdNum,
-          (pos) => {
-            const cur = selectedSide === "yes" ? (pos?.yesShares ?? 0) : (pos?.noShares ?? 0);
-            return cur >= prevSideShares + minSharesOut * 0.99;
-          },
-        );
+        const verified = usePrepared
+          ? await fetchMyMarketView(marketIdNum).then((v) => v.position).catch(() => null)
+          : await waitForPositionUpdate(
+              account.address,
+              marketIdNum,
+              (pos) => {
+                const cur = selectedSide === "yes" ? (pos?.yesShares ?? 0) : (pos?.noShares ?? 0);
+                return cur >= prevSideShares + minSharesOut * 0.99;
+              },
+            );
         await refreshAllViews();
         toast({
           title: verified ? "Position updated" : "Trade submitted — confirmation pending",
@@ -419,12 +491,12 @@ const MarketView = () => {
         toast({ title: "Enter shares to convert", status: "info", duration: 3000, isClosable: true });
         return;
       }
-      if (!userPosition) {
+      if (!usePrepared && !userPosition) {
         toast({ title: "No position to convert", status: "warning", duration: 4000, isClosable: true });
         return;
       }
-      const ownedFrom = selectedSide === "yes" ? userPosition.yesShares : userPosition.noShares;
-      if (ownedFrom < sharesIn) {
+      const ownedFrom = selectedSide === "yes" ? (userPosition?.yesShares ?? 0) : (userPosition?.noShares ?? 0);
+      if (!usePrepared && ownedFrom < sharesIn) {
         toast({
           title: "Not enough shares to convert",
           description: `You own ${fmtCC(ownedFrom, 2)} ${sideArg} shares.`,
@@ -437,17 +509,21 @@ const MarketView = () => {
       const minOut = swapQuote.sharesOut * (1 - slippage);
       setBusy("trade");
       try {
-        const ok = await runUserChoice(
+        const ok = await runPrepared(
           "Convert",
-          buildSwapSharesParams(
-            account.address,
-            market.contractId,
-            sideArg,
-            sharesIn,
-            minOut,
-            userPosition.contractId,
-            disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
-          ),
+          { action: "swap", side: sideArg === "Yes" ? "Yes" : "No", shares: sharesIn.toFixed(10), slippageBps },
+          () =>
+            userPosition
+              ? buildSwapSharesParams(
+                  account.address,
+                  market.contractId,
+                  sideArg,
+                  sharesIn,
+                  minOut,
+                  userPosition.contractId,
+                  disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+                )
+              : null,
         );
         if (!ok) return;
         await refreshAllViews();
@@ -469,12 +545,12 @@ const MarketView = () => {
       toast({ title: "Enter shares to sell", status: "info", duration: 3000, isClosable: true });
       return;
     }
-    if (!userPosition) {
+    if (!usePrepared && !userPosition) {
       toast({ title: "No position to sell", status: "warning", duration: 4000, isClosable: true });
       return;
     }
-    const owned = selectedSide === "yes" ? userPosition.yesShares : userPosition.noShares;
-    if (owned < sharesIn) {
+    const owned = selectedSide === "yes" ? (userPosition?.yesShares ?? 0) : (userPosition?.noShares ?? 0);
+    if (!usePrepared && owned < sharesIn) {
       toast({
         title: "Not enough shares to sell",
         description: `You own ${fmtCC(owned, 2)} ${sideArg} shares.`,
@@ -484,23 +560,27 @@ const MarketView = () => {
       });
       return;
     }
-    const proceedsWallet = requireWallet();
-    if (!proceedsWallet) return;
+    const proceedsWallet = usePrepared ? null : requireWallet();
+    if (!usePrepared && !proceedsWallet) return;
     const minProceeds = sellQuote.netProceeds * (1 - slippage);
     setBusy("trade");
     try {
-      const ok = await runUserChoice(
+      const ok = await runPrepared(
         "Sell",
-        buildSellParams(
-          account.address,
-          market.contractId,
-          sideArg,
-          sharesIn,
-          minProceeds,
-          userPosition.contractId,
-          proceedsWallet.contractId,
-          disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
-        ),
+        { action: "sell", side: sideArg === "Yes" ? "Yes" : "No", shares: sharesIn.toFixed(10), slippageBps },
+        () =>
+          userPosition && proceedsWallet
+            ? buildSellParams(
+                account.address,
+                market.contractId,
+                sideArg,
+                sharesIn,
+                minProceeds,
+                userPosition.contractId,
+                proceedsWallet.contractId,
+                disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+              )
+            : null,
       );
       if (!ok) return;
       await refreshAllViews();
@@ -535,7 +615,7 @@ const MarketView = () => {
       toast({ title: "Enter an amount", status: "info", duration: 3000, isClosable: true });
       return;
     }
-    if (action === "merge") {
+    if (action === "merge" && !usePrepared) {
       if (!userPosition || userPosition.yesShares < amt || userPosition.noShares < amt) {
         toast({
           title: "Not enough Yes + No pairs",
@@ -547,16 +627,21 @@ const MarketView = () => {
         return;
       }
     }
-    const setWallet = requireWallet(action === "split" ? amt : undefined);
-    if (!setWallet) return;
+    const setWallet = usePrepared ? null : requireWallet(action === "split" ? amt : undefined);
+    if (!usePrepared && !setWallet) return;
 
     setBusy("splitmerge");
     try {
       const disclosed = disclosedForMarket();
-      const params = action === "split"
-        ? buildSplitParams(account.address, market.contractId, amt, userPosition?.contractId ?? null, setWallet.contractId, disclosed.length > 0 ? disclosed : undefined)
-        : buildMergeParams(account.address, market.contractId, amt, userPosition!.contractId, setWallet.contractId, disclosed.length > 0 ? disclosed : undefined);
-      const ok = await runUserChoice(action === "split" ? "Mint set" : "Merge", params);
+      const ok = await runPrepared(action === "split" ? "Mint set" : "Merge", { action, amountCC: amt.toFixed(10) }, () =>
+        !setWallet
+          ? null
+          : action === "split"
+            ? buildSplitParams(account.address, market.contractId, amt, userPosition?.contractId ?? null, setWallet.contractId, disclosed.length > 0 ? disclosed : undefined)
+            : userPosition
+              ? buildMergeParams(account.address, market.contractId, amt, userPosition.contractId, setWallet.contractId, disclosed.length > 0 ? disclosed : undefined)
+              : null,
+      );
       if (!ok) return;
       await refreshAllViews();
       toast({
@@ -585,21 +670,25 @@ const MarketView = () => {
     }
     const cost = liquidityQuote.costCC;
     const maxCost = cost * (1 + slippage);
-    const lpWallet = requireWallet(maxCost);
-    if (!lpWallet) return;
+    const lpWallet = usePrepared ? null : requireWallet(maxCost);
+    if (!usePrepared && !lpWallet) return;
     setBusy("liquidity");
     try {
-      const ok = await runUserChoice(
+      const ok = await runPrepared(
         "Provide liquidity",
-        buildProvideLiquidityParams(
-          account.address,
-          market.contractId,
-          liquidityValue,
-          maxCost,
-          lpPosition?.contractId ?? null,
-          lpWallet.contractId,
-          disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
-        ),
+        { action: "provide_liquidity", amountCC: liquidityValue.toFixed(10), slippageBps },
+        () =>
+          lpWallet
+            ? buildProvideLiquidityParams(
+                account.address,
+                market.contractId,
+                liquidityValue,
+                maxCost,
+                lpPosition?.contractId ?? null,
+                lpWallet.contractId,
+                disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+              )
+            : null,
       );
       if (ok) {
         await refreshAllViews();
@@ -630,21 +719,25 @@ const MarketView = () => {
       });
       return;
     }
-    const lpWallet = requireWallet();
-    if (!lpWallet) return;
+    const lpWallet = usePrepared ? null : requireWallet();
+    if (!usePrepared && !lpWallet) return;
     setBusy("withdraw");
     try {
-      const ok = await runUserChoice(
+      const ok = await runPrepared(
         "Withdraw liquidity",
-        buildWithdrawLiquidityParams(
-          account.address,
-          market.contractId,
-          burn,
-          lpPosition.contractId,
-          userPosition?.contractId ?? null,
-          lpWallet.contractId,
-          disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
-        ),
+        { action: "withdraw_liquidity", lpTokens: burn.toFixed(10) },
+        () =>
+          lpWallet
+            ? buildWithdrawLiquidityParams(
+                account.address,
+                market.contractId,
+                burn,
+                lpPosition.contractId,
+                userPosition?.contractId ?? null,
+                lpWallet.contractId,
+                disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+              )
+            : null,
       );
       if (!ok) return;
       await refreshAllViews();
@@ -808,20 +901,21 @@ const MarketView = () => {
   };
 
   const handleRedeem = async () => {
-    if (!market || !account || !userPosition) return;
-    const redeemWallet = requireWallet();
-    if (!redeemWallet) return;
+    if (!market || !account || (!usePrepared && !userPosition)) return;
+    const redeemWallet = usePrepared ? null : requireWallet();
+    if (!usePrepared && !redeemWallet) return;
     setBusy("redeem");
     try {
-      const ok = await runUserChoice(
-        "Redeem",
-        buildRedeemPositionParams(
-          account.address,
-          market.contractId,
-          userPosition.contractId,
-          redeemWallet.contractId,
-          disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
-        ),
+      const ok = await runPrepared("Redeem", { action: "redeem" }, () =>
+        userPosition && redeemWallet
+          ? buildRedeemPositionParams(
+              account.address,
+              market.contractId,
+              userPosition.contractId,
+              redeemWallet.contractId,
+              disclosedForMarket().length > 0 ? disclosedForMarket() : undefined,
+            )
+          : null,
       );
       if (!ok) return;
       await refreshAllViews();
@@ -919,6 +1013,8 @@ const MarketView = () => {
     buyQuote, sellQuote, swapQuote, account, signInFirst: signInRequired, tradeLockReason, walletCta, busy, handleTradeClick, mintMode,
     setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge,
     userPosition, holdings, wallet,
+    // chart: the backend's candlesticks when the market came from the index
+    indexed, chartRefreshKey, marketRef: market.ticker ?? market.marketId,
   };
   const liquidityContext = {
     setMainTab, subTabBtn, tabHeaderBtn, pillBtn, liquiditySubTab, setLiquiditySubTab, canProvideLiquidity,
@@ -977,12 +1073,22 @@ const MarketView = () => {
     <div className="space-y-6">
       {/* ---------------- Market header ---------------- */}
       <div>
-        <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs font-medium text-muted-foreground">
-          Market #{market.marketId}
+        <div className="mb-2 inline-flex flex-wrap items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs font-medium text-muted-foreground">
+          {market.ticker && market.tickerSource !== "synthetic" ? <span className="font-mono text-foreground">{market.ticker}</span> : <span>Market #{market.marketId}</span>}
+          {market.eventTicker && (
+            <Link to={`/events/${market.eventTicker}`} className="text-oracle-purple hover:underline">
+              Event {market.eventTicker}
+            </Link>
+          )}
           {market.category && <span className="text-oracle-blue">{market.category}</span>}
           {market.isDynamic && <span className="text-oracle-purple">dynamic pm-AMM</span>}
         </div>
         <h1 className="text-2xl font-bold leading-tight text-foreground sm:text-3xl">{market.question}</h1>
+        {(market.yesSubTitle || market.noSubTitle) && (
+          <p className="mt-1 text-sm text-muted-foreground">
+            <span className="font-semibold text-oracle-yes">Yes</span> = {market.yesSubTitle || "Yes"} · <span className="font-semibold text-oracle-no">No</span> = {market.noSubTitle || "No"}
+          </p>
+        )}
         {market.description && <p className="mt-2 text-base text-muted-foreground">{market.description}</p>}
       </div>
 
@@ -995,19 +1101,19 @@ const MarketView = () => {
           accent="text-oracle-yes"
         />
         <StatBox
-          label="Cumulative Token Volume"
-          value={`${fmtCC(market.totalVolumeCC, 2)} CC`}
-          sub="lifetime traded collateral"
+          label={market.volume24hCC !== undefined ? "24h Volume" : "Cumulative Token Volume"}
+          value={`${fmtCC(market.volume24hCC ?? market.totalVolumeCC, 2)} CC`}
+          sub={market.volume24hCC !== undefined ? `${fmtCC(market.totalVolumeCC, 2)} CC lifetime · ${market.tradeCount ?? 0} trades` : "lifetime traded collateral"}
         />
         <StatBox
-          label="Reserve Inventory"
-          value={fmtCC(reserveInventory, 2)}
-          sub={`${fmtCC(market.reserveYes, 2)} YES · ${fmtCC(market.reserveNo, 2)} NO`}
+          label={market.openInterest !== undefined ? "Open Interest" : "Reserve Inventory"}
+          value={fmtCC(market.openInterest ?? reserveInventory, 2)}
+          sub={market.openInterest !== undefined ? `shares outstanding · ${fmtCC(reserveInventory, 2)} in reserves` : `${fmtCC(market.reserveYes, 2)} YES · ${fmtCC(market.reserveNo, 2)} NO`}
         />
         <StatBox
-          label="Trading Fee"
-          value={`${(market.feeBps / 100).toFixed(2)}%`}
-          sub={`pool value ${fmtCC(currentPoolValue, 2)} CC`}
+          label="Liquidity · Fee"
+          value={`${fmtCC(market.liquidityCC ?? currentPoolValue, 2)} CC`}
+          sub={`pool value · ${(market.feeBps / 100).toFixed(2)}% fee${market.priceChange24h != null ? ` · ${market.priceChange24h >= 0 ? "+" : ""}${(market.priceChange24h * 100).toFixed(1)} pts 24h` : ""}`}
         />
       </div>
 

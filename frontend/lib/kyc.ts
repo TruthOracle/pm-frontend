@@ -269,7 +269,11 @@ export interface LaunchSumsubArgs {
   accessToken: string;
   /** Called by the SDK when the token expires; POSTs `/kyc/sessions` again. */
   refreshToken: () => Promise<string>;
+  /** The account's email, prefilled in the widget (Sumsub also keeps it on the applicant). */
+  email?: string | null;
   onStatusChanged?: (payload: SumsubStatusPayload) => void;
+  /** Documents submitted or resubmitted: the review starts server-side. */
+  onSubmitted?: () => void;
   onError?: (payload: unknown) => void;
   containerId?: string;
 }
@@ -282,12 +286,19 @@ export interface LaunchSumsubArgs {
  * it under launch₂). Returns the instance so the caller can destroy it.
  */
 export function launchSumsub(sdk: SnsWebSdk, args: LaunchSumsubArgs): SnsWebSdkInstance {
+  const email = (args.email ?? "").trim();
   const instance = sdk
     .init(args.accessToken, args.refreshToken)
-    .withConf({ lang: "en" })
+    .withConf({ lang: "en", ...(email ? { email } : {}) })
     .withOptions({ addViewportTag: false, adaptIframeHeight: true })
     .on("idCheck.onApplicantStatusChanged", (payload) => {
       args.onStatusChanged?.((payload ?? {}) as SumsubStatusPayload);
+    })
+    .on("idCheck.onApplicantSubmitted", () => {
+      args.onSubmitted?.();
+    })
+    .on("idCheck.onApplicantResubmitted", () => {
+      args.onSubmitted?.();
     })
     .on("idCheck.onError", (payload) => {
       args.onError?.(payload);

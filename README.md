@@ -3,6 +3,37 @@ TruthOracle is a cutting-edge decentralized prediction market platform built on 
 
 The platform can be seen at - [truthoracle-omega.vercel.app](https://truthoracle-omega.vercel.app/)
 
+## Markets like an exchange (series → events → markets)
+
+With the accounts backend deployed, the app reads markets, candles and the catalog from its
+ledger index (`truthoracle-backend/docs/MARKETS.md`) instead of polling the participant's
+active contracts:
+
+- `/marketplace` lists **events** (one question, N binary pm-AMM markets) with their legs'
+  Yes / No prices, filtered by the series' category (`?category=`, `?series=`, `?q=` — the
+  header topics and search box drive them); a Markets view lists every market.
+- `/events/:ticker` is the event page: the legs table (Yes price, 24 h change, volume, open
+  interest, trade buttons) and one chart with every leg's Yes price.
+- `/market/:idOrTicker` is the market page. The chart is the backend's candlesticks (1 min ·
+  1 h · 1 d, line or candles, volume bars, OHLC tooltip); the header shows the ticker, the
+  event and the two side labels; the stats show 24 h volume, open interest and the pool's
+  liquidity. A trade goes through `POST /markets/:market/orders/prepare`: the backend assembles
+  the exact ExerciseCommand (active market version + disclosed blob, the account's UserWallet
+  and Position contract ids — reads a browser cannot do as an external party on mainnet) and
+  the Cantor8 wallet signs it; the page then waits on `GET /ledger/wait` and reloads from the
+  index. The local `lib/marketPricing.ts` mirror still drives the live quote box.
+- The header banner reflects `GET /exchange/status`: an operator trading halt disables the
+  trade controls (redemptions stay available).
+- `/admin` gains the catalog console (`components/Admin/CatalogPanel.tsx`): a backend operator
+  session (wallet-signed challenge, `POST /auth/admin`), series and events, the treasury-signed
+  market factory (`POST /admin/markets`, on-ledger ticker / event / side labels with
+  truthoracle-v14 ≥ 1.1.0), assignment of what older markets left blank, and the trading halt.
+  The browser-side `CreateMarket` form also carries the four identity fields
+  (`VITE_TRUTHORACLE_PACKAGE_ID` must point at the 1.1.0 package for them to be accepted).
+
+Without a backend the app stays what it was: markets from the participant, no events, no
+candles (the market chart only draws the prices this tab observed — nothing is fabricated).
+
 ## Features
 - Decentralized Market Creation: Easily create and participate in prediction markets without intermediaries.
 - Low Transaction Fees: Enjoy minimal fees thanks to the efficiency of the Canton Network.

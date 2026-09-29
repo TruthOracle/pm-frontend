@@ -118,6 +118,14 @@ export interface InitMarketArgs {
   prizeFeeShareBps: number;
   policy: ResolutionPolicyArg;
   auditObservers: string[];
+  /**
+   * Catalog identity (truthoracle-v14 ≥ 1.1.0, truthoracle-backend docs/MARKETS.md §2). Sent only
+   * when set: a 1.0.0 package rejects unknown fields, a 1.1.0 package reads absent ones as None.
+   */
+  ticker?: string;
+  eventTicker?: string;
+  yesSubTitle?: string;
+  noSubTitle?: string;
 }
 
 /** Exercise MarketCounter.CreateMarket (dynamic pm-AMM seeded at P0/V0). */
@@ -149,6 +157,14 @@ export function buildInitMarketParams(
           prizeFeeShareBps: damlInt(args.prizeFeeShareBps),
           policy: encodePolicy(args.policy),
           auditObservers: args.auditObservers,
+          ...(args.ticker || args.eventTicker || args.yesSubTitle || args.noSubTitle
+            ? {
+                ticker: args.ticker ?? null,
+                eventTicker: args.eventTicker ?? null,
+                yesSubTitle: args.yesSubTitle ?? null,
+                noSubTitle: args.noSubTitle ?? null,
+              }
+            : {}),
         },
       },
     },

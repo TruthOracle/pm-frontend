@@ -116,6 +116,7 @@ export default function KycPanel() {
         if (cancelled) return;
         sdkRef.current = launchSumsub(sdk, {
           accessToken: session.accessToken,
+          email: auth.me?.user.email ?? null,
           refreshToken: async () => {
             const next = await createKycSession();
             if (next.provider !== "sumsub") throw new Error("Verification provider changed; reload the page.");
@@ -128,6 +129,9 @@ export default function KycPanel() {
               void syncAfterChange();
             }
           },
+          // Documents (re)submitted: the backend flips to pending on the webhook; re-read now
+          // so the card does not wait for the next poll.
+          onSubmitted: () => void syncAfterChange(),
           onError: () => {
             setFlowError("The verification widget reported an error. You can close it and start again.");
           },
@@ -148,6 +152,7 @@ export default function KycPanel() {
       // iframe from surviving into the next launch.
       if (container) container.innerHTML = "";
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, syncAfterChange]);
 
   const closeFlow = () => {

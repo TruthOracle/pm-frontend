@@ -2,7 +2,7 @@ import { useCantonWallet } from "@/wallets";
 import { WalletSelector } from "./WalletSelector";
 import { AccountMenu } from "@/components/auth/AccountMenu";
 import { useAuth } from "@/auth/AuthContext";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useToast } from "@chakra-ui/react";
 import { cn } from "@/lib/utils";
 import { WALLET_DISPLAY_NAME } from "@/config";
@@ -67,6 +67,7 @@ export function Header() {
   const { account } = useCantonWallet();
   const { status: authStatus } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const toast = useToast();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -116,6 +117,7 @@ export function Header() {
     });
   };
   const isActive = (path: string) => location.pathname.startsWith(path);
+  const currentCategory = new URLSearchParams(location.search).get("category");
 
   return (
     <header className="site-header">
@@ -132,7 +134,19 @@ export function Header() {
             {searchOpen ? (
               <div ref={searchRef} className="search-inline hidden md:flex" role="search">
                 <Search className="h-4 w-4 shrink-0 text-primary" />
-                <input autoFocus value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search markets" aria-label="Search markets" />
+                <input
+                  autoFocus
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && searchQuery.trim()) {
+                      navigate(`/marketplace?q=${encodeURIComponent(searchQuery.trim())}`);
+                      setSearchOpen(false);
+                    }
+                  }}
+                  placeholder="Search markets"
+                  aria-label="Search markets"
+                />
                 <button type="button" onClick={() => { setSearchQuery(""); setSearchOpen(false); }} aria-label="Close search"><X className="h-4 w-4 text-slate-400 hover:text-slate-700" /></button>
               </div>
             ) : (
@@ -145,7 +159,11 @@ export function Header() {
           </div>
         </div>
         <div className="category-rail"><div className="flex min-w-max items-center gap-6">
-          {TOPICS.map((topic, index) => <Link key={topic} to={`/marketplace?category=${topic.toLowerCase()}`} className={cn("topic-link", index === 0 && "topic-link-active")}>{index === 0 && <TrendingUp className="h-3.5 w-3.5" />}{topic}</Link>)}
+          {TOPICS.map((topic, index) => {
+            const to = index === 0 ? "/marketplace" : `/marketplace?category=${encodeURIComponent(topic)}`;
+            const active = location.pathname === "/marketplace" && (index === 0 ? !currentCategory : currentCategory?.toLowerCase() === topic.toLowerCase());
+            return <Link key={topic} to={to} className={cn("topic-link", active && "topic-link-active")}>{index === 0 && <TrendingUp className="h-3.5 w-3.5" />}{topic}</Link>;
+          })}
           <Link to="/faq" className="topic-link !font-semibold !text-emerald-700 hover:!text-emerald-800"><Info className="h-3.5 w-3.5" /> How it works</Link>
         </div></div>
         {mobileMenuOpen && <div className="mobile-menu lg:hidden"><div className="grid gap-1">{NAV_ITEMS.map(({ to, label }) => <Link key={to} to={to} className={cn("mobile-nav-link", isActive(to) && "text-primary")}>{label}</Link>)}</div><div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3"><WalletControl /><AuthControl /></div></div>}

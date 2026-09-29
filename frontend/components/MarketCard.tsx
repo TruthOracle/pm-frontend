@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { formatCents } from "@/lib/marketPricing";
 import { cn } from "@/lib/utils";
 import { TrendingUp, CheckCircle2, Clock } from "lucide-react";
@@ -21,7 +21,9 @@ function expiresLabel(expiresAt: number): string {
 const MarketCard = ({ market }: MarketCardProps) => {
   const navigate = useNavigate();
   const settled = market.status === "Resolved" || market.status === "Voided";
-  const handleCardClick = () => navigate(`/market/${market.marketId}`);
+  const ref = market.ticker ?? String(market.marketId);
+  const handleCardClick = () => navigate(`/market/${ref}`);
+  const change = market.priceChange24h == null ? null : market.priceChange24h * 100;
 
   const probYes = market.currentPrice;
   const yesPct = Math.round(probYes * 100);
@@ -36,7 +38,7 @@ const MarketCard = ({ market }: MarketCardProps) => {
 
   const handleOutcomeClick = (e: React.MouseEvent, side: "yes" | "no") => {
     e.stopPropagation();
-    navigate(`/market/${market.marketId}?side=${side}`);
+    navigate(`/market/${ref}?side=${side}`);
   };
 
   return (
@@ -61,7 +63,13 @@ const MarketCard = ({ market }: MarketCardProps) => {
           <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">
             {market.question}
           </h3>
-          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+            {market.ticker && market.tickerSource !== "synthetic" && <span className="font-mono">{market.ticker}</span>}
+            {market.eventTicker && (
+              <Link to={`/events/${market.eventTicker}`} onClick={(e) => e.stopPropagation()} className="text-oracle-purple hover:underline">
+                {market.eventTicker}
+              </Link>
+            )}
             {market.category && <span className="text-oracle-blue">{market.category}</span>}
             {!settled && (
               <span className="inline-flex items-center gap-1">
@@ -84,23 +92,31 @@ const MarketCard = ({ market }: MarketCardProps) => {
         <>
           {/* Yes / No buttons */}
           <div className="flex gap-2">
-            <button className="btn-yes" onClick={(e) => handleOutcomeClick(e, "yes")}>
-              Yes {formatCents(probYes)}
+            <button className="btn-yes" onClick={(e) => handleOutcomeClick(e, "yes")} title={market.yesSubTitle || undefined}>
+              {market.yesSubTitle ? `${market.yesSubTitle} ` : "Yes "}
+              {formatCents(probYes)}
             </button>
-            <button className="btn-no" onClick={(e) => handleOutcomeClick(e, "no")}>
-              No {formatCents(1 - probYes)}
+            <button className="btn-no" onClick={(e) => handleOutcomeClick(e, "no")} title={market.noSubTitle || undefined}>
+              {market.noSubTitle ? `${market.noSubTitle} ` : "No "}
+              {formatCents(1 - probYes)}
             </button>
           </div>
+          {change !== null && (
+            <div className={cn("mt-2 text-right text-[11px] font-semibold", change >= 0 ? "text-emerald-600" : "text-rose-600")}>
+              {change >= 0 ? "+" : ""}
+              {change.toFixed(1)} pts · 24h
+            </div>
+          )}
           {/* Stats row: volume · reserves · fee · expiry */}
           <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border pt-2 text-[11px] text-muted-foreground">
             <div className="flex justify-between">
-              <span>Token volume</span>
-              <span className="font-medium text-foreground">{market.totalVolumeCC.toFixed(1)} CC</span>
+              <span>{market.volume24hCC !== undefined ? "24h volume" : "Token volume"}</span>
+              <span className="font-medium text-foreground">{(market.volume24hCC ?? market.totalVolumeCC).toFixed(1)} CC</span>
             </div>
             <div className="flex justify-between">
-              <span>Reserves</span>
+              <span>{market.openInterest !== undefined ? "Open interest" : "Reserves"}</span>
               <span className="font-medium text-foreground">
-                {(market.reserveYes + market.reserveNo).toFixed(1)}
+                {(market.openInterest ?? market.reserveYes + market.reserveNo).toFixed(1)}
               </span>
             </div>
             <div className="flex justify-between">

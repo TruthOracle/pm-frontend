@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { Link } from "react-router-dom";
-import { fetchAllPredictionMarkets, type PredictionMarketRecord } from "@/utils/activeContracts";
+import type { PredictionMarketRecord } from "@/utils/activeContracts";
+import { marketSource } from "@/lib/marketsApi";
 import MarketCard from "./MarketCard";
 import { ArrowRight, Clock3, Loader2, Newspaper, Radio, ShieldCheck, Sparkles, TrendingUp, Zap } from "lucide-react";
 import { getPrefetchedMarkets } from "@/utils/marketPrefetch";
@@ -19,8 +20,9 @@ function Homepage() {
   useEffect(() => {
     let active = true;
     const refresh = () => {
-      fetchAllPredictionMarkets()
-        .then((nextMarkets) => {
+      marketSource
+        .all()
+        .then(({ markets: nextMarkets }) => {
           if (active) setMarkets(nextMarkets);
         })
         .finally(() => {
@@ -58,11 +60,15 @@ function Homepage() {
   }, []);
   const latestHeadlines = news.map((item) => getTickerHeadline(item.title));
   const tickerHeadlines = [...latestHeadlines, ...latestHeadlines];
-  const featured = markets.slice(0, 4);
+  // Trending = the most traded open markets over the last day (falls back to the newest).
+  const featured = [...markets]
+    .filter((m) => m.status === "Trading")
+    .sort((a, b) => (b.volume24hCC ?? 0) - (a.volume24hCC ?? 0) || b.marketId - a.marketId)
+    .slice(0, 4);
   const lead = featured[featured.length ? featuredIndex % featured.length : 0];
   const yesPct = lead ? Math.round(lead.currentPrice * 100) : 0;
   const nowSecs = Math.floor(Date.now() / 1000);
-  const leadHistory = lead ? priceHistory.get(lead.marketId) ?? [{ timestamp: lead.createdAt, probability: 0.5 }] : [];
+  const leadHistory = lead ? priceHistory.get(lead.marketId) ?? [{ timestamp: nowSecs, probability: lead.currentPrice }] : [];
   const chartCurrentY = lead ? 4 + (1 - lead.currentPrice) * 106 : 57;
   const chartTrendPath = probabilityHistoryPath(leadHistory, lead?.createdAt ?? nowSecs, nowSecs, 410, 110, 4);
   const homeChartPathRef = useRef<SVGPathElement>(null);
@@ -80,7 +86,7 @@ function Homepage() {
   useEffect(() => {
     if (!lead) return;
     setPriceHistory((previous) => {
-      const existing = previous.get(lead.marketId) ?? [{ timestamp: lead.createdAt, probability: 0.5 }];
+      const existing = previous.get(lead.marketId) ?? [{ timestamp: nowSecs, probability: lead.currentPrice }];
       const last = existing.at(-1);
       if (last && Math.abs(last.probability - lead.currentPrice) < 0.0001) return previous;
       const next = new Map(previous);
@@ -127,7 +133,7 @@ function Homepage() {
                   </div>
                   <span className="soft-badge -mr-1 sm:-mr-2">{lead.category || "Trending"}</span>
                 </div>
-                <Link to={`/market/${lead.marketId}`} className="group/title block">
+                <Link to={`/market/${lead.ticker ?? lead.marketId}`} className="group/title block">
                   <h2 className="mt-3 max-w-xl text-2xl font-bold tracking-[-0.04em] text-slate-950 transition-colors group-hover/title:text-primary group-active/title:text-primary sm:text-3xl">
                     {lead.question}
                   </h2>
@@ -189,9 +195,9 @@ function Homepage() {
                   </div>
                 </div>
                 <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 pt-5 text-xs text-slate-500">
-                  <span>{`${lead.totalVolumeCC.toFixed(1)} CC market volume`}</span>
+                  <span>{lead.volume24hCC !== undefined ? `${lead.volume24hCC.toFixed(1)} CC traded in 24h · ${lead.totalVolumeCC.toFixed(1)} CC lifetime` : `${lead.totalVolumeCC.toFixed(1)} CC market volume`}</span>
                   <Link
-                    to={`/market/${lead.marketId}`}
+                    to={`/market/${lead.ticker ?? lead.marketId}`}
                     className="inline-flex items-center gap-1 font-semibold text-slate-900 hover:text-primary"
                   >
                     View market <ArrowRight className="h-3.5 w-3.5" />
@@ -219,7 +225,7 @@ function Homepage() {
               <div>
                 <div className="mb-2 flex justify-between text-sm">
                   <span>Active markets</span>
-                  <strong>{loading ? "—" : markets.length}</strong>
+                  <strong>{loading ? "—" : markets.filter((m) => m.status === "Trading").length}</strong>
                 </div>
                 <div className="signal-bar">
                   <span style={{ width: "78%" }} />

@@ -14,9 +14,11 @@ import { AuthProvider } from "@/auth/AuthContext";
 import AccountPage from "@/components/Account/AccountPage";
 import Footer from "@/components/Footer";
 import { useEffect, useLayoutEffect, useState } from "react";
-import { fetchAllPredictionMarkets } from "@/utils/activeContracts";
 import { setPrefetchedMarkets } from "@/utils/marketPrefetch";
+import { marketSource } from "@/lib/marketsApi";
 import { fetchMarketNews } from "@/lib/marketNews";
+import EventView from "@/components/EventView";
+import { ExchangeStatusBanner, ExchangeStatusProvider } from "@/components/ExchangeStatusBanner";
 
 /**
  * /admin is reachable by anyone; AdminGate decides whether to show the console or a
@@ -78,13 +80,13 @@ function AppContent() {
     const href = target.getAttribute("href");
     if (!href || !href.startsWith("/") || href === location.pathname) return;
     const targetPath = href.split("?")[0];
-    const waitsForMarketData = targetPath === "/" || targetPath === "/marketplace" || targetPath.startsWith("/market/");
+    const waitsForMarketData = targetPath === "/" || targetPath === "/marketplace" || targetPath.startsWith("/market/") || targetPath.startsWith("/markets/");
 
     event.preventDefault();
     setLoadingRoute(targetPath);
     try {
       if (waitsForMarketData) {
-        setPrefetchedMarkets(await fetchAllPredictionMarkets());
+        setPrefetchedMarkets((await marketSource.all()).markets);
       } else if (targetPath === "/news") {
         await fetchMarketNews();
       } else {
@@ -116,12 +118,16 @@ function AppContent() {
     <div className="site-header-mask" aria-hidden="true" />
     <Header />
     <main className="page-transition flex-1 pt-[6.75rem]">
+      <ExchangeStatusBanner />
       <Routes location={location}>
         <Route path="/faq" element={<FAQ />} />
         <Route path="/marketplace" element={<Marketplace />} />
         <Route path="/" element={<Homepage />} />
         <Route path="/portfolio" element={<Portfolio />} />
+        {/* `:id` is a numeric market id or a ticker (truthoracle-backend docs/MARKETS.md §2). */}
         <Route path="/market/:id" element={<MarketDetails />} />
+        <Route path="/markets/:id" element={<MarketDetails />} />
+        <Route path="/events/:ticker" element={<EventView />} />
         <Route path="/admin" element={<AdminRoute />} />
         <Route path="/rewards" element={<Rewards />} />
         <Route path="/news" element={<News />} />
@@ -143,7 +149,9 @@ function App() {
     <WalletProvider>
       <Router>
         <AuthProvider>
-          <AppContent />
+          <ExchangeStatusProvider>
+            <AppContent />
+          </ExchangeStatusProvider>
         </AuthProvider>
       </Router>
     </WalletProvider>

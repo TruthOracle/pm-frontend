@@ -73,16 +73,11 @@ function smoothPath(points: Array<{ x: number; y: number }>): string {
   return path;
 }
 
-function smoothZigZag(startProbability: number, endProbability: number, width: number, height: number, topPadding: number): string {
-  const probabilities = [startProbability, 0.03, 0.7, 0.38, 0.62, 0.46, 0.66, 0.52, endProbability];
-  const points = probabilities.map((probability, index) => ({
-    x: width * (index / (probabilities.length - 1)),
-    y: probabilityY(probability, height, topPadding),
-  }));
-  return smoothPath(points);
-}
-
-/** Draws only the probability snapshots that have actually been observed. */
+/**
+ * Draws only the probability snapshots that have actually been observed. With fewer than two
+ * points the line is flat at the known price: a chart must never invent movement (the old
+ * placeholder zig-zag did, and the hover tooltip read values off it).
+ */
 export function probabilityHistoryPath(
   points: ProbabilityPoint[],
   rangeStart: number,
@@ -92,10 +87,9 @@ export function probabilityHistoryPath(
   topPadding = 2,
 ): string {
   const source = visibleProbabilityPoints(points, rangeStart, rangeEnd, width, height, topPadding);
-  if (source.length <= 2) {
-    const startProbability = source[0].probability;
-    const endProbability = source.at(-1)?.probability ?? startProbability;
-    return smoothZigZag(startProbability, endProbability, width, height, topPadding);
+  if (source.length <= 1) {
+    const y = source[0]?.y ?? probabilityY(0.5, height, topPadding);
+    return `M0 ${y} L${width} ${y}`;
   }
   const plotted = source.map(({ x, y }) => ({ x, y }));
   if (plotted[plotted.length - 1].x < width) plotted.push({ x: width, y: plotted[plotted.length - 1].y });

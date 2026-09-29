@@ -47,6 +47,13 @@ function AdminForm({}: Props) {
         description: "",
         resolutionDescription: "",
         category: "Sports",
+        // Catalog identity (truthoracle-v14 ≥ 1.1.0): a Kalshi-style ticker, the event this
+        // market belongs to, and the two side labels. Optional — blanks are left None on-ledger
+        // and can be assigned later from the catalog console.
+        ticker: "",
+        eventTicker: "",
+        yesSubTitle: "",
+        noSubTitle: "",
         expiresAtLocal: "", // datetime-local string
         gracePeriodHours: 24,
         liquidityPeriodMinutes: 5, // pre-trading liquidity-collection window (default 5 min)
@@ -173,6 +180,10 @@ function AdminForm({}: Props) {
                 prizeFeeShareBps: formData.prizeFeeShareBps,
                 policy,
                 auditObservers: [],
+                ticker: formData.ticker.trim().toUpperCase() || undefined,
+                eventTicker: formData.eventTicker.trim().toUpperCase() || undefined,
+                yesSubTitle: formData.yesSubTitle.trim() || undefined,
+                noSubTitle: formData.noSubTitle.trim() || undefined,
             },
             freshCid
         );
@@ -239,6 +250,27 @@ function AdminForm({}: Props) {
                     value={formData.question}
                     onChange={handleInputChange}
                 />
+
+                <Flex gap={4} marginBottom="16px">
+                    <Box flex={1}>
+                        <label htmlFor="ticker">Ticker (optional, on-ledger)</label>
+                        <Input type="text" marginTop="2px" name="ticker" placeholder="FED-26MAR-CUT25" value={formData.ticker} onChange={handleInputChange} />
+                    </Box>
+                    <Box flex={1}>
+                        <label htmlFor="eventTicker">Event ticker (optional)</label>
+                        <Input type="text" marginTop="2px" name="eventTicker" placeholder="FED-26MAR" value={formData.eventTicker} onChange={handleInputChange} />
+                    </Box>
+                </Flex>
+                <Flex gap={4} marginBottom="16px">
+                    <Box flex={1}>
+                        <label htmlFor="yesSubTitle">Yes label (optional)</label>
+                        <Input type="text" marginTop="2px" name="yesSubTitle" placeholder="Cut ≥ 25 bps" value={formData.yesSubTitle} onChange={handleInputChange} />
+                    </Box>
+                    <Box flex={1}>
+                        <label htmlFor="noSubTitle">No label (optional)</label>
+                        <Input type="text" marginTop="2px" name="noSubTitle" placeholder="Smaller or none" value={formData.noSubTitle} onChange={handleInputChange} />
+                    </Box>
+                </Flex>
 
                 <label htmlFor="imageURL">Image URL (optional)</label>
                 <Input
@@ -446,7 +478,9 @@ function AdminForm({}: Props) {
                 <Text fontSize="xs" color="gray.500" mb={3}>
                     Seeding at {formData.initialProbability}% with {formData.initialValueCC} CC pool
                     value costs ≈ {seedCost.toFixed(2)} CC of collateral (max of the optimal YES/NO
-                    reserves). Every market is binary Yes / No; Void is a first-class outcome.
+                    reserves). Every market is binary Yes / No; Void is a first-class outcome. Markets that belong
+                    to one question are grouped by their event ticker (series → event → market), managed in the
+                    catalog console below.
                 </Text>
 
                 {loadingCid && <Text color="gray.400" fontSize="sm">Loading contract...</Text>}

@@ -51,14 +51,18 @@ type TradeContext = {
   handleSplitMerge: any;
   userPosition: any;
   holdings: any;
+  /** True when the market came from the backend index (candlestick history exists). */
+  indexed?: boolean;
+  chartRefreshKey?: number;
+  marketRef?: string | number;
 };
 
 export default function MarketTradePanel({ context, walletSlot }: { context: TradeContext; walletSlot?: ReactNode }) {
-  const { setMainTab, subTabBtn, tabHeaderBtn, pillBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs, tradeSide, setTradeSide, selectedSide, setSelectedSide, probYes, probNo, collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage, buyQuote, sellQuote, swapQuote, account, signInFirst = false, tradeLockReason = null, walletCta = null, busy, handleTradeClick, mintMode, setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge, userPosition, holdings } = context;
+  const { setMainTab, subTabBtn, tabHeaderBtn, pillBtn, tradeSubTab, setTradeSubTab, phase, market, nowSecs, tradeSide, setTradeSide, selectedSide, setSelectedSide, probYes, probNo, collateralIn, sharesIn, setCollateralIn, setSharesIn, slippage, setSlippage, buyQuote, sellQuote, swapQuote, account, signInFirst = false, tradeLockReason = null, walletCta = null, busy, handleTradeClick, mintMode, setMintMode, splitMergeAmount, setSplitMergeAmount, handleSplitMerge, userPosition, holdings, indexed = false, chartRefreshKey = 0, marketRef } = context;
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,.8fr)] lg:items-start">
       <div className="min-w-0 space-y-6">
-        <MarketHistoryChart probability={probYes} createdAt={market.createdAt} />
+        <MarketHistoryChart probability={probYes} createdAt={market.createdAt} marketRef={marketRef ?? market.marketId} indexed={indexed} refreshKey={chartRefreshKey} />
         <YourPositionBox account={account} signInFirst={signInFirst} userPosition={userPosition} holdings={holdings} probYes={probYes} probNo={probNo} />
       </div>
           <div className="space-y-4">
@@ -115,6 +119,14 @@ export default function MarketTradePanel({ context, walletSlot }: { context: Tra
                 </div>
 
                 <div className="mb-4 flex flex-col gap-2">
+                  {market.book && (
+                    <div className="flex justify-between px-1 text-[11px] text-muted-foreground">
+                      <span>Implied bid / ask (1 CC)</span>
+                      <span>
+                        Yes {(market.book.yesBid * 100).toFixed(1)}¢ / {(market.book.yesAsk * 100).toFixed(1)}¢ · No {(market.book.noBid * 100).toFixed(1)}¢ / {(market.book.noAsk * 100).toFixed(1)}¢
+                      </span>
+                    </div>
+                  )}
                   <button
                     onClick={() => setSelectedSide("yes")}
                     className={
@@ -123,7 +135,7 @@ export default function MarketTradePanel({ context, walletSlot }: { context: Tra
                         : "rounded-lg border border-oracle-yes/30 py-2.5 text-sm font-semibold text-oracle-yes hover:bg-oracle-yes/10"
                     }
                   >
-                    Yes — {(probYes * 100).toFixed(1)}¢
+                    {market.yesSubTitle ? `${market.yesSubTitle} (Yes)` : "Yes"} — {(probYes * 100).toFixed(1)}¢
                   </button>
                   <button
                     onClick={() => setSelectedSide("no")}
@@ -133,7 +145,7 @@ export default function MarketTradePanel({ context, walletSlot }: { context: Tra
                         : "rounded-lg border border-oracle-no/30 py-2.5 text-sm font-semibold text-oracle-no hover:bg-oracle-no/10"
                     }
                   >
-                    No — {(probNo * 100).toFixed(1)}¢
+                    {market.noSubTitle ? `${market.noSubTitle} (No)` : "No"} — {(probNo * 100).toFixed(1)}¢
                   </button>
                 </div>
 

@@ -138,6 +138,30 @@ export interface PredictionMarketRecord {
   createdEventBlob?: string;
   /** Synchronizer the contract lives on; required alongside createdEventBlob on a disclosed contract. */
   synchronizerId?: string;
+
+  // ── Present only when the record came from the backend index (lib/marketsApi.ts) ──
+  /** Kalshi-style ticker (on-ledger, catalog-assigned or `MKT-<id>`); the market URL can use it. */
+  ticker?: string;
+  tickerSource?: "ledger" | "catalog" | "synthetic";
+  /** The event this market is one leg of (truthoracle-backend docs/MARKETS.md §2). */
+  eventTicker?: string | null;
+  seriesTicker?: string | null;
+  yesSubTitle?: string;
+  noSubTitle?: string;
+  /** Package-id template of the active version — the disclosed contract must name it. */
+  templateId?: string;
+  previousPrice?: number | null;
+  priceChange24h?: number | null;
+  volume24hCC?: number;
+  /** Outstanding YES + NO shares. */
+  openInterest?: number;
+  /** Pool value V(P) at the current effective liquidity. */
+  liquidityCC?: number;
+  /** AMM-implied one-share bid / ask for a 1 CC order; null unless trading. */
+  book?: { yesBid: number; yesAsk: number; noBid: number; noAsk: number } | null;
+  tradeCount?: number;
+  /** Ledger offset of the version — what to wait past after a trade. */
+  updatedOffset?: number;
 }
 
 function parsePolicy(v: unknown): ResolutionPolicyRecord {
