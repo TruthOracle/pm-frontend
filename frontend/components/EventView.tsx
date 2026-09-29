@@ -5,7 +5,6 @@
  * and KYC gates included), the rules, and the event's trade feed
  * (truthoracle-backend docs/MARKETS.md §3, §5).
  */
-import { StickyColumn } from "@/components/StickyColumn";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowUpRight, ChevronRight, Clock, Gavel, Layers, ShieldCheck } from "lucide-react";
@@ -63,7 +62,7 @@ export default function EventView() {
       <div className="page-container space-y-5 py-6">
         <div className="skeleton h-4 w-48" />
         <div className="skeleton h-9 w-2/3" />
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
           <div className="space-y-4">
             <div className="skeleton h-80 w-full rounded-xl" />
             <div className="skeleton h-48 w-full rounded-xl" />
@@ -270,8 +269,7 @@ export default function EventView() {
           </section>
         </div>
 
-        <aside>
-          <StickyColumn className="space-y-3">
+        <aside className="trade-column space-y-3">
           {selectedMarket ? (
             <>
               <MarketView key={selectedMarket.ticker} marketRef={selectedMarket.ticker} variant="dock" initialSide={side} />
@@ -282,7 +280,6 @@ export default function EventView() {
           ) : (
             <div className="k-card p-6 text-center text-sm text-slate-500">Select an outcome to trade.</div>
           )}
-          </StickyColumn>
         </aside>
       </div>
     </div>
