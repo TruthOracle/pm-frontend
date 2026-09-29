@@ -1,31 +1,50 @@
-name: CI Build Check
+# Runs on every push to a pull request and on the integration branches. Vercel builds the
+# preview deployment separately; this is the check that has to be green before a merge.
+#
+# package-lock.json is deliberately gitignored in this repo, so the install resolves the
+# ranges in package.json fresh each run (`npm ci` needs a lockfile). A red run can therefore
+# also mean an upstream package moved — check the "installed versions" step output.
+name: ci
 
 on:
   push:
-    branches:
-      - "*"
+    branches: [main, beta]
   pull_request:
-    branches:
-      - "*"
+
+# A new push to the same branch supersedes the run in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  build:
+  check:
+    name: lint, test, build
     runs-on: ubuntu-latest
-
+    timeout-minutes: 15
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
 
-      - name: Install Dependencies
-        run: npm install
+      - name: Install
+        run: npm install --no-audit --no-fund
 
-      - name: Run Lint
+      - name: Installed versions
+        run: |
+          node --version
+          npm --version
+          npm ls --depth=0 2>/dev/null | grep -E '@canton-network/' || true
+
+      - name: Lint
         run: npm run lint
 
-      - name: Build Project
+      - name: Unit tests (proxies, helpers, wallet client)
+        run: npm test
+
+      - name: Typecheck + production build
         run: npm run build
