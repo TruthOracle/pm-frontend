@@ -1,4 +1,5 @@
 import { useToast } from "@chakra-ui/react";
+import { TradeColumn } from "@/components/TradeColumn";
 import { ChevronRight, Gavel } from "lucide-react";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -1212,7 +1213,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null }
           </p>
         </div>
 
-        <aside className="trade-column space-y-4">{panel}</aside>
+        <TradeColumn className="space-y-4">{panel}</TradeColumn>
       </div>
     </div>
   );

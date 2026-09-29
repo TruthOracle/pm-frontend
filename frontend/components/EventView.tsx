@@ -5,6 +5,7 @@
  * and KYC gates included), the rules, and the event's trade feed
  * (truthoracle-backend docs/MARKETS.md §3, §5).
  */
+import { TradeColumn } from "@/components/TradeColumn";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowUpRight, ChevronRight, Clock, Gavel, Layers, ShieldCheck } from "lucide-react";
@@ -269,7 +270,7 @@ export default function EventView() {
           </section>
         </div>
 
-        <aside className="trade-column space-y-3">
+        <TradeColumn className="space-y-3">
           {selectedMarket ? (
             <>
               <MarketView key={selectedMarket.ticker} marketRef={selectedMarket.ticker} variant="dock" initialSide={side} />
@@ -280,7 +281,7 @@ export default function EventView() {
           ) : (
             <div className="k-card p-6 text-center text-sm text-slate-500">Select an outcome to trade.</div>
           )}
-        </aside>
+        </TradeColumn>
       </div>
     </div>
   );
