@@ -440,6 +440,37 @@
   .k-criteria-meta { @apply mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3 text-xs text-slate-500; }
 
   /* Trending event board on the homepage, after Kalshi's event board (components/TrendingEventBoard.tsx). */
+  /* Event card (marketplace grid, homepage "Trending markets"), after Kalshi's event card. The
+     rows area takes the free height and centres its rows, so cards in one grid row line up. */
+  .ev-card { @apply flex h-full cursor-pointer flex-col rounded-xl border border-slate-200 bg-white px-5 pb-4 pt-4 transition-[box-shadow,border-color] duration-150; }
+  .ev-card:hover { @apply border-slate-300; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.07); }
+  .ev-card:focus-visible { @apply outline-none ring-2 ring-primary/40; }
+  .ev-top { @apply flex items-center justify-between gap-3; }
+  .ev-tile { @apply h-6 w-6 shrink-0 rounded-[6px] object-cover; }
+  .ev-tile-initials { @apply inline-flex items-center justify-center text-[9px] font-extrabold text-white; }
+  .ev-label { @apply truncate text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500; }
+  .ev-sub { @apply min-w-0 max-w-[55%] truncate text-[12px] text-slate-400; }
+  .ev-title { @apply mt-3 text-[17px] font-bold leading-snug tracking-[-0.015em] text-slate-950; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .ev-meta { @apply mt-1 inline-flex items-center gap-1.5 text-[12.5px] text-slate-500; font-variant-numeric: tabular-nums; }
+  .ev-rows { @apply flex flex-1 flex-col justify-center gap-1 py-3; min-height: 6.5rem; }
+  .ev-row { @apply grid h-11 items-center gap-3; grid-template-columns: minmax(0, 1fr) 2.75rem 4.25rem; }
+  /* Without outcome images the rows only need the name and its underline: tighter, like Kalshi's homepage cards. */
+  .ev-rows-tight { @apply gap-0.5; }
+  .ev-rows-tight .ev-row { @apply h-[38px]; }
+  .ev-icon { @apply h-8 w-8 shrink-0 rounded-[3px] bg-slate-100 object-cover; }
+  .ev-name { @apply flex min-w-0 flex-1 flex-col; }
+  .ev-outcome { @apply block truncate text-[15px] leading-5 text-slate-900 transition-colors hover:text-slate-950; }
+  .ev-bar { @apply mt-1 block h-[2px] w-full; }
+  .ev-bar > span { @apply block h-full rounded-full; }
+  .ev-payout { @apply text-right text-[13px] text-slate-500; font-variant-numeric: tabular-nums; }
+  .ev-odds { @apply inline-flex h-[34px] w-full items-center justify-center rounded-full border-[1.5px] bg-white text-[14px] font-bold text-slate-950 transition-colors; border-color: #16c784; font-variant-numeric: tabular-nums; }
+  .ev-odds:hover { background: rgba(22, 199, 132, 0.08); }
+  .ev-result { @apply inline-flex h-[34px] w-full items-center justify-center rounded-full text-[12.5px] font-bold; }
+  .ev-result-won { @apply bg-emerald-50 text-emerald-700; }
+  .ev-result-other { @apply bg-slate-100 text-slate-500; }
+  .ev-empty { @apply rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-500; }
+  .ev-foot { @apply mt-auto flex items-center justify-between gap-3 text-[12.5px] text-slate-500; font-variant-numeric: tabular-nums; }
+
   /* Trending board (homepage), after Kalshi's event board. One grid template for the table head
      and its rows keeps "Pays out" / "Odds" over their values; fixed row, title and About heights
      keep every carousel slide the same size. */

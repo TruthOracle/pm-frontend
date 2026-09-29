@@ -14,14 +14,13 @@ import EventPriceChart from "@/components/charts/EventPriceChart";
 import { EVENT_CHART_TOP_N, SERIES_PALETTE, compactCC, formatPercent, marketColorMap, timeLeft } from "@/lib/chartData";
 import { initialsOf, leadSentences, outcomeLabel, payoutMultiplier } from "@/lib/boardFormat";
 import { fetchSeries } from "@/lib/marketsApi";
-import { toNumber, type ApiEvent, type ApiMarket } from "@/lib/marketsTypes";
+import { toNumber, type ApiEvent } from "@/lib/marketsTypes";
+import { barWidthPercent, outcomeRows, rowsHaveOwnImages } from "@/lib/outcomeRows";
 
 /** Row slots on every slide, as on Kalshi's board; events with more outcomes link to the rest. */
 const MAX_ROWS = 2;
 /** The board is fixed to the past week: enough history to read, no range control. */
 const BOARD_TIMEFRAME = "1W" as const;
-/** Underline of the No side of a single binary market (it has no line of its own on the chart). */
-const NO_SIDE_COLOR = "#cbd5e1";
 
 function useSeriesTitle(ticker: string) {
   return useQuery({
@@ -41,57 +40,11 @@ function SeriesTile({ image, label }: { image: string; label: string }) {
   );
 }
 
-interface BoardRow {
-  key: string;
-  label: string;
-  title: string;
-  price: number;
-  color: string;
-  /** The outcome's own image (market metadata), never the event's banner; "" when it has none. */
-  image: string;
-  href: string;
-}
-
-/** A market's own image: its metadata override, when it is not simply the event's banner again. */
-function ownImage(m: ApiMarket, event: ApiEvent): string {
-  const own = m.metadata?.imageUrl?.trim() ?? "";
-  return own && own !== event.imageUrl ? own : "";
-}
-
-/**
- * The table rows: the likeliest outcomes, one per market. A single binary market has no sibling
- * outcomes, so its two sides take the rows instead (Yes at its price, No at the complement).
- */
-function rowsOf(event: ApiEvent, markets: ApiMarket[], colors: Map<string, string>): BoardRow[] {
-  if (markets.length === 1) {
-    const m = markets[0];
-    const p = toNumber(m.currentPrice);
-    // Both sides of one market share its image, so it would not tell them apart: none.
-    return [
-      { key: `${m.ticker}:yes`, label: m.yesSubTitle || "Yes", title: m.question, price: p, color: colors.get(m.ticker) ?? SERIES_PALETTE[0], image: "", href: `/markets/${m.ticker}?side=yes` },
-      { key: `${m.ticker}:no`, label: m.noSubTitle || "No", title: m.question, price: 1 - p, color: NO_SIDE_COLOR, image: "", href: `/markets/${m.ticker}?side=no` },
-    ];
-  }
-  return markets.slice(0, MAX_ROWS).map((m) => ({
-    key: m.ticker,
-    label: outcomeLabel(m),
-    title: m.question,
-    price: toNumber(m.currentPrice),
-    color: colors.get(m.ticker) ?? SERIES_PALETTE[0],
-    image: ownImage(m, event),
-    href: `/markets/${m.ticker}?side=yes`,
-  }));
-}
-
-
 function BoardEvent({ event, nav }: { event: ApiEvent; nav: ReactNode }) {
   const markets = [...(event.markets ?? []).filter((m) => !m.archived)].sort((a, b) => toNumber(b.currentPrice) - toNumber(a.currentPrice));
   const colors = marketColorMap(markets);
-  const rows = rowsOf(event, markets, colors);
-  // Images only when every row has its own (Kalshi shows party logos, team crests; date buckets get
-  // none): a mix would leave the names ragged.
-  const showImages = rows.length > 0 && rows.every((r) => r.image);
-  const hidden = markets.length > MAX_ROWS ? markets.length - MAX_ROWS : 0;
+  const { rows, hidden } = outcomeRows(event, markets, (t) => colors.get(t) ?? SERIES_PALETTE[0], { maxRows: MAX_ROWS });
+  const showImages = rowsHaveOwnImages(rows);
   const lead = markets[0];
   const seriesTitle = useSeriesTitle(event.seriesTicker);
   const volume24h = event.volume24hCC !== undefined ? toNumber(event.volume24hCC) : markets.reduce((acc, m) => acc + toNumber(m.volume24hCC), 0);
@@ -134,7 +87,7 @@ function BoardEvent({ event, nav }: { event: ApiEvent; nav: ReactNode }) {
                     </Link>
                     {/* Kalshi's underline is a probability bar: its length is the chance, across the name column. */}
                     <span className="board-bar" aria-hidden="true">
-                      <span style={{ width: `${Math.max(3, Math.min(100, r.price * 100))}%`, background: r.color }} />
+                      <span style={{ width: `${barWidthPercent(r.price)}%`, background: r.color }} />
                     </span>
                   </div>
                 </div>

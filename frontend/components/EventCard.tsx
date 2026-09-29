@@ -1,128 +1,117 @@
 /**
- * One event on the marketplace, Kalshi's card: artwork, series chip, title, the top outcomes
- * with their chance and Yes / No price pills (a binary event gets one big number instead), and
- * a footer with the event's volume and its time to close.
+ * One event in a grid (marketplace, homepage "Trending markets"), after Kalshi's event card:
+ * category label and competition line, the title, when it closes (UTC), then the outcome table —
+ * outcome with its probability underline, payout multiplier and odds pill — and a footer with the
+ * event's volume and how many markets it has. The outcome rows share their logic with the
+ * homepage trending board (`lib/outcomeRows.ts`), so both read the same way.
  */
-import { useNavigate } from "react-router-dom";
-import { CheckCircle2, Clock, Layers } from "lucide-react";
-import { compactCC, formatCents, formatPercent, priceDelta, timeLeft } from "@/lib/chartData";
-import { toNumber, type ApiEvent, type ApiMarket } from "@/lib/marketsTypes";
+import type { MouseEvent } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { CheckCircle2, Clock } from "lucide-react";
+import { SERIES_PALETTE, compactCC, formatPercent, marketColorMap } from "@/lib/chartData";
+import { initialsOf, payoutMultiplier } from "@/lib/boardFormat";
+import { barWidthPercent, outcomeRows, resultLabel, rowsHaveOwnImages } from "@/lib/outcomeRows";
+import { toNumber, type ApiEvent } from "@/lib/marketsTypes";
+import { formatShortDateTimeUTC } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
-const MAX_ROWS = 3;
-
-function outcomeLabel(m: ApiMarket): string {
-  return m.yesSubTitle && m.yesSubTitle.toLowerCase() !== "yes" ? m.yesSubTitle : m.question;
-}
-
-function settledLabel(m: ApiMarket): string {
-  if (m.status === "Voided" || m.outcome === "VoidOutcome") return "Void";
-  return m.outcome ?? "Settled";
-}
-
-export default function EventCard({ event }: { event: ApiEvent }) {
-  const navigate = useNavigate();
-  const markets = (event.markets ?? []).filter((m) => !m.archived);
-  const sorted = [...markets].sort((a, b) => toNumber(b.currentPrice) - toNumber(a.currentPrice));
-  const binary = sorted.length === 1;
-  const lead = sorted[0];
-  const shown = sorted.slice(0, MAX_ROWS);
-  const hidden = sorted.length - shown.length;
-  const settled = event.status === "settled";
-  const go = (path: string) => (e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigate(path);
-  };
-  const open = () => navigate(`/events/${event.ticker}`);
-
+function EventTile({ image, label }: { image: string; label: string }) {
+  if (image) return <img src={image} alt="" className="ev-tile" loading="lazy" />;
   return (
-    <article className="k-card k-card-hover flex cursor-pointer flex-col p-4" onClick={open} onKeyDown={(e) => { if (e.key === "Enter") open(); }} tabIndex={0} role="link" aria-label={event.title}>
-      <div className="flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100 ring-1 ring-slate-200/70">
-          {event.imageUrl ? (
-            <img src={event.imageUrl} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => ((e.target as HTMLImageElement).style.display = "none")} />
-          ) : (
-            <Layers className="h-4 w-4 text-slate-400" />
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="mb-1 flex flex-wrap items-center gap-1.5">
-            {event.category && <span className="k-chip-soft">{event.category}</span>}
-            {event.mutuallyExclusive && sorted.length > 1 && <span className="k-chip-soft text-violet-700">one winner</span>}
-            {settled && <span className="k-chip-soft">Settled</span>}
-          </div>
-          <h3 className="line-clamp-2 text-[15px] font-bold leading-snug tracking-[-0.01em] text-slate-950">{event.title}</h3>
-        </div>
-        {binary && lead && !settled && (
-          <div className="shrink-0 text-right">
-            <div className="k-num text-2xl font-bold leading-none tracking-[-0.03em] text-slate-950">{formatPercent(toNumber(lead.currentPrice))}</div>
-            <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">chance</div>
-          </div>
-        )}
-      </div>
-
-      <div className="mt-3 flex-1">
-        {sorted.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-500">No markets listed yet</div>
-        ) : binary && lead ? (
-          <BinaryRow m={lead} settled={settled} go={go} />
-        ) : (
-          <ul className="space-y-2">
-            {shown.map((m) => {
-              const p = toNumber(m.currentPrice);
-              const done = m.status === "Resolved" || m.status === "Voided";
-              return (
-                <li key={m.marketId} className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-800" title={m.question}>{outcomeLabel(m)}</span>
-                  {done ? (
-                    <span className={cn("inline-flex items-center gap-1 text-xs font-bold", m.outcome === "Yes" ? "text-oracle-yes" : m.outcome === "No" ? "text-oracle-no" : "text-slate-400")}>
-                      <CheckCircle2 className="h-3.5 w-3.5" /> {settledLabel(m)}
-                    </span>
-                  ) : (
-                    <>
-                      <span className="k-num w-10 shrink-0 text-right text-sm font-bold text-slate-950">{formatPercent(p)}</span>
-                      <button type="button" className="pill-yes" onClick={go(`/markets/${m.ticker}?side=yes`)} aria-label={`Buy Yes on ${outcomeLabel(m)} at ${formatCents(p)}`}>Yes {formatCents(p)}</button>
-                      <button type="button" className="pill-no" onClick={go(`/markets/${m.ticker}?side=no`)} aria-label={`Buy No on ${outcomeLabel(m)} at ${formatCents(1 - p)}`}>No {formatCents(1 - p)}</button>
-                    </>
-                  )}
-                </li>
-              );
-            })}
-            {hidden > 0 && <li className="text-[11px] font-medium text-slate-500">+{hidden} more outcome{hidden === 1 ? "" : "s"}</li>}
-          </ul>
-        )}
-      </div>
-
-      <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3 text-[11px] font-medium text-slate-500">
-        <span className="k-num">{compactCC(event.volumeCC)} vol</span>
-        <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />{settled ? "Settled" : timeLeft(event.closeTime)}</span>
-      </div>
-    </article>
+    <span className="ev-tile ev-tile-initials" style={{ background: `linear-gradient(135deg, ${SERIES_PALETTE[0]} 0 50%, ${SERIES_PALETTE[1]} 50% 100%)` }} aria-hidden="true">
+      {initialsOf(label)}
+    </span>
   );
 }
 
-function BinaryRow({ m, settled, go }: { m: ApiMarket; settled: boolean; go: (path: string) => (e: React.MouseEvent) => void }) {
-  const p = toNumber(m.currentPrice);
-  const delta = priceDelta(p, m.previousPrice === null ? null : toNumber(m.previousPrice));
-  if (settled || m.status === "Resolved" || m.status === "Voided") {
-    return (
-      <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2.5 text-sm">
-        <CheckCircle2 className={cn("h-4 w-4", m.outcome === "Yes" ? "text-oracle-yes" : m.outcome === "No" ? "text-oracle-no" : "text-slate-400")} />
-        <span className="font-semibold text-slate-950">{settledLabel(m)}</span>
-        <span className="ml-auto k-num text-xs text-slate-500">closed at {formatPercent(p)}</span>
-      </div>
-    );
-  }
+const stop = (e: MouseEvent) => e.stopPropagation();
+
+/**
+ * `showOutcomeImages={false}` keeps only the event's tile (Kalshi's homepage cards); the
+ * marketplace shows each outcome's own image when every visible outcome has one.
+ */
+export default function EventCard({ event, showOutcomeImages = true }: { event: ApiEvent; showOutcomeImages?: boolean }) {
+  const navigate = useNavigate();
+  const markets = [...(event.markets ?? []).filter((m) => !m.archived)].sort((a, b) => toNumber(b.currentPrice) - toNumber(a.currentPrice));
+  const colors = marketColorMap(markets);
+  const { rows } = outcomeRows(event, markets, (t) => colors.get(t) ?? SERIES_PALETTE[0], { maxRows: 2, showAllUpTo: 3 });
+  const showImages = showOutcomeImages && rowsHaveOwnImages(rows);
+  const settled = event.status === "settled";
+  const open = () => navigate(`/events/${event.ticker}`);
+  const label = event.category || event.seriesTicker;
+
   return (
-    <div>
-      <div className="outcome-bar"><span style={{ width: `${Math.round(p * 100)}%` }} /></div>
-      <div className="mt-2.5 flex items-center gap-2">
-        <button type="button" className="pill-yes pill-lg flex-1" onClick={go(`/markets/${m.ticker}?side=yes`)}>{m.yesSubTitle && m.yesSubTitle.toLowerCase() !== "yes" ? m.yesSubTitle : "Yes"} {formatCents(p)}</button>
-        <button type="button" className="pill-no pill-lg flex-1" onClick={go(`/markets/${m.ticker}?side=no`)}>{m.noSubTitle && m.noSubTitle.toLowerCase() !== "no" ? m.noSubTitle : "No"} {formatCents(1 - p)}</button>
+    <article
+      className="ev-card"
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") open();
+      }}
+      tabIndex={0}
+      role="link"
+      aria-label={event.title}
+    >
+      <div className="ev-top">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <EventTile image={event.imageUrl} label={event.title} />
+          <span className="ev-label">{label}</span>
+        </div>
+        {event.subTitle && (
+          <span className="ev-sub" title={event.subTitle}>
+            {event.subTitle}
+          </span>
+        )}
       </div>
-      {delta && delta.direction !== "flat" && (
-        <div className={cn("mt-1.5 k-num text-right text-[11px] font-semibold", delta.direction === "up" ? "delta-up" : "delta-down")}>{delta.text} pts today</div>
+
+      <h3 className="ev-title">{event.title}</h3>
+      {settled ? (
+        <p className="ev-meta">
+          <CheckCircle2 className="h-3.5 w-3.5" /> Settled
+        </p>
+      ) : (
+        event.closeTime && (
+          <p className="ev-meta">
+            <Clock className="h-3.5 w-3.5" /> Closes {formatShortDateTimeUTC(event.closeTime)}
+          </p>
+        )
       )}
-    </div>
+
+      <ul className={cn("ev-rows", !showImages && "ev-rows-tight")} aria-label="Outcomes">
+        {rows.length === 0 ? (
+          <li className="ev-empty">No markets listed yet</li>
+        ) : (
+          rows.map((r) => (
+            <li key={r.key} className="ev-row">
+              <div className="flex min-w-0 items-center gap-3">
+                {showImages && <img src={r.image} alt="" className="ev-icon" loading="lazy" />}
+                <div className="ev-name">
+                  <Link to={r.href} onClick={stop} className="ev-outcome" title={r.title}>
+                    {r.label}
+                  </Link>
+                  <span className="ev-bar" aria-hidden="true">
+                    <span style={{ width: `${barWidthPercent(r.price)}%`, background: r.color }} />
+                  </span>
+                </div>
+              </div>
+              <span className="ev-payout">{r.result ? "" : payoutMultiplier(r.price)}</span>
+              {r.result ? (
+                <span className={cn("ev-result", r.result === "won" ? "ev-result-won" : "ev-result-other")}>{resultLabel(r.result)}</span>
+              ) : (
+                <Link to={r.href} onClick={stop} className="ev-odds" aria-label={`${r.label}: ${formatPercent(r.price)} chance`}>
+                  {formatPercent(r.price)}
+                </Link>
+              )}
+            </li>
+          ))
+        )}
+      </ul>
+
+      <div className="ev-foot">
+        <span>{compactCC(event.volumeCC)} vol</span>
+        <span>
+          {markets.length} market{markets.length === 1 ? "" : "s"}
+        </span>
+      </div>
+    </article>
   );
 }
