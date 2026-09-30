@@ -95,6 +95,8 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
   }, [selectedTicker, series]);
 
   const answer: AlignedRow[] = useMemo(() => alignSeries(query.data?.markets ?? []), [query.data]);
+  // Candle periods in the answer (every market sits on one grid): what the opening range is judged on.
+  const periods = useMemo(() => Math.max(0, ...(query.data?.markets ?? []).map((m) => m.candlesticks.length)), [query.data]);
   // While a range loads, react-query keeps the previous range's lines; when those drew nothing
   // (the opening week gave way to the day), the chart shows it is loading, not a stale "no trades".
   const stale = query.isPlaceholderData && answer.length < 2;
@@ -104,8 +106,8 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
   const empty = !loading && rows.length < 2;
   // A layout effect, so a fallback to the day lands before the week's empty state is painted.
   useLayoutEffect(() => {
-    if (query.isSuccess && !query.isPlaceholderData) settle(tf, answer.length);
-  }, [query.isSuccess, query.isPlaceholderData, tf, answer.length, settle]);
+    if (query.isSuccess && !query.isPlaceholderData) settle(tf, periods);
+  }, [query.isSuccess, query.isPlaceholderData, tf, periods, settle]);
   // Axis scaled to the visible lines (floor stays at 0 %: these are chances), recomputed when the
   // window or the visible set changes.
   const yScale = useMemo(() => {
@@ -115,7 +117,7 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
     // drawn is derived from `visible` + `ranked`; listing those keeps the memo honest without a new array identity each render
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, visible, ranked]);
-  // UTC-aligned ticks; the granularity decides the labels (clock, day or month).
+  // Ticks on the viewer's clock (lib/time.ts); the granularity decides the labels (clock, day or month).
   const xScale = useMemo(() => (rows.length ? axisScale(rows[0].t, rows[rows.length - 1].t, tf, variant === "compact" ? 4 : 6) : null), [rows, tf, variant]);
   const xTicks = xScale?.ticks ?? [];
   /** Where each drawn line ends: its last row with a value. */
@@ -208,11 +210,6 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
           </ResponsiveContainer>
         )}
         {loading && <div className="chart-loading" aria-hidden="true" />}
-        {!query.isError && !empty && (
-          <span className="chart-tz" title="Times are in UTC">
-            UTC
-          </span>
-        )}
       </div>
       {showTabs && <TimeframeTabs value={tf} onChange={pick} className={cn("mt-3", variant === "full" && "sm:hidden")} />}
       {legend !== "none" && (

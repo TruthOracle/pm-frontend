@@ -1,6 +1,7 @@
 /**
  * Unit tests for frontend/lib/time.ts: every instant is shown and read in UTC, whatever zone the
- * browser (or this process) runs in. Run under several zones — `TZ=Asia/Kolkata npm test`,
+ * browser (or this process) runs in, except chart labels, which follow the viewer's clock (their
+ * cases build local instants). Run under several zones — `TZ=Asia/Kolkata npm test`,
  * `TZ=America/Los_Angeles npm test`, `TZ=UTC npm test` — the expectations are identical.
  */
 import assert from "node:assert/strict";
@@ -38,12 +39,19 @@ describe("formatting (always UTC)", () => {
     assert.equal(time.formatDateTimeUTC(Date.UTC(2026, 2, 8, 7, 30)), "Mar 8, 2026, 07:30 UTC");
     assert.equal(time.formatDateTimeUTC(Date.UTC(2026, 9, 25, 1, 30)), "Oct 25, 2026, 01:30 UTC");
   });
-  it("axis labels per granularity", () => {
-    assert.equal(time.formatAxisLabel(Date.UTC(2026, 8, 29, 14, 30), "minute"), "14:30");
-    assert.equal(time.formatAxisLabel(Date.UTC(2026, 8, 29, 9), "hour"), "09:00");
-    assert.equal(time.formatAxisLabel(Date.UTC(2026, 8, 23), "day"), "Sep 23");
-    assert.equal(time.formatAxisLabel(Date.UTC(2026, 8, 1), "month"), "Sep");
-    assert.equal(time.formatAxisLabel(Date.UTC(2027, 0, 1), "month"), "2027");
+  it("chart labels per granularity, on the viewer's clock", () => {
+    assert.equal(time.formatAxisLabel(new Date(2026, 8, 29, 14, 30), "minute"), "14:30");
+    assert.equal(time.formatAxisLabel(new Date(2026, 8, 29, 9), "hour"), "09:00");
+    assert.equal(time.formatAxisLabel(new Date(2026, 8, 23), "day"), "Sep 23");
+    assert.equal(time.formatAxisLabel(new Date(2026, 8, 1), "month"), "Sep");
+    assert.equal(time.formatAxisLabel(new Date(2027, 0, 1), "month"), "2027");
+  });
+  it("chart tooltips on the viewer's clock, with no zone marker", () => {
+    const local = new Date(2026, 8, 29, 14, 58, 41);
+    assert.equal(time.formatLocalClock(local), "14:58");
+    assert.equal(time.formatLocalShortDateTime(local), "Sep 29, 14:58");
+    assert.equal(time.formatLocalClock(new Date(2026, 8, 30, 0, 5)), "00:05");
+    assert.equal(time.formatLocalClock("not a date"), "");
   });
   it("invalid input formats to an empty string", () => {
     assert.equal(time.formatDateTimeUTC("not a date"), "");

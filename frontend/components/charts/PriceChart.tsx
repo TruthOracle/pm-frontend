@@ -2,9 +2,9 @@
  * One market's Yes price over time, Kalshi-style: an area + line on a 0–100 % axis, a crosshair
  * tooltip, the live price as the last dot, and the range presets (1H · 6H · 1D · 1W · 1M · ALL).
  * Data is the backend's dense candlesticks (`GET /markets/:market/candlesticks`, one request per
- * preset, polled every 15 s); the live `currentPrice` is appended so the line ends at what the
- * pool quotes right now. Without the index (ledger-only deployment) there is no history to draw,
- * so the card says so instead of inventing a curve.
+ * preset, polled every 15 s), each close drawn at the end of its period; the live `currentPrice`
+ * is appended so the line ends at what the pool quotes right now. Without the index (ledger-only
+ * deployment) there is no history to draw, so the card says so instead of inventing a curve.
  */
 import { useLayoutEffect, useMemo } from "react";
 import { Area, AreaChart, CartesianGrid, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -56,11 +56,12 @@ export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesL
   // draw (the opening week gave way to the day), the chart shows it is loading instead.
   const stale = query.isPlaceholderData && candleCount < 2;
   const points = useMemo(() => {
-    const base = stale ? [] : candlesToPoints(query.data?.candlesticks ?? []);
-    const last = base[base.length - 1];
     const now = Date.now();
+    const base = stale ? [] : candlesToPoints(query.data?.candlesticks ?? [], now);
+    const last = base[base.length - 1];
     if (!last) return base;
-    // The last candle closed a moment ago; end the line at the price the pool quotes now.
+    // The running candle already ends now; the line ends at the pool's quote when that differs (a
+    // trade the index has not folded yet) or the last close is over a minute old.
     if (Math.abs(last.price - currentPrice) > 0.0005 || now - last.t > 60_000) return [...base, { t: Math.max(now, last.t + 1), price: currentPrice }];
     return base;
     // refreshKey only forces the memo to re-run after a trade landed (the query refetches on its own key)
@@ -72,14 +73,14 @@ export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesL
   const last = points[points.length - 1];
   const loading = query.isLoading || stale;
   const empty = indexed && !loading && points.length < 2;
-  // Judged on candles, not points: one hourly candle joined to the live price is no week of
-  // history. A layout effect, so a fallback to the day lands before the week is painted.
+  // Judged on candles, not points: a single candle joined to the live price is no history. A
+  // layout effect, so a fallback to the day lands before the week is painted.
   useLayoutEffect(() => {
     if (query.isSuccess && !query.isPlaceholderData) settle(tf, candleCount);
   }, [query.isSuccess, query.isPlaceholderData, tf, candleCount, settle]);
   // Axis scaled to the window's data (Polymarket-style), recomputed per timeframe / refetch.
   const yScale = useMemo(() => niceYScale(points.map((p) => p.price)), [points]);
-  // UTC-aligned ticks; the granularity decides the labels (clock, day or month).
+  // Ticks on the viewer's clock (lib/time.ts); the granularity decides the labels (clock, day or month).
   const xScale = useMemo(() => (points.length ? axisScale(points[0].t, points[points.length - 1].t, tf, variant === "compact" ? 4 : 6) : null), [points, tf, variant]);
   const xTicks = xScale?.ticks ?? [];
 
@@ -152,11 +153,6 @@ export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesL
           </ResponsiveContainer>
         )}
         {loading && indexed && <div className="chart-loading" aria-hidden="true" />}
-        {indexed && !query.isError && !empty && (
-          <span className="chart-tz" title="Times are in UTC">
-            UTC
-          </span>
-        )}
       </div>
       {showTabs && <TimeframeTabs value={tf} onChange={pick} className={cn("mt-3", variant === "full" && "sm:hidden")} />}
     </section>

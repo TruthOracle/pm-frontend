@@ -4,7 +4,10 @@
  * `timestamptz`, the candles' epoch-aligned buckets — and the UI shows and reads them in UTC too,
  * so a close time or a strike date reads the same for every viewer and matches the contract, the
  * backend and the resolution sources. 24-hour clock; "UTC" is spelled out wherever a clock time
- * stands on its own (chart axes carry one "UTC" marker instead of one per tick).
+ * stands on its own.
+ *
+ * Charts are the exception: their axes and tooltips follow the viewer's own clock (the browser's
+ * zone) with no zone marker, the way a price history is read on Kalshi or Polymarket.
  *
  * Durations and relative times ("44d 20h", "5h ago") are zone-free and live in chartData.ts.
  */
@@ -20,14 +23,17 @@ export function toMs(t: Instant): number {
   return Date.parse(t);
 }
 
+/** Where an instant is read: UTC, or the viewer's own zone (the browser's; charts only). */
+type Zone = "UTC" | "local";
+
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
-function formatter(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
-  const key = JSON.stringify(options);
+function formatter(options: Intl.DateTimeFormatOptions, zone: Zone): Intl.DateTimeFormat {
+  const key = `${zone} ${JSON.stringify(options)}`;
   let f = formatters.get(key);
   if (!f) {
-    // en-US fixes the vocabulary (month abbreviations, digit shapes); the zone is always UTC.
-    f = new Intl.DateTimeFormat("en-US", { ...options, timeZone: "UTC" });
+    // en-US fixes the vocabulary (month abbreviations, digit shapes); "local" leaves the zone to the browser.
+    f = new Intl.DateTimeFormat("en-US", zone === "UTC" ? { ...options, timeZone: "UTC" } : options);
     formatters.set(key, f);
   }
   return f;
@@ -35,9 +41,9 @@ function formatter(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
 
 type PartName = "year" | "month" | "day" | "hour" | "minute";
 
-function partsOf(ms: number, options: Intl.DateTimeFormatOptions): Record<PartName, string> {
+function partsOf(ms: number, options: Intl.DateTimeFormatOptions, zone: Zone): Record<PartName, string> {
   const out: Record<PartName, string> = { year: "", month: "", day: "", hour: "", minute: "" };
-  for (const p of formatter(options).formatToParts(ms)) {
+  for (const p of formatter(options, zone).formatToParts(ms)) {
     if (p.type === "year" || p.type === "month" || p.type === "day" || p.type === "hour" || p.type === "minute") out[p.type] = p.value;
   }
   return out;
@@ -45,9 +51,9 @@ function partsOf(ms: number, options: Intl.DateTimeFormatOptions): Record<PartNa
 
 const DATE_TIME: Intl.DateTimeFormatOptions = { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
 
-function dateTimeParts(t: Instant): Record<PartName, string> | null {
+function dateTimeParts(t: Instant, zone: Zone = "UTC"): Record<PartName, string> | null {
   const ms = toMs(t);
-  return Number.isFinite(ms) ? partsOf(ms, DATE_TIME) : null;
+  return Number.isFinite(ms) ? partsOf(ms, DATE_TIME, zone) : null;
 }
 
 /** `Sep 29, 2026, 14:58 UTC` */
@@ -81,15 +87,27 @@ export function formatClockUTC(t: Instant, { suffix = true }: { suffix?: boolean
   return suffix ? `${p.hour}:${p.minute} ${UTC_LABEL}` : `${p.hour}:${p.minute}`;
 }
 
+/** `14:58` on the viewer's own clock: a chart tooltip within the day. */
+export function formatLocalClock(t: Instant): string {
+  const p = dateTimeParts(t, "local");
+  return p ? `${p.hour}:${p.minute}` : "";
+}
+
+/** `Sep 23, 12:30` on the viewer's own clock: a chart tooltip over days. */
+export function formatLocalShortDateTime(t: Instant): string {
+  const p = dateTimeParts(t, "local");
+  return p ? `${p.month} ${p.day}, ${p.hour}:${p.minute}` : "";
+}
+
 /** What one axis step spans; decides how a tick is labelled. */
 export type AxisGranularity = "minute" | "hour" | "day" | "month";
 
 /**
- * A chart tick label: `14:30` for minute / hour ticks, `Sep 23` for day ticks, `Sep` for month
- * ticks (January shows the year instead, so year boundaries read at a glance).
+ * A chart tick label on the viewer's own clock: `14:30` for minute / hour ticks, `Sep 23` for day
+ * ticks, `Sep` for month ticks (January shows the year instead, so year boundaries read at a glance).
  */
 export function formatAxisLabel(t: Instant, granularity: AxisGranularity): string {
-  const p = dateTimeParts(t);
+  const p = dateTimeParts(t, "local");
   if (!p) return "";
   if (granularity === "minute" || granularity === "hour") return `${p.hour}:${p.minute}`;
   if (granularity === "day") return `${p.month} ${p.day}`;
