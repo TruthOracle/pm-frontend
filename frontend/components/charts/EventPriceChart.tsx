@@ -5,15 +5,16 @@
  * presets as the market chart. One request per preset (`GET /events/:ticker/candlesticks`
  * returns every market dense on one grid), polled every 15 s.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { EVENT_CHART_TOP_N, MUTED_SERIES_COLOR, alignSeries, axisScale, formatAxisTime, formatPercent, formatPointTime, niceYScale, rankMarketsForChart, seriesColor, type AlignedRow, type Timeframe } from "@/lib/chartData";
+import { EVENT_CHART_TOP_N, MUTED_SERIES_COLOR, OPENING_TIMEFRAME, alignSeries, axisScale, formatAxisTime, formatPercent, formatPointTime, niceYScale, rankMarketsForChart, seriesColor, type AlignedRow, type Timeframe } from "@/lib/chartData";
 import { useEventCandles } from "@/lib/marketQueries";
 import { toNumber, type ApiMarket } from "@/lib/marketsTypes";
 import { cn } from "@/lib/utils";
 import TimeframeTabs from "./TimeframeTabs";
 import { AXIS_TICK_STYLE, CHART_CURSOR, GRID_LINE_PROPS, SHOW_GRID, percentTick } from "./chartTheme";
 import { CHART_MARGIN, InsideXTick, LiveDot, X_AXIS_PADDING, Y_AXIS_WIDTH } from "./axis";
+import { useChartRange } from "./useChartRange";
 
 export interface EventPriceChartProps {
   eventTicker: string;
@@ -23,15 +24,18 @@ export interface EventPriceChartProps {
   onSelect?: (ticker: string) => void;
   /** Plot height in px, or a CSS length ("100%" fills a parent with a definite height). */
   height?: number | string;
+  /** The range the chart opens on (1W); one with nothing to draw gives way to 1D (useChartRange). */
   defaultTimeframe?: Timeframe;
   /** `compact` drops the header and shows the legend as a single row of chips (homepage hero). */
   variant?: "full" | "compact";
-  /** False pins the chart to `defaultTimeframe` with no range control (homepage hero). */
+  /** False drops the range control: the chart stays on its opening range (homepage hero). */
   showTabs?: boolean;
   /** `static` renders the legend as plain indicators: no select, no hide / show, no hover; `none` renders no legend (the trending board draws its own). */
   legend?: "interactive" | "static" | "none";
   className?: string;
 }
+
+const NO_ROWS: AlignedRow[] = [];
 
 interface SeriesMeta {
   ticker: string;
@@ -61,8 +65,8 @@ function TooltipBody({ active, payload, label, series, tf }: { active?: boolean;
   );
 }
 
-export default function EventPriceChart({ eventTicker, markets, selectedTicker = null, onSelect, height = 300, defaultTimeframe = "1W", variant = "full", showTabs = true, legend = "interactive", className }: EventPriceChartProps) {
-  const [tf, setTf] = useState<Timeframe>(defaultTimeframe);
+export default function EventPriceChart({ eventTicker, markets, selectedTicker = null, onSelect, height = 300, defaultTimeframe = OPENING_TIMEFRAME, variant = "full", showTabs = true, legend = "interactive", className }: EventPriceChartProps) {
+  const { tf, pick, settle } = useChartRange(defaultTimeframe);
   const ranked = useMemo(() => rankMarketsForChart(markets.filter((m) => !m.archived)), [markets]);
   const createdAt = useMemo(() => {
     const secs = ranked.map((m) => Math.floor(Date.parse(m.createdAt) / 1000)).filter((n) => Number.isFinite(n));
@@ -90,9 +94,18 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
     if (selectedTicker && series.has(selectedTicker)) setVisible((prev) => (prev.has(selectedTicker) ? prev : new Set(prev).add(selectedTicker)));
   }, [selectedTicker, series]);
 
-  const rows: AlignedRow[] = useMemo(() => alignSeries(query.data?.markets ?? []), [query.data]);
+  const answer: AlignedRow[] = useMemo(() => alignSeries(query.data?.markets ?? []), [query.data]);
+  // While a range loads, react-query keeps the previous range's lines; when those drew nothing
+  // (the opening week gave way to the day), the chart shows it is loading, not a stale "no trades".
+  const stale = query.isPlaceholderData && answer.length < 2;
+  const rows = stale ? NO_ROWS : answer;
+  const loading = query.isLoading || stale;
   const drawn = ranked.filter((m) => visible.has(m.ticker));
-  const empty = !query.isLoading && rows.length < 2;
+  const empty = !loading && rows.length < 2;
+  // A layout effect, so a fallback to the day lands before the week's empty state is painted.
+  useLayoutEffect(() => {
+    if (query.isSuccess && !query.isPlaceholderData) settle(tf, answer.length);
+  }, [query.isSuccess, query.isPlaceholderData, tf, answer.length, settle]);
   // Axis scaled to the visible lines (floor stays at 0 %: these are chances), recomputed when the
   // window or the visible set changes.
   const yScale = useMemo(() => {
@@ -140,7 +153,7 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
             <div className="chart-title">Chance of each outcome</div>
             <div className="chart-subtitle">{ranked.length} market{ranked.length === 1 ? "" : "s"} · Yes price · {tf === "ALL" ? "all time" : `past ${tf.toLowerCase()}`}</div>
           </div>
-          {showTabs && <TimeframeTabs value={tf} onChange={setTf} className="hidden sm:flex" />}
+          {showTabs && <TimeframeTabs value={tf} onChange={pick} className="hidden sm:flex" />}
         </header>
       )}
       <div className="chart-plot-area" style={{ height }}>
@@ -194,14 +207,14 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
             </LineChart>
           </ResponsiveContainer>
         )}
-        {query.isLoading && <div className="chart-loading" aria-hidden="true" />}
+        {loading && <div className="chart-loading" aria-hidden="true" />}
         {!query.isError && !empty && (
           <span className="chart-tz" title="Times are in UTC">
             UTC
           </span>
         )}
       </div>
-      {showTabs && <TimeframeTabs value={tf} onChange={setTf} className={cn("mt-3", variant === "full" && "sm:hidden")} />}
+      {showTabs && <TimeframeTabs value={tf} onChange={pick} className={cn("mt-3", variant === "full" && "sm:hidden")} />}
       {legend !== "none" && (
       <ul className={cn("chart-legend", variant === "compact" && "chart-legend-compact")} aria-label="Markets on this chart">
         {ranked.map((m) => {

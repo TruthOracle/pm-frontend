@@ -41,6 +41,26 @@ describe("timeframeWindow", () => {
   });
 });
 
+describe("settleRange (every chart opens on the past week)", () => {
+  const opening = { tf: chart.OPENING_TIMEFRAME, settled: false };
+  it("keeps the week when it draws a line", () => {
+    assert.equal(chart.OPENING_TIMEFRAME, "1W");
+    assert.deepEqual(chart.settleRange(opening, "1W", 2), { tf: "1W", settled: true });
+  });
+  it("gives way to the past day when the week has fewer than two candles (a market listed within the hour)", () => {
+    assert.deepEqual(chart.settleRange(opening, "1W", 1), { tf: "1D", settled: true });
+    assert.deepEqual(chart.settleRange(opening, "1W", 0), { tf: "1D", settled: true });
+  });
+  it("settles once: later answers and the reader's pick are never overridden", () => {
+    const fellBack = chart.settleRange(opening, "1W", 1);
+    assert.equal(chart.settleRange(fellBack, "1D", 0), fellBack);
+    const picked = { tf: "1W", settled: true };
+    assert.equal(chart.settleRange(picked, "1W", 0), picked);
+    // An answer for another range than the one shown changes nothing.
+    assert.equal(chart.settleRange(opening, "1D", 0), opening);
+  });
+});
+
 describe("points and alignment", () => {
   it("plots the close at the start of each period, in milliseconds, clamped to [0, 1]", () => {
     const points = chart.candlesToPoints([candle(100, 0.42), candle(160, 1.7), candle(220, -0.2)]);
@@ -214,6 +234,25 @@ describe("axis ticks (UTC)", () => {
     const hours = chart.axisScale(end - 20 * hour, end, "ALL", 6);
     assert.equal(hours.granularity, "hour");
     assert.ok(hours.ticks.length >= 2);
+  });
+  it("a span shorter than its preset's steps (a young market) still gets clock ticks", () => {
+    // Minute candles from 09:10 to 09:42 on 1D: hour steps would leave no tick, and recharts
+    // would then label all 33 points on top of each other.
+    const start = Date.UTC(2026, 8, 30, 9, 10);
+    const stop = Date.UTC(2026, 8, 30, 9, 42);
+    const day = chart.axisScale(start, stop, "1D", 6);
+    assert.equal(day.granularity, "minute");
+    assert.deepEqual(day.ticks.map((t) => chart.formatAxisTime(t, "1D", day.granularity)), ["09:10", "09:20", "09:30", "09:40"]);
+    // Five hours of hourly candles on 1W: hours, not one lonely midnight or none.
+    const week = chart.axisScale(Date.UTC(2026, 8, 30, 4), Date.UTC(2026, 8, 30, 9), "1W", 6);
+    assert.equal(week.granularity, "hour");
+    assert.equal(week.ticks.length, 6);
+    const all = chart.axisScale(start, stop, "ALL", 4);
+    assert.ok(all.ticks.length >= 2 && all.ticks.length <= 4, `count ${all.ticks.length}`);
+    for (const tf of chart.TIMEFRAMES) {
+      const n = chart.axisTicks(start, start + 5 * 60_000, tf).length;
+      assert.ok(n >= 2 && n <= 6, `${tf}: ${n} ticks`);
+    }
   });
   it("an empty or inverted window yields no ticks", () => {
     assert.deepEqual(chart.axisTicks(10, 5, "1H"), []);

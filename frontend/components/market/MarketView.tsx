@@ -1105,7 +1105,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-5">
-          <PriceChart marketRef={market.ticker || market.marketId} createdAtSec={market.createdAt} currentPrice={probYes} yesLabel={yesLabel !== "Yes" ? yesLabel : undefined} indexed={indexed} refreshKey={chartRefreshKey} height={280} />
+          <PriceChart key={market.ticker || market.marketId} marketRef={market.ticker || market.marketId} createdAtSec={market.createdAt} currentPrice={probYes} yesLabel={yesLabel !== "Yes" ? yesLabel : undefined} indexed={indexed} refreshKey={chartRefreshKey} height={280} />
 
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6">
             <div className="k-stat">

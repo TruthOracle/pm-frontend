@@ -10,6 +10,13 @@ import { formatAxisLabel, formatClockUTC, formatMonthDayUTC, formatShortDateTime
 export type Timeframe = "1H" | "6H" | "1D" | "1W" | "1M" | "ALL";
 export const TIMEFRAMES: Timeframe[] = ["1H", "6H", "1D", "1W", "1M", "ALL"];
 
+/**
+ * Every chart opens on the past week. A week with nothing to draw gives way to the past day
+ * (`settleRange`): a market listed within the hour has one hourly candle but a day of minute ones.
+ */
+export const OPENING_TIMEFRAME: Timeframe = "1W";
+export const FALLBACK_TIMEFRAME: Timeframe = "1D";
+
 /** Kalshi's presets: minute candles up to a day, hourly up to a month, daily for everything. */
 const TIMEFRAME_SPEC: Record<Timeframe, { seconds: number | null; period: CandlePeriod }> = {
   "1H": { seconds: 3600, period: 1 },
@@ -42,6 +49,23 @@ export function timeframeWindow(tf: Timeframe, nowSec: number, createdAtSec?: nu
   }
   const startTs = Math.max(endTs - spec.seconds, created ?? 0);
   return { periodInterval: spec.period, startTs, endTs };
+}
+
+/** A chart's range, and whether it is final: the reader picked it, or the opening range was checked. */
+export interface ChartRange {
+  tf: Timeframe;
+  settled: boolean;
+}
+
+/**
+ * The range once an answer for `answered` came back with `candles` periods. The opening range is
+ * kept when it draws a line (two candles or more) and otherwise gives way to the past day. Only
+ * its first answer counts: once settled nothing changes, so a range the reader picked is never
+ * overridden and the chart never jumps back when the week fills in.
+ */
+export function settleRange(range: ChartRange, answered: Timeframe, candles: number): ChartRange {
+  if (range.settled || range.tf !== answered) return range;
+  return { tf: candles >= 2 ? range.tf : FALLBACK_TIMEFRAME, settled: true };
 }
 
 /** Points the charts plot: the candle's close at the START of its period, in milliseconds. */
@@ -181,16 +205,17 @@ export function niceYScale(values: number[], opts: { floorAtZero?: boolean; maxT
   return { domain: [roundFrac(lo), roundFrac(hi)], ticks: [roundFrac(lo), roundFrac(hi)] };
 }
 
-/** Candidate x-tick steps per timeframe, in seconds, smallest first. */
-const X_STEPS: Record<Exclude<Timeframe, "ALL">, number[]> = {
-  "1H": [5 * 60, 10 * 60, 15 * 60, 30 * 60],
-  "6H": [30 * 60, 3600, 2 * 3600, 3 * 3600],
-  "1D": [2 * 3600, 3 * 3600, 4 * 3600, 6 * 3600, 12 * 3600],
+/**
+ * Candidate x-tick steps in seconds, smallest first. Clock steps (whole minutes, then whole hours)
+ * serve the intraday presets and every span too short for day steps: windows start at the
+ * market's creation, so a young market's day, week or whole history can span a few minutes.
+ */
+const CLOCK_STEPS = [1, 2, 5, 10, 15, 30].map((m) => m * 60).concat([1, 2, 3, 4, 6, 12].map((h) => h * 3600));
+const DAY_STEPS: Record<"1W" | "1M", number[]> = {
   "1W": [86_400, 2 * 86_400],
   "1M": [86_400, 2 * 86_400, 5 * 86_400, 7 * 86_400, 10 * 86_400],
 };
 /** ALL spans from the market's creation, so its steps follow how long that is. */
-const ALL_HOUR_STEPS = [3600, 2 * 3600, 3 * 3600, 4 * 3600, 6 * 3600, 12 * 3600];
 const ALL_DAY_STEPS = [1, 2, 5, 7, 10, 14].map((d) => d * 86_400);
 const MONTH_STEPS = [1, 2, 3, 6, 12];
 const DAY_MS = 86_400_000;
@@ -240,9 +265,11 @@ function monthTicks(startMs: number, endMs: number, months: number): number[] {
 /**
  * Evenly spaced x ticks inside `[startMs, endMs]` and how to label them, aligned to UTC
  * boundaries — minutes / hours for intraday presets, midnight for 1W and 1M, and for ALL whichever
- * of hours, days or first-of-month suits the span — choosing the smallest step that yields at most
- * `maxTicks`. The last data point is never forced to carry a label: the axis reads like a
- * calendar, not like a ruler ending at "now".
+ * of minutes, hours, days or first-of-month suits the span — choosing the smallest step that
+ * yields at most `maxTicks`. A span too short for day ticks (fewer than two) gets clock ticks
+ * instead, and a short span gets minute steps: with no ticks at all recharts labels every point,
+ * piling the labels on top of each other. The last data point is never forced to carry a label:
+ * the axis reads like a calendar, not like a ruler ending at "now".
  */
 export function axisScale(startMs: number, endMs: number, tf: Timeframe, maxTicks = 6): AxisScale {
   const none: AxisScale = { ticks: [], granularity: defaultGranularity(tf) };
@@ -255,18 +282,23 @@ export function axisScale(startMs: number, endMs: number, tf: Timeframe, maxTick
     }
     return null;
   };
+  const clock = (): AxisScale => pick(CLOCK_STEPS, (stepSec) => (stepSec < 3600 ? "minute" : "hour")) ?? none;
+  const daysOrClock = (steps: number[]): AxisScale => {
+    const days = pick(steps, () => "day");
+    return days && days.ticks.length >= 2 ? days : clock();
+  };
   if (tf === "ALL") {
     const span = endMs - startMs;
-    if (span <= 2 * DAY_MS) return pick(ALL_HOUR_STEPS, () => "hour") ?? { ticks: [], granularity: "hour" };
-    if (span <= 90 * DAY_MS) return pick(ALL_DAY_STEPS, () => "day") ?? { ticks: [], granularity: "day" };
+    if (span <= 2 * DAY_MS) return clock();
+    if (span <= 90 * DAY_MS) return daysOrClock(ALL_DAY_STEPS);
     for (const months of MONTH_STEPS) {
       const ticks = monthTicks(startMs, endMs, months);
       if (ticks.length <= limit) return { ticks, granularity: "month" };
     }
     return { ticks: [], granularity: "month" };
   }
-  if (tf === "1W" || tf === "1M") return pick(X_STEPS[tf], () => "day") ?? none;
-  return pick(X_STEPS[tf], (stepSec) => (stepSec < 3600 ? "minute" : "hour")) ?? none;
+  if (tf === "1W" || tf === "1M") return daysOrClock(DAY_STEPS[tf]);
+  return clock();
 }
 
 /** The tick instants of `axisScale`. */
