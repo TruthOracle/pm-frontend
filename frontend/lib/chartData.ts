@@ -5,27 +5,29 @@
  * test/chart-data.test.mjs.
  */
 import { toNumber, type ApiCandle, type ApiEventMarketCandles, type CandlePeriod, type Decimal } from "@/lib/marketsTypes";
-import { formatAxisLabel, formatClockUTC, formatMonthDayUTC, formatShortDateTimeUTC, type AxisGranularity } from "@/lib/time";
+import { formatAxisLabel, formatLocalClock, formatLocalShortDateTime, formatMonthDayUTC, type AxisGranularity } from "@/lib/time";
 
 export type Timeframe = "1H" | "6H" | "1D" | "1W" | "1M" | "ALL";
 export const TIMEFRAMES: Timeframe[] = ["1H", "6H", "1D", "1W", "1M", "ALL"];
 
-/**
- * Every chart opens on the past week. A week with nothing to draw gives way to the past day
- * (`settleRange`): a market listed within the hour has one hourly candle but a day of minute ones.
- */
+/** Every chart opens on the past week; a week with nothing to draw gives way to the past day (`settleRange`). */
 export const OPENING_TIMEFRAME: Timeframe = "1W";
 export const FALLBACK_TIMEFRAME: Timeframe = "1D";
 
-/** Kalshi's presets: minute candles up to a day, hourly up to a month, daily for everything. */
-const TIMEFRAME_SPEC: Record<Timeframe, { seconds: number | null; period: CandlePeriod }> = {
-  "1H": { seconds: 3600, period: 1 },
-  "6H": { seconds: 6 * 3600, period: 1 },
-  "1D": { seconds: 86_400, period: 1 },
-  "1W": { seconds: 7 * 86_400, period: 60 },
-  "1M": { seconds: 30 * 86_400, period: 60 },
-  ALL: { seconds: null, period: 1440 },
+/** How far back each preset reaches; ALL reaches back to creation (at most a year). */
+const TIMEFRAME_SECONDS: Record<Timeframe, number | null> = {
+  "1H": 3600,
+  "6H": 6 * 3600,
+  "1D": 86_400,
+  "1W": 7 * 86_400,
+  "1M": 30 * 86_400,
+  ALL: null,
 };
+
+/** The candle periods the backend keeps (minutes), finest first. */
+const CANDLE_PERIODS: CandlePeriod[] = [1, 60, 1440];
+/** The most candles a chart asks for per market: a day of minutes. */
+const MAX_CHART_CANDLES = 1440;
 
 export interface CandleWindow {
   periodInterval: CandlePeriod;
@@ -38,17 +40,21 @@ export interface CandleWindow {
  * (or event's) creation, at most a year back; every other preset is anchored at `nowSec` and
  * never starts before creation, so a young market's 1M chart does not begin with a month of
  * carried-forward blanks.
+ *
+ * The period is the finest that keeps the window within a day of minutes (1 440 candles), judged
+ * on the span actually drawn: over a full preset that is Kalshi's scheme (minutes up to a day,
+ * hours up to two months, days beyond), and a market younger than its window gets finer candles
+ * — an hour-old market's week is an hour of minutes, not one hourly candle that hides every move.
  */
 export function timeframeWindow(tf: Timeframe, nowSec: number, createdAtSec?: number | null): CandleWindow {
-  const spec = TIMEFRAME_SPEC[tf];
+  const reach = TIMEFRAME_SECONDS[tf];
   const created = createdAtSec && createdAtSec > 0 ? createdAtSec : null;
   const endTs = Math.floor(nowSec);
-  if (spec.seconds === null) {
-    const yearAgo = endTs - 365 * 86_400;
-    return { periodInterval: spec.period, startTs: Math.max(created ?? yearAgo, yearAgo), endTs };
-  }
-  const startTs = Math.max(endTs - spec.seconds, created ?? 0);
-  return { periodInterval: spec.period, startTs, endTs };
+  const yearAgo = endTs - 365 * 86_400;
+  const startTs = reach === null ? Math.max(created ?? yearAgo, yearAgo) : Math.max(endTs - reach, created ?? 0);
+  const span = endTs - startTs;
+  const periodInterval = CANDLE_PERIODS.find((p) => span / (p * 60) <= MAX_CHART_CANDLES) ?? 1440;
+  return { periodInterval, startTs, endTs };
 }
 
 /** A chart's range, and whether it is final: the reader picked it, or the opening range was checked. */
@@ -68,14 +74,32 @@ export function settleRange(range: ChartRange, answered: Timeframe, candles: num
   return { tf: candles >= 2 ? range.tf : FALLBACK_TIMEFRAME, settled: true };
 }
 
-/** Points the charts plot: the candle's close at the START of its period, in milliseconds. */
+/** A point the charts plot: a price and the instant it held, in milliseconds. */
 export interface PricePoint {
   t: number;
   price: number;
 }
 
-export function candlesToPoints(candles: ApiCandle[]): PricePoint[] {
-  return candles.map((c) => ({ t: c.startTs * 1000, price: clamp01(toNumber(c.price.close)) }));
+/**
+ * The line a market's candles draw: the price the window opens on (the close carried into it, or
+ * the first candle's open for a market created inside it), then each close at the END of its
+ * period, the moment that price held. The period still running ends at `nowMs`, and anything
+ * clamped onto the same instant keeps only the latest close. Plotting a close at its period's
+ * start would pull every move back a whole period: an hourly candle that closed at 100 % after a
+ * jump at 09:30 would claim 100 % from 09:00.
+ */
+export function candlesToPoints(candles: ApiCandle[], nowMs = Date.now()): PricePoint[] {
+  const first = candles[0];
+  if (!first) return [];
+  const points: PricePoint[] = [{ t: first.startTs * 1000, price: clamp01(toNumber(first.price.previous ?? first.price.open)) }];
+  for (const c of candles) {
+    const t = Math.min(c.endTs * 1000, nowMs);
+    const price = clamp01(toNumber(c.price.close));
+    const last = points[points.length - 1];
+    if (t <= last.t) last.price = price;
+    else points.push({ t, price });
+  }
+  return points;
 }
 
 export function clamp01(v: number): number {
@@ -89,18 +113,17 @@ export interface AlignedRow {
 }
 
 /**
- * Aligns the event's markets on one grid. The backend already returns them dense and aligned; this
- * still merges by timestamp so a market that lacks a bucket (or a slightly different grid) never
- * shifts another market's line.
+ * Aligns the event's markets on one grid, each drawn like `candlesToPoints` with the same `nowMs`.
+ * The backend already returns them dense and aligned; this still merges by timestamp so a market
+ * that lacks a bucket (or starts later) never shifts another market's line.
  */
-export function alignSeries(markets: Pick<ApiEventMarketCandles, "ticker" | "candlesticks">[]): AlignedRow[] {
+export function alignSeries(markets: Pick<ApiEventMarketCandles, "ticker" | "candlesticks">[], nowMs = Date.now()): AlignedRow[] {
   const rows = new Map<number, AlignedRow>();
   for (const m of markets) {
-    for (const c of m.candlesticks) {
-      const t = c.startTs * 1000;
-      const row = rows.get(t) ?? { t };
-      row[m.ticker] = clamp01(toNumber(c.price.close));
-      rows.set(t, row);
+    for (const p of candlesToPoints(m.candlesticks, nowMs)) {
+      const row = rows.get(p.t) ?? { t: p.t };
+      row[m.ticker] = p.price;
+      rows.set(p.t, row);
     }
   }
   return [...rows.values()].sort((a, b) => a.t - b.t);
@@ -235,36 +258,60 @@ function defaultGranularity(tf: Timeframe): AxisGranularity {
 }
 
 /**
- * Multiples of the step counted from the epoch. The epoch is 00:00 UTC, so these land on whole
- * UTC minutes, whole UTC hours and UTC midnights — the same boundaries the backend buckets its
- * candles on.
+ * Ticks every `stepSec` on the viewer's clock (charts read in the browser's zone, lib/time.ts):
+ * under a day, whole multiples of the step counted from each local midnight, so a viewer at
+ * +05:30 gets 15:00 rather than 14:30; from a day up, the local midnights whose calendar day
+ * number is a multiple of the step in days. Built from local calendar fields rather than by adding
+ * milliseconds, so a daylight-saving day keeps its ticks on the hour. Stops once past `max`: the
+ * caller then tries a larger step.
  */
-function evenTicks(startMs: number, endMs: number, stepSec: number): number[] {
-  const stepMs = stepSec * 1000;
+function localTicks(startMs: number, endMs: number, stepSec: number, max: number): number[] {
   const ticks: number[] = [];
-  for (let t = Math.ceil(startMs / stepMs) * stepMs; t <= endMs; t += stepMs) ticks.push(t);
-  return ticks;
+  const first = new Date(startMs);
+  if (stepSec >= 86_400) {
+    const days = stepSec / 86_400;
+    for (let d = new Date(first.getFullYear(), first.getMonth(), first.getDate()); d.getTime() <= endMs; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+      // The calendar day as a number (days since 1970-01-01), whatever the zone.
+      if (d.getTime() < startMs || Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / DAY_MS) % days !== 0) continue;
+      ticks.push(d.getTime());
+      if (ticks.length > max) break;
+    }
+    return ticks;
+  }
+  const stepMin = stepSec / 60;
+  for (let day = 0; ; day += 1) {
+    const midnight = new Date(first.getFullYear(), first.getMonth(), first.getDate() + day);
+    if (midnight.getTime() > endMs) return ticks;
+    const from = day === 0 ? Math.floor((first.getHours() * 60 + first.getMinutes()) / stepMin) * stepMin : 0;
+    for (let m = from; m < 1440; m += stepMin) {
+      const t = new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate(), 0, m).getTime();
+      if (t > endMs) return ticks;
+      // A skipped daylight-saving hour folds two wall-clock times onto one instant: keep it once.
+      if (t < startMs || t <= (ticks[ticks.length - 1] ?? -Infinity)) continue;
+      ticks.push(t);
+      if (ticks.length > max) return ticks;
+    }
+  }
 }
 
-/** First-of-month (00:00 UTC) ticks every `months` months, from the first one inside the range. */
+/** First-of-month (local midnight) ticks every `months` months, from the first one inside the range. */
 function monthTicks(startMs: number, endMs: number, months: number): number[] {
   const s = new Date(startMs);
-  let year = s.getUTCFullYear();
-  let month = s.getUTCMonth();
-  if (Date.UTC(year, month, 1) < startMs) month += 1;
+  const year = s.getFullYear();
+  let month = s.getMonth();
+  if (new Date(year, month, 1).getTime() < startMs) month += 1;
   const ticks: number[] = [];
-  for (let t = Date.UTC(year, month, 1); t <= endMs; t = Date.UTC(year, month, 1)) {
+  // The Date constructor carries a month past December into the next year.
+  for (let t = new Date(year, month, 1).getTime(); t <= endMs; t = new Date(year, month, 1).getTime()) {
     ticks.push(t);
     month += months;
-    year += Math.floor(month / 12);
-    month %= 12;
   }
   return ticks;
 }
 
 /**
- * Evenly spaced x ticks inside `[startMs, endMs]` and how to label them, aligned to UTC
- * boundaries — minutes / hours for intraday presets, midnight for 1W and 1M, and for ALL whichever
+ * Evenly spaced x ticks inside `[startMs, endMs]` and how to label them, aligned to the viewer's
+ * clock — minutes / hours for intraday presets, midnight for 1W and 1M, and for ALL whichever
  * of minutes, hours, days or first-of-month suits the span — choosing the smallest step that
  * yields at most `maxTicks`. A span too short for day ticks (fewer than two) gets clock ticks
  * instead, and a short span gets minute steps: with no ticks at all recharts labels every point,
@@ -277,7 +324,7 @@ export function axisScale(startMs: number, endMs: number, tf: Timeframe, maxTick
   const limit = Math.max(2, maxTicks);
   const pick = (steps: number[], granularityOf: (stepSec: number) => AxisGranularity): AxisScale | null => {
     for (const stepSec of steps) {
-      const ticks = evenTicks(startMs, endMs, stepSec);
+      const ticks = localTicks(startMs, endMs, stepSec, limit);
       if (ticks.length <= limit) return { ticks, granularity: granularityOf(stepSec) };
     }
     return null;
@@ -336,14 +383,14 @@ export function windowDelta(points: PricePoint[]): Delta | null {
   return priceDelta(points[points.length - 1].price, points[0].price);
 }
 
-/** Axis tick label (UTC) for a timestamp (ms): pass the scale's granularity; the timeframe's default otherwise. */
+/** Axis tick label (viewer's clock) for a timestamp (ms): pass the scale's granularity; the timeframe's default otherwise. */
 export function formatAxisTime(tMs: number, tf: Timeframe, granularity?: AxisGranularity): string {
   return formatAxisLabel(tMs, granularity ?? defaultGranularity(tf));
 }
 
-/** Tooltip time (UTC): the clock for intraday windows, date and clock for longer ones. */
+/** Tooltip time (viewer's clock): the clock for intraday windows, date and clock for longer ones. */
 export function formatPointTime(tMs: number, tf: Timeframe): string {
-  return tf === "1H" || tf === "6H" || tf === "1D" ? formatClockUTC(tMs) : formatShortDateTimeUTC(tMs);
+  return tf === "1H" || tf === "6H" || tf === "1D" ? formatLocalClock(tMs) : formatLocalShortDateTime(tMs);
 }
 
 /** `1.2k CC`, `3.4M CC`, `812 CC` — the compact volume figure of a card. */

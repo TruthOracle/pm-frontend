@@ -37,7 +37,8 @@ export function anchoredWindow(tf: Timeframe, createdAtSec?: number | null, nowM
 export function useMarketCandles(ref: string | number | null, tf: Timeframe, createdAtSec?: number | null, enabled = true): UseQueryResult<ApiCandlesticks> {
   const win = anchoredWindow(tf, createdAtSec);
   return useQuery({
-    queryKey: ["market-candles", String(ref), tf, win.startTs, win.endTs],
+    // Keyed by the window, not the preset: a young market's ranges resolve to one window and share one fetch.
+    queryKey: ["market-candles", String(ref), win.periodInterval, win.startTs, win.endTs],
     queryFn: () => fetchCandlesticks(ref as string | number, win),
     enabled: enabled && ref !== null && ref !== "",
     ...live,
@@ -48,7 +49,7 @@ export function useMarketCandles(ref: string | number | null, tf: Timeframe, cre
 export function useEventCandles(ticker: string | null, tf: Timeframe, createdAtSec?: number | null, enabled = true): UseQueryResult<ApiEventCandlesticks> {
   const win = anchoredWindow(tf, createdAtSec);
   return useQuery({
-    queryKey: ["event-candles", ticker, tf, win.startTs, win.endTs],
+    queryKey: ["event-candles", ticker, win.periodInterval, win.startTs, win.endTs],
     queryFn: () => fetchEventCandlesticks(ticker as string, win),
     enabled: enabled && !!ticker,
     ...live,

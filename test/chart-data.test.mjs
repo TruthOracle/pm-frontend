@@ -8,6 +8,9 @@ import { register } from "node:module";
 
 register("./_support/frontend-loader.mjs", import.meta.url);
 globalThis.__VITE_ENV__ = { VITE_BACKEND_PROXY_URL: "/__backend" };
+// Chart axes and tooltips follow the viewer's clock. India (+05:30, no daylight saving) puts
+// every whole local hour on a half UTC hour, so a tick still aligned to UTC shows up at once.
+process.env.TZ = "Asia/Kolkata";
 
 const chart = await import("../frontend/lib/chartData.ts");
 
@@ -39,6 +42,15 @@ describe("timeframeWindow", () => {
     assert.deepEqual(chart.timeframeWindow("ALL", now, now - 900 * 86_400), { periodInterval: 1440, startTs: now - 365 * 86_400, endTs: now });
     assert.equal(chart.timeframeWindow("ALL", now, null).startTs, now - 365 * 86_400);
   });
+  it("picks the finest candles that keep the drawn span within a day of minutes", () => {
+    // An hour-old market: every range is an hour of minute candles, not one hourly or daily candle.
+    const hourOld = now - 3600;
+    for (const tf of ["1W", "1M", "ALL"]) assert.equal(chart.timeframeWindow(tf, now, hourOld).periodInterval, 1, tf);
+    assert.equal(chart.timeframeWindow("1W", now, now - 20 * 3600).periodInterval, 1);
+    assert.equal(chart.timeframeWindow("1W", now, now - 3 * 86_400).periodInterval, 60);
+    assert.equal(chart.timeframeWindow("ALL", now, now - 20 * 86_400).periodInterval, 60);
+    assert.equal(chart.timeframeWindow("ALL", now, now - 90 * 86_400).periodInterval, 1440);
+  });
 });
 
 describe("settleRange (every chart opens on the past week)", () => {
@@ -62,23 +74,49 @@ describe("settleRange (every chart opens on the past week)", () => {
 });
 
 describe("points and alignment", () => {
-  it("plots the close at the start of each period, in milliseconds, clamped to [0, 1]", () => {
-    const points = chart.candlesToPoints([candle(100, 0.42), candle(160, 1.7), candle(220, -0.2)]);
+  // Long after every candle here, so nothing is clamped to "now".
+  const later = Date.UTC(2100, 0, 1);
+  it("opens at the first price, then plots each close at the end of its period, in ms, clamped to [0, 1]", () => {
+    const points = chart.candlesToPoints([candle(100, 0.42), candle(160, 1.7), candle(220, -0.2)], later);
     assert.deepEqual(points, [
       { t: 100_000, price: 0.42 },
-      { t: 160_000, price: 1 },
-      { t: 220_000, price: 0 },
+      { t: 160_000, price: 0.42 },
+      { t: 220_000, price: 1 },
+      { t: 280_000, price: 0 },
+    ]);
+  });
+  it("draws a jump inside a period where it happened, not at the period's start", () => {
+    // 09:00–10:00 opened at 2 % and closed at 100 % after a jump at 09:30.
+    const h9 = Date.UTC(2026, 8, 30, 9) / 1000;
+    const hour = candle(h9, 1, { endTs: h9 + 3600, price: { open: "0.02", high: "1", low: "0.0001", close: "1", mean: "0.5", previous: null } });
+    assert.deepEqual(chart.candlesToPoints([hour], later), [
+      { t: h9 * 1000, price: 0.02 },
+      { t: (h9 + 3600) * 1000, price: 1 },
+    ]);
+  });
+  it("starts at the close carried into the window and ends the running period now", () => {
+    const carried = candle(100, 0.6, { price: { open: "0.6", high: "0.6", low: "0.6", close: "0.6", mean: "0.6", previous: "0.55" } });
+    // Now is 190 s: the second period (160–220) is still running, the third has not begun.
+    const points = chart.candlesToPoints([carried, candle(160, 0.7), candle(220, 0.8)], 190_000);
+    assert.deepEqual(points, [
+      { t: 100_000, price: 0.55 },
+      { t: 160_000, price: 0.6 },
+      { t: 190_000, price: 0.8 },
     ]);
   });
   it("merges markets by timestamp so a missing bucket never shifts another line", () => {
-    const rows = chart.alignSeries([
-      { ticker: "A", candlesticks: [candle(100, 0.5), candle(160, 0.6), candle(220, 0.7)] },
-      { ticker: "B", candlesticks: [candle(100, 0.2), candle(220, 0.3)] },
-    ]);
+    const rows = chart.alignSeries(
+      [
+        { ticker: "A", candlesticks: [candle(100, 0.5), candle(160, 0.6), candle(220, 0.7)] },
+        { ticker: "B", candlesticks: [candle(100, 0.2), candle(220, 0.3)] },
+      ],
+      later,
+    );
     assert.deepEqual(rows, [
       { t: 100_000, A: 0.5, B: 0.2 },
-      { t: 160_000, A: 0.6 },
-      { t: 220_000, A: 0.7, B: 0.3 },
+      { t: 160_000, A: 0.5, B: 0.2 },
+      { t: 220_000, A: 0.6 },
+      { t: 280_000, A: 0.7, B: 0.3 },
     ]);
   });
   it("ranks markets for the chart by volume, then price", () => {
@@ -177,55 +215,62 @@ describe("axis scaling (Polymarket-style)", () => {
   });
 });
 
-describe("axis ticks (UTC)", () => {
+describe("axis ticks (viewer's clock)", () => {
   const day = 86_400_000;
   const hour = 3_600_000;
-  // A fixed "now" so the expectations never depend on when (or in which zone) the suite runs.
-  const end = Date.UTC(2026, 8, 29, 14, 37, 12);
-  it("1W: one tick per UTC midnight, evenly spaced, inside the window, at most six, labelled by day", () => {
+  // A fixed "now" so the expectations never depend on when the suite runs.
+  const end = new Date(2026, 8, 29, 14, 37, 12).getTime();
+  const localMinuteOfDay = (t) => new Date(t).getHours() * 60 + new Date(t).getMinutes();
+  it("1W: one tick per local midnight, evenly spaced, inside the window, at most six, labelled by day", () => {
     const start = end - 7 * day;
     const { ticks, granularity } = chart.axisScale(start, end, "1W", 6);
     assert.equal(granularity, "day");
     assert.ok(ticks.length >= 3 && ticks.length <= 6, `count ${ticks.length}`);
     for (const t of ticks) {
       assert.ok(t >= start && t <= end);
-      assert.equal(t % day, 0, "UTC midnight");
+      assert.equal(localMinuteOfDay(t), 0, "local midnight");
     }
     const step = ticks[1] - ticks[0];
     for (let i = 2; i < ticks.length; i += 1) assert.equal(ticks[i] - ticks[i - 1], step);
-    assert.equal(chart.formatAxisTime(Date.UTC(2026, 8, 23), "1W", granularity), "Sep 23");
+    assert.equal(chart.formatAxisTime(new Date(2026, 8, 23).getTime(), "1W", granularity), "Sep 23");
   });
-  it("1D: whole UTC hours with the smallest step that fits, labelled by the UTC clock", () => {
+  it("1D: whole local hours with the smallest step that fits, labelled by the local clock", () => {
     const { ticks, granularity } = chart.axisScale(end - day, end, "1D", 6);
     assert.equal(granularity, "hour");
     assert.ok(ticks.length >= 4 && ticks.length <= 6, `count ${ticks.length}`);
-    for (const t of ticks) assert.equal(t % hour, 0, "whole UTC hour");
+    for (const t of ticks) assert.equal(new Date(t).getMinutes(), 0, "whole local hour");
     const step = ticks[1] - ticks[0];
     for (let i = 2; i < ticks.length; i += 1) assert.equal(ticks[i] - ticks[i - 1], step);
-    assert.equal(chart.formatAxisTime(Date.UTC(2026, 8, 29, 4), "1D", granularity), "04:00");
-    assert.equal(chart.formatAxisTime(Date.UTC(2026, 8, 29, 0), "1D", granularity), "00:00");
+    assert.equal(chart.formatAxisTime(new Date(2026, 8, 29, 4).getTime(), "1D", granularity), "04:00");
+    assert.equal(chart.formatAxisTime(new Date(2026, 8, 29, 0).getTime(), "1D", granularity), "00:00");
+  });
+  it("follows the viewer's clock, not UTC: at +05:30 the hours land on half UTC hours", () => {
+    // 00:00–06:00 UTC is 05:30–11:30 in India: hourly ticks read 06:00 … 11:00 there.
+    const { ticks, granularity } = chart.axisScale(Date.UTC(2026, 8, 29, 0), Date.UTC(2026, 8, 29, 6), "6H", 6);
+    assert.deepEqual(ticks.map((t) => chart.formatAxisTime(t, "6H", granularity)), ["06:00", "07:00", "08:00", "09:00", "10:00", "11:00"]);
+    for (const t of ticks) assert.equal(new Date(t).getUTCMinutes(), 30);
+    assert.equal(chart.formatAxisTime(Date.UTC(2026, 8, 29, 4), "1D", "hour"), "09:30");
   });
   it("1H: minute ticks", () => {
     const { ticks, granularity } = chart.axisScale(end - hour, end, "1H", 6);
     assert.equal(granularity, "minute");
-    for (const t of ticks) assert.equal(t % (5 * 60_000), 0);
+    for (const t of ticks) assert.equal(new Date(t).getMinutes() % 5, 0);
   });
   it("compact charts ask for fewer ticks and get a larger step", () => {
     const many = chart.axisTicks(end - 30 * day, end, "1M", 6);
     const few = chart.axisTicks(end - 30 * day, end, "1M", 4);
     assert.ok(few.length <= 4 && few.length < many.length);
   });
-  it("ALL over a year: first-of-month ticks at 00:00 UTC, January labelled with the year", () => {
+  it("ALL over a year: first-of-month ticks at local midnight, January labelled with the year", () => {
     const { ticks, granularity } = chart.axisScale(end - 365 * day, end, "ALL", 6);
     assert.equal(granularity, "month");
     assert.ok(ticks.length >= 2 && ticks.length <= 6);
     for (const t of ticks) {
-      const d = new Date(t);
-      assert.equal(d.getUTCDate(), 1);
-      assert.equal(t % day, 0);
+      assert.equal(new Date(t).getDate(), 1);
+      assert.equal(localMinuteOfDay(t), 0);
     }
-    assert.equal(chart.formatAxisTime(Date.UTC(2026, 8, 1), "ALL", "month"), "Sep");
-    assert.equal(chart.formatAxisTime(Date.UTC(2027, 0, 1), "ALL", "month"), "2027");
+    assert.equal(chart.formatAxisTime(new Date(2026, 8, 1).getTime(), "ALL", "month"), "Sep");
+    assert.equal(chart.formatAxisTime(new Date(2027, 0, 1).getTime(), "ALL", "month"), "2027");
   });
   it("ALL over a young market: day or hour ticks instead of an empty month axis", () => {
     const days = chart.axisScale(end - 10 * day, end, "ALL", 6);
@@ -238,13 +283,13 @@ describe("axis ticks (UTC)", () => {
   it("a span shorter than its preset's steps (a young market) still gets clock ticks", () => {
     // Minute candles from 09:10 to 09:42 on 1D: hour steps would leave no tick, and recharts
     // would then label all 33 points on top of each other.
-    const start = Date.UTC(2026, 8, 30, 9, 10);
-    const stop = Date.UTC(2026, 8, 30, 9, 42);
-    const day = chart.axisScale(start, stop, "1D", 6);
-    assert.equal(day.granularity, "minute");
-    assert.deepEqual(day.ticks.map((t) => chart.formatAxisTime(t, "1D", day.granularity)), ["09:10", "09:20", "09:30", "09:40"]);
+    const start = new Date(2026, 8, 30, 9, 10).getTime();
+    const stop = new Date(2026, 8, 30, 9, 42).getTime();
+    const oneDay = chart.axisScale(start, stop, "1D", 6);
+    assert.equal(oneDay.granularity, "minute");
+    assert.deepEqual(oneDay.ticks.map((t) => chart.formatAxisTime(t, "1D", oneDay.granularity)), ["09:10", "09:20", "09:30", "09:40"]);
     // Five hours of hourly candles on 1W: hours, not one lonely midnight or none.
-    const week = chart.axisScale(Date.UTC(2026, 8, 30, 4), Date.UTC(2026, 8, 30, 9), "1W", 6);
+    const week = chart.axisScale(new Date(2026, 8, 30, 4).getTime(), new Date(2026, 8, 30, 9).getTime(), "1W", 6);
     assert.equal(week.granularity, "hour");
     assert.equal(week.ticks.length, 6);
     const all = chart.axisScale(start, stop, "ALL", 4);
@@ -254,13 +299,30 @@ describe("axis ticks (UTC)", () => {
       assert.ok(n >= 2 && n <= 6, `${tf}: ${n} ticks`);
     }
   });
+  it("keeps whole local hours and midnights across a daylight-saving change", () => {
+    const zone = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      // Nov 1, 2026: New York falls back at 02:00, so the day lasts 25 hours; adding fixed
+      // milliseconds would slide every later tick off the hour.
+      const { ticks } = chart.axisScale(new Date(2026, 10, 1).getTime(), new Date(2026, 10, 2).getTime(), "1D", 6);
+      assert.deepEqual(ticks.map((t) => new Date(t).getHours()), [0, 6, 12, 18, 0]);
+      for (const t of ticks) assert.equal(new Date(t).getMinutes(), 0);
+      const week = chart.axisScale(new Date(2026, 9, 28).getTime(), new Date(2026, 10, 4).getTime(), "1W", 6);
+      assert.ok(week.ticks.length >= 3);
+      for (const t of week.ticks) assert.equal(localMinuteOfDay(t), 0, "local midnight");
+    } finally {
+      process.env.TZ = zone;
+    }
+  });
   it("an empty or inverted window yields no ticks", () => {
     assert.deepEqual(chart.axisTicks(10, 5, "1H"), []);
   });
-  it("tooltips read in UTC", () => {
+  it("tooltips read on the viewer's clock, with no zone marker", () => {
+    // 12:30 UTC is 18:00 in India.
     const t = Date.UTC(2026, 8, 23, 12, 30);
-    assert.equal(chart.formatPointTime(t, "1D"), "12:30 UTC");
-    assert.equal(chart.formatPointTime(t, "1W"), "Sep 23, 12:30 UTC");
+    assert.equal(chart.formatPointTime(t, "1D"), "18:00");
+    assert.equal(chart.formatPointTime(t, "1W"), "Sep 23, 18:00");
   });
 });
 
