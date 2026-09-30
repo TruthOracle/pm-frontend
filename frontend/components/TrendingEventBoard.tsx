@@ -2,8 +2,8 @@
  * The homepage trending board, modelled on Kalshi's event board: the three most traded events
  * of the day in a manual carousel. Top: series tile and name, the carousel controls, the event
  * title. Left: a Market / Pays out / Odds table, the event's figures and an About blurb. Right:
- * a static legend, the brand mark and the week-long multi-line chart, which fills the column
- * down to the About's last line. Every slide has the same geometry (three row slots, one-line
+ * a static legend, the brand mark and the multi-line chart (the past week, or the past day when
+ * the week has nothing to draw), which fills the column down to the About's last line. Every slide has the same geometry (three row slots, one-line
  * title, three-line About), so paging through the carousel never changes the card's height.
  */
 import { useEffect, useState, type ReactNode } from "react";
@@ -19,8 +19,6 @@ import { barWidthPercent, outcomeRows, rowsHaveOwnImages } from "@/lib/outcomeRo
 
 /** Row slots on every slide, as on Kalshi's board; events with more outcomes link to the rest. */
 const MAX_ROWS = 2;
-/** The board is fixed to the past week: enough history to read, no range control. */
-const BOARD_TIMEFRAME = "1W" as const;
 
 function useSeriesTitle(ticker: string) {
   return useQuery({
@@ -142,7 +140,7 @@ function BoardEvent({ event, nav }: { event: ApiEvent; nav: ReactNode }) {
             </Link>
           </div>
           <div className="board-chart-wrap">
-            <EventPriceChart key={event.ticker} eventTicker={event.ticker} markets={markets} variant="compact" showTabs={false} legend="none" height="100%" defaultTimeframe={BOARD_TIMEFRAME} className="board-chart" />
+            <EventPriceChart key={event.ticker} eventTicker={event.ticker} markets={markets} variant="compact" showTabs={false} legend="none" height="100%" className="board-chart" />
           </div>
         </div>
       </div>

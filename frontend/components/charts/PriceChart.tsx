@@ -6,14 +6,15 @@
  * pool quotes right now. Without the index (ledger-only deployment) there is no history to draw,
  * so the card says so instead of inventing a curve.
  */
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo } from "react";
 import { Area, AreaChart, CartesianGrid, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { axisScale, candlesToPoints, formatAxisTime, formatPercent, formatPointTime, niceYScale, windowDelta, type PricePoint, type Timeframe } from "@/lib/chartData";
+import { OPENING_TIMEFRAME, axisScale, candlesToPoints, formatAxisTime, formatPercent, formatPointTime, niceYScale, windowDelta, type PricePoint, type Timeframe } from "@/lib/chartData";
 import { useMarketCandles } from "@/lib/marketQueries";
 import { cn } from "@/lib/utils";
 import TimeframeTabs from "./TimeframeTabs";
 import { AXIS_TICK_STYLE, CHART_CURSOR, GRID_LINE_PROPS, NO_COLOR, SHOW_GRID, YES_COLOR, percentTick } from "./chartTheme";
 import { CHART_MARGIN, InsideXTick, LiveDot, X_AXIS_PADDING, Y_AXIS_WIDTH } from "./axis";
+import { useChartRange } from "./useChartRange";
 
 export interface PriceChartProps {
   marketRef: string | number;
@@ -26,9 +27,10 @@ export interface PriceChartProps {
   indexed?: boolean;
   /** `compact` drops the headline (the caller shows the price) and the tabs sit below. */
   variant?: "full" | "compact";
-  /** False pins the chart to `defaultTimeframe` with no range control (homepage hero). */
+  /** False drops the range control: the chart stays on its opening range (homepage hero). */
   showTabs?: boolean;
   height?: number;
+  /** The range the chart opens on (1W); one with nothing to draw gives way to 1D (useChartRange). */
   defaultTimeframe?: Timeframe;
   /** Bumps when a trade of this tab landed, to refetch at once. */
   refreshKey?: number;
@@ -46,11 +48,15 @@ function TooltipBody({ active, payload, tf }: { active?: boolean; payload?: Arra
   );
 }
 
-export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesLabel, indexed = true, variant = "full", showTabs = true, height = 260, defaultTimeframe = "1D", refreshKey = 0, className }: PriceChartProps) {
-  const [tf, setTf] = useState<Timeframe>(defaultTimeframe);
+export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesLabel, indexed = true, variant = "full", showTabs = true, height = 260, defaultTimeframe = OPENING_TIMEFRAME, refreshKey = 0, className }: PriceChartProps) {
+  const { tf, pick, settle } = useChartRange(defaultTimeframe);
   const query = useMarketCandles(marketRef, tf, createdAtSec, indexed);
+  const candleCount = query.data?.candlesticks.length ?? 0;
+  // While a range loads, react-query keeps the previous range's line; when that had nothing to
+  // draw (the opening week gave way to the day), the chart shows it is loading instead.
+  const stale = query.isPlaceholderData && candleCount < 2;
   const points = useMemo(() => {
-    const base = candlesToPoints(query.data?.candlesticks ?? []);
+    const base = stale ? [] : candlesToPoints(query.data?.candlesticks ?? []);
     const last = base[base.length - 1];
     const now = Date.now();
     if (!last) return base;
@@ -59,12 +65,18 @@ export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesL
     return base;
     // refreshKey only forces the memo to re-run after a trade landed (the query refetches on its own key)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query.data, currentPrice, refreshKey]);
+  }, [query.data, stale, currentPrice, refreshKey]);
   const delta = windowDelta(points);
   const deltaColor = delta?.direction === "up" ? "text-oracle-yes" : delta?.direction === "down" ? "text-oracle-no" : "text-slate-500";
   const lineColor = delta?.direction === "down" ? NO_COLOR : YES_COLOR;
   const last = points[points.length - 1];
-  const empty = indexed && !query.isLoading && points.length < 2;
+  const loading = query.isLoading || stale;
+  const empty = indexed && !loading && points.length < 2;
+  // Judged on candles, not points: one hourly candle joined to the live price is no week of
+  // history. A layout effect, so a fallback to the day lands before the week is painted.
+  useLayoutEffect(() => {
+    if (query.isSuccess && !query.isPlaceholderData) settle(tf, candleCount);
+  }, [query.isSuccess, query.isPlaceholderData, tf, candleCount, settle]);
   // Axis scaled to the window's data (Polymarket-style), recomputed per timeframe / refetch.
   const yScale = useMemo(() => niceYScale(points.map((p) => p.price)), [points]);
   // UTC-aligned ticks; the granularity decides the labels (clock, day or month).
@@ -92,7 +104,7 @@ export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesL
               {delta ? `${delta.text} pts` : "—"} <span className="text-slate-400">{tf === "ALL" ? "all time" : `past ${tf.toLowerCase()}`}</span>
             </div>
           </div>
-          {showTabs && <TimeframeTabs value={tf} onChange={setTf} className="hidden sm:flex" />}
+          {showTabs && <TimeframeTabs value={tf} onChange={pick} className="hidden sm:flex" />}
         </header>
       )}
       <div className="chart-plot-area" style={{ height }}>
@@ -139,14 +151,14 @@ export default function PriceChart({ marketRef, createdAtSec, currentPrice, yesL
             </AreaChart>
           </ResponsiveContainer>
         )}
-        {query.isLoading && indexed && <div className="chart-loading" aria-hidden="true" />}
+        {loading && indexed && <div className="chart-loading" aria-hidden="true" />}
         {indexed && !query.isError && !empty && (
           <span className="chart-tz" title="Times are in UTC">
             UTC
           </span>
         )}
       </div>
-      {showTabs && <TimeframeTabs value={tf} onChange={setTf} className={cn("mt-3", variant === "full" && "sm:hidden")} />}
+      {showTabs && <TimeframeTabs value={tf} onChange={pick} className={cn("mt-3", variant === "full" && "sm:hidden")} />}
     </section>
   );
 }

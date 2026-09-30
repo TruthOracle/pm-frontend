@@ -143,7 +143,7 @@ function Homepage() {
                       <Link to={`/markets/${lead.ticker || lead.marketId}?side=no`} className="pill-no pill-lg flex-1">No {formatPercent(1 - lead.currentPrice)}</Link>
                     </div>
                   </div>
-                  <PriceChart marketRef={lead.ticker || lead.marketId} createdAtSec={lead.createdAt} currentPrice={lead.currentPrice} indexed={lead.seriesTicker !== undefined} variant="compact" height={168} defaultTimeframe="1W" className="!p-3" />
+                  <PriceChart marketRef={lead.ticker || lead.marketId} createdAtSec={lead.createdAt} currentPrice={lead.currentPrice} indexed={lead.seriesTicker !== undefined} variant="compact" height={168} className="!p-3" />
                 </div>
                 <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 pt-5 text-xs text-slate-500">
                   <span className="k-num">{lead.volume24hCC !== undefined ? `${compactCC(lead.volume24hCC)} traded in 24h · ${compactCC(lead.totalVolumeCC)} lifetime` : `${compactCC(lead.totalVolumeCC)} market volume`}</span>
