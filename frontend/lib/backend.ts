@@ -23,7 +23,7 @@ import type { BackendErrorCode } from "@/auth/types";
 
 export { BACKEND_BASE_URL };
 
-export type BackendMethod = "GET" | "POST" | "PATCH" | "DELETE";
+export type BackendMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export interface BackendFetchInit {
   method?: BackendMethod;
@@ -116,9 +116,7 @@ export async function backendFetch<T>(path: string, init: BackendFetchInit = {})
     const envelope: ErrorEnvelope = parsed && data && typeof data === "object" ? (data as ErrorEnvelope) : {};
     const code = typeof envelope.error === "string" && envelope.error ? envelope.error : `http_${res.status}`;
     const message =
-      typeof envelope.message === "string" && envelope.message
-        ? envelope.message
-        : fallbackMessage(res.status, text);
+      typeof envelope.message === "string" && envelope.message ? envelope.message : fallbackMessage(res.status, text);
     const error = new BackendError(res.status, code, message, envelope.details);
     // A revoked / expired session shows up as a 401 on whatever call came next. Tell
     // AuthProvider so the header and the account page stop claiming a signed-in state

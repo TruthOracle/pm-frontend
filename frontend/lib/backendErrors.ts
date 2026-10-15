@@ -53,8 +53,7 @@ const BASE: ErrorSentences = {
   challenge_rejected: "The wallet challenge expired or was already used. Try again.",
   challenge_purpose_mismatch: "The wallet challenge did not match this action. Try again.",
   no_primary_wallet: "Your account has no primary wallet yet. Link a wallet on the Account page first.",
-  primary_wallet_in_use:
-    "Your primary wallet can't change once you have deposited or have a withdrawal in progress.",
+  primary_wallet_in_use: "Your primary wallet can't change once you have deposited or have a withdrawal in progress.",
   trading_halted: "Trading is paused by the operator right now. Redemptions still work; try again later.",
   market_not_tradable: "This market is not open for that action right now.",
   no_in_app_wallet: "Deposit to your in-app wallet first — one deposit funds every trade.",
@@ -63,10 +62,15 @@ const BASE: ErrorSentences = {
   insufficient_shares: "You hold fewer shares than this order needs.",
   quote_unavailable: "The pool cannot fill this order at that size. Try a smaller amount.",
   catalog_conflict: "That ticker or entry already exists.",
+  instrument_exists: "An instrument with that admin party and token id is already registered.",
+  insufficient_treasury_holdings:
+    "The treasury does not hold enough of that token to send this amount right now. Top it up (or wait for the index) and try again.",
+  token_app_unconfigured:
+    "Minting and burning are not available: Cantor8's token-app is not configured on this backend.",
   deposit_in_progress:
     "Another deposit is still being credited. Your transfer is safe — check the balance again in a moment.",
   deposit_attribution_drift:
-    "The deposit could not be credited automatically because the treasury's records and your wallet disagree. Your CC is safe — support has been notified and will credit it manually.",
+    "The deposit could not be credited automatically because the treasury's records and your wallet disagree. Your funds are safe — support has been notified and will credit it manually.",
   payout_not_found: "The server hasn't picked up this payout yet. It settles automatically within a minute.",
   payout_blocked: "This payout cannot be settled right now.",
   kyc_required: "Identity verification is required before you can withdraw.",
@@ -80,7 +84,8 @@ const BASE: ErrorSentences = {
   // server-to-server only and never reaches a browser.
   not_found: "That record no longer exists. Reload the page and try again.",
   payload_too_large: "The request was too large to send. Try again with less data.",
-  unsupported_media_type: "The request was sent in a format the accounts service does not accept. Reload the page and try again.",
+  unsupported_media_type:
+    "The request was sent in a format the accounts service does not accept. Reload the page and try again.",
   upstream_failed: "A service we depend on did not answer. Try again in a moment.",
   not_ready: "The accounts service is starting up. Try again in a moment.",
   internal_error: "The accounts service hit an unexpected error. Try again in a moment.",

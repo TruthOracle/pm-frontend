@@ -4,7 +4,7 @@
  * by the backend. Polled with the page.
  */
 import { Link } from "react-router-dom";
-import { compactCC, formatCents, maskParty, relativeTime } from "@/lib/chartData";
+import { compactAmount, formatCents, maskParty, relativeTime } from "@/lib/chartData";
 import { toNumber, type ApiTrade } from "@/lib/marketsTypes";
 import { cn } from "@/lib/utils";
 
@@ -41,7 +41,7 @@ export default function TradeFeed({ trades, loading = false, showMarket = false,
                 </>
               )}
             </span>
-            <span className="k-num hidden text-slate-500 sm:inline">{compactCC(t.notionalCC)}</span>
+            <span className="k-num hidden text-slate-500 sm:inline">{compactAmount(t.notional, t.instrument)}</span>
             <span className="k-num shrink-0 text-slate-400">{relativeTime(t.createdAt)}</span>
           </li>
         );

@@ -1,4 +1,1 @@
-export {
-  TRUTHORACLE_PACKAGE_ID,
-  TRUTHORACLE_PACKAGE_NAME,
-} from "@/config";
+export { TRUTHORACLE_PACKAGE_ID, TRUTHORACLE_PACKAGE_NAME } from "@/config";

@@ -16,7 +16,14 @@ import {
   type EventListQuery,
   type MarketListQuery,
 } from "@/lib/marketsApi";
-import type { ApiCandlesticks, ApiEvent, ApiEventCandlesticks, ApiMarket, ApiPage, ApiTradeList } from "@/lib/marketsTypes";
+import type {
+  ApiCandlesticks,
+  ApiEvent,
+  ApiEventCandlesticks,
+  ApiMarket,
+  ApiPage,
+  ApiTradeList,
+} from "@/lib/marketsTypes";
 import { timeframeWindow, type CandleWindow, type Timeframe } from "@/lib/chartData";
 
 export const LIVE_STALE_MS = 10_000;
@@ -34,7 +41,12 @@ export function anchoredWindow(tf: Timeframe, createdAtSec?: number | null, nowM
   return timeframeWindow(tf, anchored, createdAtSec);
 }
 
-export function useMarketCandles(ref: string | number | null, tf: Timeframe, createdAtSec?: number | null, enabled = true): UseQueryResult<ApiCandlesticks> {
+export function useMarketCandles(
+  ref: string | number | null,
+  tf: Timeframe,
+  createdAtSec?: number | null,
+  enabled = true,
+): UseQueryResult<ApiCandlesticks> {
   const win = anchoredWindow(tf, createdAtSec);
   return useQuery({
     // Keyed by the window, not the preset: a young market's ranges resolve to one window and share one fetch.
@@ -46,7 +58,12 @@ export function useMarketCandles(ref: string | number | null, tf: Timeframe, cre
   });
 }
 
-export function useEventCandles(ticker: string | null, tf: Timeframe, createdAtSec?: number | null, enabled = true): UseQueryResult<ApiEventCandlesticks> {
+export function useEventCandles(
+  ticker: string | null,
+  tf: Timeframe,
+  createdAtSec?: number | null,
+  enabled = true,
+): UseQueryResult<ApiEventCandlesticks> {
   const win = anchoredWindow(tf, createdAtSec);
   return useQuery({
     queryKey: ["event-candles", ticker, win.periodInterval, win.startTs, win.endTs],

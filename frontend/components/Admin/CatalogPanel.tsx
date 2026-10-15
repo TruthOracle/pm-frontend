@@ -3,30 +3,20 @@
  * series and events, the treasury-signed market factory (CreateMarketForm — the only way a
  * market is created from this UI), the market presentation overrides (image and description
  * are backend metadata since truthoracle-v16, not contract fields) and the trading halt.
- * Everything here calls the backend's
- * admin API, so it needs a backend operator session (a wallet-signed challenge, ARCHITECTURE
- * §7.4) — separate from the older `to_admin` relay session the payout queue still uses.
+ * Everything here calls the backend's admin API under the operator session the console shares
+ * (BackendOperatorSession.tsx — a wallet-signed challenge, ARCHITECTURE §7.4), so the panel
+ * renders nothing until that session exists and never asks for it itself.
  */
 import { useCallback, useEffect, useState } from "react";
 import { useToast } from "@chakra-ui/react";
-import { useCantonWallet } from "@/wallets";
 import { authErrorMessage } from "@/auth/wallet";
-import { probeBackend, type BackendAvailability } from "@/lib/backend";
-import {
-  createEvent,
-  createSeries,
-  fetchBackendAdminSession,
-  setTradingHalt,
-  signInAsBackendAdmin,
-  signOutBackendAdmin,
-  updateEvent,
-  updateSeries,
-} from "@/lib/backendAdmin";
+import { createEvent, createSeries, setTradingHalt, updateEvent, updateSeries } from "@/lib/backendAdmin";
 import { fetchEvents, fetchExchangeStatus, fetchMarketsPage, fetchSeriesList } from "@/lib/marketsApi";
-import { toNumber, type ApiEvent, type ApiExchangeStatus, type ApiMarket, type ApiSeries } from "@/lib/marketsTypes";
-import { WALLET_DISPLAY_NAME } from "@/config";
-import { btn, btnQuiet, Card, field, label } from "./adminUi";
-import CreateMarketForm, { type Run } from "./CreateMarketForm";
+import { eventInstrument, type ApiEvent, type ApiExchangeStatus, type ApiMarket, type ApiSeries } from "@/lib/marketsTypes";
+import { formatMoney } from "@/lib/instruments";
+import { btn, btnQuiet, Card, field, label, useRun, type Run } from "./adminUi";
+import { useBackendOperator } from "./BackendOperatorSession";
+import CreateMarketForm from "./CreateMarketForm";
 import MarketPresentationCard from "./MarketPresentationCard";
 import { formatDateTimeUTC, utcInputToIso } from "@/lib/time";
 
@@ -34,17 +24,11 @@ const FREQUENCIES: ApiSeries["frequency"][] = ["one_off", "daily", "weekly", "mo
 
 export default function CatalogPanel() {
   const toast = useToast();
-  const { account, connected, connect, signMessage } = useCantonWallet();
-  const [availability, setAvailability] = useState<BackendAvailability | "probing">("probing");
-  const [session, setSession] = useState<{ authenticated: boolean; isAdmin: boolean; partyId: string | null } | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  const { ready } = useBackendOperator();
   const [series, setSeries] = useState<ApiSeries[]>([]);
   const [events, setEvents] = useState<ApiEvent[]>([]);
   const [markets, setMarkets] = useState<ApiMarket[]>([]);
   const [exchange, setExchange] = useState<ApiExchangeStatus | null>(null);
-
-  const fail = (title: string, e: unknown) =>
-    toast({ title, description: authErrorMessage(e), status: "error", duration: 8000, isClosable: true });
 
   const reload = useCallback(async () => {
     const [s, e, m, x] = await Promise.all([
@@ -58,117 +42,23 @@ export default function CatalogPanel() {
     setMarkets(m);
     setExchange(x);
   }, []);
+  const { busy, run } = useRun(reload);
 
   useEffect(() => {
+    if (!ready) return;
     let cancelled = false;
-    void (async () => {
-      const a = await probeBackend();
-      if (cancelled) return;
-      setAvailability(a);
-      if (a !== "ok") return;
-      try {
-        setSession(await fetchBackendAdminSession());
-        await reload();
-      } catch (e) {
-        if (!cancelled) fail("Could not load the catalog", e);
-      }
-    })();
+    reload().catch((e: unknown) => {
+      if (!cancelled) toast({ title: "Could not load the catalog", description: authErrorMessage(e), status: "error", duration: 8000, isClosable: true });
+    });
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reload]);
+  }, [ready, reload, toast]);
 
-  const signIn = async () => {
-    if (!account?.partyId) {
-      toast({ title: `Connect your ${WALLET_DISPLAY_NAME} wallet first`, status: "info", duration: 4000, isClosable: true });
-      return;
-    }
-    setBusy("sign-in");
-    try {
-      await signInAsBackendAdmin({ partyId: account.partyId, publicKey: account.publicKey, signMessage });
-      setSession(await fetchBackendAdminSession());
-      await reload();
-    } catch (e) {
-      fail("Operator sign-in failed", e);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const signOut = async () => {
-    try {
-      await signOutBackendAdmin();
-    } finally {
-      setSession(await fetchBackendAdminSession());
-    }
-  };
-
-  const run = async (what: string, fn: () => Promise<unknown>, done: string) => {
-    setBusy(what);
-    try {
-      await fn();
-      await reload();
-      toast({ title: done, status: "success", duration: 5000, isClosable: true });
-      return true;
-    } catch (e) {
-      fail(`${what} failed`, e);
-      return false;
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  if (availability === "probing") return null;
-  if (availability !== "ok") {
-    return (
-      <Card title="Catalog (series · events · markets)">
-        <p className="text-sm text-slate-600">
-          {availability === "unconfigured"
-            ? "This deployment has no accounts backend, so there is no catalog: markets are read straight from the ledger."
-            : "The accounts backend is not reachable right now; the catalog console retries when you reload."}
-        </p>
-      </Card>
-    );
-  }
-
-  if (!session?.isAdmin) {
-    return (
-      <Card title="Catalog (series · events · markets)">
-        <p className="text-sm text-slate-600">
-          The catalog, the market factory and the trading halt live in the accounts backend. Sign in there as an operator: connect
-          your {WALLET_DISPLAY_NAME} wallet and approve a short message (a signature, not a transaction). Only parties in the
-          backend's <code className="font-mono">ADMIN_OPERATORS</code> are accepted.
-        </p>
-        {session?.authenticated && !session.isAdmin && (
-          <p className="mt-2 text-xs text-amber-700">You are signed in to the backend as a user; sign out there before signing in as an operator.</p>
-        )}
-        <div className="mt-4 flex flex-wrap gap-2">
-          {!connected || !account?.partyId ? (
-            <button type="button" className={btn} disabled={busy !== null} onClick={() => void connect().catch((e: unknown) => fail("Could not connect", e))}>
-              Connect {WALLET_DISPLAY_NAME} wallet
-            </button>
-          ) : (
-            <button type="button" className={btn} disabled={busy !== null} onClick={() => void signIn()}>
-              {busy === "sign-in" ? "Waiting for your wallet…" : "Sign in to the backend as operator"}
-            </button>
-          )}
-        </div>
-      </Card>
-    );
-  }
+  if (!ready) return null;
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs text-slate-600">
-        <span>
-          Backend operator session: <code className="font-mono">{session.partyId ?? "operator"}</code>
-        </span>
-        <button type="button" className={btnQuiet} onClick={() => void signOut()}>
-          Sign out of the backend
-        </button>
-      </div>
-
       <HaltCard exchange={exchange} busy={busy} onSet={(active, reason, resume) => run("Trading halt", () => setTradingHalt({ active, reason, estimatedResumeAt: resume || null }), active ? "Trading halted" : "Trading resumed")} />
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -353,7 +243,7 @@ function EventsCard({ series, events, busy, run }: { series: ApiSeries[]; events
             <span className="min-w-0 truncate">
               <span className="font-mono text-xs text-slate-500">{e.ticker}</span> <span className="font-medium">{e.title}</span>
               <span className="ml-2 text-xs text-slate-400">
-                {e.seriesTicker} · {e.status} · {e.marketCount} markets · {toNumber(e.volumeCC).toFixed(1)} CC
+                {e.seriesTicker} · {e.status} · {e.marketCount} markets · {formatMoney(e.volume, eventInstrument(e), 1)}
                 {e.archived ? " · archived" : ""}
               </span>
             </span>

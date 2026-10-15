@@ -20,7 +20,15 @@ import {
 } from "@/wallets/cantor8/Cantor8WalletContext";
 import { WALLET_TYPE } from "@/config";
 
-export type { CantonAccount, CantonNetworkInfo, CantonWalletItem, CantonWalletContextValue } from "./types";
+export type {
+  CantonAccount,
+  CantonAccountHolding,
+  CantonNetworkInfo,
+  CantonWalletItem,
+  CantonWalletContextValue,
+  TransferArgs,
+  WalletInstrument,
+} from "./types";
 export type { PrepareExecuteParams } from "./types";
 
 /** Main provider – use Canton or Cantor8 based on VITE_WALLET_TYPE */

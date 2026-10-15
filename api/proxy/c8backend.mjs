@@ -20,7 +20,7 @@ function target() {
     : "https://wallet-backend.dev.digik.cantor8.tech";
 }
 
-// GET-only reads from frontend/lib/cantor8Status.ts and getAccountBalance.ts.
+// GET-only reads from frontend/lib/cantor8Status.ts and frontend/lib/walletHoldings.ts.
 const ALLOWED = [
   /^healthz$/,
   /^api\/balance$/,

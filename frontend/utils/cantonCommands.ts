@@ -2,7 +2,6 @@ import type { PrepareExecuteParams } from "@/lib/cantonDapp";
 import { TRUTHORACLE_PACKAGE_ID } from "@/constants";
 
 const TRUTHORACLE_MODULE = "Truthoracle";
-const INCENTIVES_MODULE = "Incentives";
 
 export type OutcomeArg = "Yes" | "No" | "VoidOutcome";
 
@@ -15,7 +14,7 @@ function damlInt(n: number): string {
   return Math.trunc(n).toString();
 }
 
-/** Daml Decimal — 10 decimal places, no exponent. Use for CC amounts/shares. */
+/** Daml Decimal — 10 decimal places, no exponent. Use for collateral amounts and shares. */
 function damlDecimal(n: number): string {
   if (!Number.isFinite(n)) return "0.0000000000";
   return n.toFixed(10);
@@ -73,12 +72,13 @@ function exerciseMarket(
 }
 
 // ---------------------------------------------------------------------------
-// Trading (in-app wallet rail: choices debit/credit the user's UserWallet
-// atomically — one wallet signature per trade, no prior CC transfer)
+// Trading (in-app wallet rail: choices debit/credit the user's UserWallet for
+// the market's collateral atomically — one wallet signature per trade, no
+// prior token transfer). Argument names follow truthoracle-v17.
 // ---------------------------------------------------------------------------
 
 /**
- * Exercise PredictionMarket.Buy. `collateralCC` is debited from the buyer's
+ * Exercise PredictionMarket.Buy. `amount` (collateral) is debited from the buyer's
  * in-app UserWallet inside the same transaction; the pm-AMM computes shares
  * out on-ledger and rejects if below `minSharesOut` (slippage bound).
  */
@@ -86,7 +86,7 @@ export function buildBuyParams(
   partyId: string,
   predictionMarketContractId: string,
   side: OutcomeArg,
-  collateralCC: number,
+  amount: number,
   minSharesOut: number,
   existingPositionContractId: string | null,
   walletContractId: string,
@@ -99,7 +99,7 @@ export function buildBuyParams(
     {
       buyer: partyId,
       side,
-      collateralCC: damlDecimal(collateralCC),
+      amount: damlDecimal(amount),
       minSharesOut: damlDecimal(minSharesOut),
       nowSeconds: damlInt(nowSecs()),
       existingPosition: existingPositionContractId ?? null,
@@ -118,7 +118,7 @@ export function buildSellParams(
   predictionMarketContractId: string,
   side: OutcomeArg,
   sharesIn: number,
-  minProceedsCC: number,
+  minProceeds: number,
   positionContractId: string,
   walletContractId: string,
   disclosedContracts?: DisclosedContractArg[],
@@ -131,7 +131,7 @@ export function buildSellParams(
       seller: partyId,
       side,
       sharesIn: damlDecimal(sharesIn),
-      minProceedsCC: damlDecimal(minProceedsCC),
+      minProceeds: damlDecimal(minProceeds),
       nowSeconds: damlInt(nowSecs()),
       positionCid: positionContractId,
       walletCid: walletContractId,
@@ -142,7 +142,7 @@ export function buildSellParams(
 
 /**
  * Exercise PredictionMarket.SwapShares — direct YES<->NO outcome-token swap
- * (the direct outcome-token trading primitive). No CC involved; fee taken from the
+ * (the direct outcome-token trading primitive). No collateral involved; fee taken from the
  * input shares and retained in the pool.
  */
 export function buildSwapSharesParams(
@@ -170,7 +170,7 @@ export function buildSwapSharesParams(
   );
 }
 
-/** Exercise PredictionMarket.Split — mint complete sets (1 CC = 1 YES + 1 NO), debited from the in-app wallet. */
+/** Exercise PredictionMarket.Split — mint complete sets (1 unit of collateral = 1 YES + 1 NO), debited from the in-app wallet. */
 export function buildSplitParams(
   partyId: string,
   predictionMarketContractId: string,
@@ -194,7 +194,7 @@ export function buildSplitParams(
   );
 }
 
-/** Exercise PredictionMarket.Merge — burn pairs for 1 CC each, credited to the in-app wallet. */
+/** Exercise PredictionMarket.Merge — burn pairs for 1 unit of collateral each, credited to the in-app wallet. */
 export function buildMergeParams(
   partyId: string,
   predictionMarketContractId: string,
@@ -224,14 +224,14 @@ export function buildMergeParams(
 
 /**
  * Exercise PredictionMarket.ProvideLiquidity. Value-based deposit: names a
- * desired pool-value increase; cost CC = max(dx, dy), debited from the
- * provider's in-app wallet. maxCostCC bounds quote drift.
+ * desired pool-value increase; cost = max(dx, dy) in collateral, debited from
+ * the provider's in-app wallet. `maxCost` bounds quote drift.
  */
 export function buildProvideLiquidityParams(
   partyId: string,
   predictionMarketContractId: string,
-  valueIncreaseCC: number,
-  maxCostCC: number,
+  valueIncrease: number,
+  maxCost: number,
   existingLpPositionContractId: string | null,
   walletContractId: string,
   disclosedContracts?: DisclosedContractArg[],
@@ -242,8 +242,8 @@ export function buildProvideLiquidityParams(
     "ProvideLiquidity",
     {
       provider: partyId,
-      valueIncreaseCC: damlDecimal(valueIncreaseCC),
-      maxCostCC: damlDecimal(maxCostCC),
+      valueIncrease: damlDecimal(valueIncrease),
+      maxCost: damlDecimal(maxCost),
       nowSeconds: damlInt(nowSecs()),
       existingLpPosition: existingLpPositionContractId ?? null,
       walletCid: walletContractId,
@@ -253,8 +253,8 @@ export function buildProvideLiquidityParams(
 }
 
 /**
- * Exercise PredictionMarket.WithdrawLiquidity. CC proceeds are credited to
- * the provider's in-app wallet; a static pool allows early exit to shares.
+ * Exercise PredictionMarket.WithdrawLiquidity. Collateral proceeds are credited
+ * to the provider's in-app wallet; a static pool allows early exit to shares.
  */
 export function buildWithdrawLiquidityParams(
   partyId: string,
@@ -374,18 +374,16 @@ export function buildFinalizeOutcomeParams(
 }
 
 /** Admin: void a market whose grace period elapsed without resolution. */
-export function buildVoidMarketParams(
-  partyId: string,
-  predictionMarketContractId: string,
-): PrepareExecuteParams {
+export function buildVoidMarketParams(partyId: string, predictionMarketContractId: string): PrepareExecuteParams {
   return exerciseMarket(partyId, predictionMarketContractId, "VoidMarket", {
     nowSeconds: damlInt(nowSecs()),
   });
 }
 
 /**
- * Holder: redeem a position on a Resolved (1 CC per winning share) or Voided
- * (cost-basis refund) market. Credits the in-app wallet, archives the position.
+ * Holder: redeem a position on a Resolved (one unit of collateral per winning
+ * share) or Voided (cost-basis refund) market. Credits the in-app wallet,
+ * archives the position.
  */
 export function buildRedeemPositionParams(
   partyId: string,
@@ -423,10 +421,7 @@ export interface AttestationArgs {
 }
 
 /** Reporter/source: create an OutcomeAttestation for a market. */
-export function buildCreateAttestationParams(
-  partyId: string,
-  args: AttestationArgs,
-): PrepareExecuteParams {
+export function buildCreateAttestationParams(partyId: string, args: AttestationArgs): PrepareExecuteParams {
   const commands = [
     {
       create: {
@@ -491,8 +486,8 @@ export function buildScoreAndDistributeParams(
 // ---------------------------------------------------------------------------
 
 /**
- * Admin: archive a PendingPayout after sending CC via the Enterprise Wallet.
- * txHash is a reference for off-chain audit.
+ * Admin: archive a PendingPayout after the tokens were sent via the Enterprise
+ * Wallet. txHash is a reference for off-chain audit.
  */
 export function buildMarkPaidParams(
   partyId: string,
@@ -536,8 +531,8 @@ export function buildCancelPayoutParams(
 }
 
 /**
- * Admin: settle a PendingPayout into the user's in-app wallet instead of an
- * external CC transfer (T3 bond settlement, model prizes).
+ * Admin: settle a PendingPayout into the user's in-app wallet for the payout's
+ * instrument instead of an external transfer (T3 bond settlement, model prizes).
  */
 export function buildSettleToWalletParams(
   partyId: string,
@@ -558,66 +553,20 @@ export function buildSettleToWalletParams(
 }
 
 // ---------------------------------------------------------------------------
-// In-app UserWallet (deposit / withdraw)
+// In-app UserWallet (withdraw). Wallets are created and credited by the
+// accounts backend as the treasury (one per owner and instrument); the only
+// wallet choice a user signs in the browser is Withdraw.
 // ---------------------------------------------------------------------------
 
 /**
- * Admin: create a user's in-app wallet, optionally seeded with an initial
- * deposit (equivalent to create-empty + Deposit — the admin is sole signatory).
- * Call AFTER the user's real CC transfer landed in the treasury.
- */
-export function buildCreateUserWalletParams(
-  adminPartyId: string,
-  ownerPartyId: string,
-  initialDepositCC: number,
-): PrepareExecuteParams {
-  const amount = damlDecimal(Math.max(0, initialDepositCC));
-  const commands = [
-    {
-      create: {
-        templateId: templateId(TRUTHORACLE_MODULE, "UserWallet"),
-        createArguments: {
-          admin: adminPartyId,
-          owner: ownerPartyId,
-          balanceCC: amount,
-          depositedCC: amount,
-          withdrawnCC: damlDecimal(0),
-        },
-      },
-    },
-  ];
-  return baseParams(adminPartyId, commands);
-}
-
-/** Admin: credit an external deposit onto an existing in-app wallet. */
-export function buildDepositParams(
-  adminPartyId: string,
-  walletContractId: string,
-  amountCC: number,
-  txRef: string,
-): PrepareExecuteParams {
-  const commands = [
-    {
-      exercise: {
-        templateId: templateId(TRUTHORACLE_MODULE, "UserWallet"),
-        contractId: walletContractId,
-        choice: "Deposit",
-        choiceArgument: { amountCC: damlDecimal(amountCC), txRef },
-      },
-    },
-  ];
-  return baseParams(adminPartyId, commands);
-}
-
-/**
- * Owner: move in-app CC back toward their external wallet — debits the
- * balance and queues a PendingPayout the admin settles via the Enterprise
- * Wallet.
+ * Owner: move in-app funds back toward their external wallet — debits the
+ * balance and queues a PendingPayout (in the wallet's instrument) the backend
+ * settles through the treasury.
  */
 export function buildWalletWithdrawParams(
   partyId: string,
   walletContractId: string,
-  amountCC: number,
+  amount: number,
 ): PrepareExecuteParams {
   const commands = [
     {
@@ -625,65 +574,9 @@ export function buildWalletWithdrawParams(
         templateId: templateId(TRUTHORACLE_MODULE, "UserWallet"),
         contractId: walletContractId,
         choice: "Withdraw",
-        choiceArgument: { amountCC: damlDecimal(amountCC), nowSeconds: damlInt(nowSecs()) },
+        choiceArgument: { amount: damlDecimal(amount), nowSeconds: damlInt(nowSecs()) },
       },
     },
   ];
   return baseParams(partyId, commands);
-}
-
-// ---------------------------------------------------------------------------
-// Incentives (unchanged)
-// ---------------------------------------------------------------------------
-
-export function buildClaimAllRewardsParams(
-  partyId: string,
-  userRewardsSummaryContractId: string,
-  claimArgs: { marketId: number; rewardType: string; amount: number }[],
-): PrepareExecuteParams {
-  const commands = [
-    {
-      exercise: {
-        templateId: templateId(INCENTIVES_MODULE, "UserRewardsSummary"),
-        contractId: userRewardsSummaryContractId,
-        choice: "ClaimRewardsBatch",
-        choiceArgument: {
-          claims: claimArgs.map(({ marketId, rewardType, amount }) => ({
-            marketId: damlInt(marketId),
-            rewardType,
-            amount: damlInt(amount),
-          })),
-        },
-      },
-    },
-  ];
-  return baseParams(partyId, commands);
-}
-
-export function buildClaimAllRewardsParamsNoArgs(partyId: string): PrepareExecuteParams {
-  return baseParams(partyId, []);
-}
-
-export function buildClaimRewardParams(
-  partyId: string,
-  userRewardsSummaryContractId: string,
-  marketId: number,
-  rewardType: string,
-  amount: number,
-): PrepareExecuteParams {
-  return buildClaimAllRewardsParams(partyId, userRewardsSummaryContractId, [
-    { marketId, rewardType, amount },
-  ]);
-}
-
-export function buildTransferParams(partyId: string, _to: string, _amount: number): PrepareExecuteParams {
-  return baseParams(partyId, []);
-}
-
-export function buildWithdrawPayoutParams(partyId: string, _marketId: number): PrepareExecuteParams {
-  return baseParams(partyId, []);
-}
-
-export function buildWriteMessageParams(partyId: string, _content: string): PrepareExecuteParams {
-  return baseParams(partyId, []);
 }

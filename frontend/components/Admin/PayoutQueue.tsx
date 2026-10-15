@@ -24,6 +24,7 @@ import {
     submitAdminTransaction,
 } from "@/lib/enterpriseWalletSubmit";
 import { debugError } from "@/lib/debugLog";
+import { formatMoney, resolveInstrument, sumByInstrument, useInstruments } from "@/lib/instruments";
 
 function truncate(s: string, head = 8, tail = 6) {
     if (s.length <= head + tail + 1) return s;
@@ -51,6 +52,9 @@ function PayoutQueue() {
     const [txHashes, setTxHashes] = useState<Record<string, string>>({});
     const [copied, setCopied] = useState<string | null>(null);
     const toast = useToast();
+    // Ledger rows carry the instrument's identity; the catalog supplies its symbol and decimals.
+    const instruments = useInstruments().data;
+    const money = (r: PendingPayoutRecord) => formatMoney(r.amount, resolveInstrument(instruments, r.instrument));
 
     const adminParty = enterpriseWalletPartyId();
 
@@ -83,7 +87,7 @@ function PayoutQueue() {
         if (!account) return;
         const hash = (txHashes[cid] ?? "").trim();
         if (!hash) {
-            toast({ title: "Paste the CC tx hash first", status: "info", duration: 3000, isClosable: true });
+            toast({ title: "Paste the transfer tx hash first", status: "info", duration: 3000, isClosable: true });
             return;
         }
         setMarking(cid);
@@ -128,7 +132,8 @@ function PayoutQueue() {
         );
     }
 
-    const total = rows.reduce((s, r) => s + r.amountCC, 0);
+    // One total per instrument: payouts in different tokens never add up to one figure.
+    const totals = sumByInstrument(rows.map((r) => ({ instrument: resolveInstrument(instruments, r.instrument), amount: r.amount })));
 
     return (
         <Box className="font-jbm" color="white" p={6} mt={6} borderRadius="lg" borderWidth="2px" borderColor="#CCCCFF" bg="#18191C" maxW="6xl" mx="auto">
@@ -143,7 +148,7 @@ function PayoutQueue() {
                 id and use the backend&apos;s admin API: POST /api/v1/admin/payouts/:cid/settle.
             </Text>
             <Text fontSize="sm" color="amber.300" mb={3}>
-                Outstanding: <strong>{total.toFixed(4)} CC</strong> across <strong>{rows.length}</strong> row{rows.length === 1 ? "" : "s"}
+                Outstanding: <strong>{totals.length === 0 ? "0" : totals.map((t) => formatMoney(t.amount, t.instrument)).join(" · ")}</strong> across <strong>{rows.length}</strong> row{rows.length === 1 ? "" : "s"}
             </Text>
             <Button size="sm" onClick={refresh} isDisabled={loading} mb={4}>
                 {loading ? "Refreshing…" : "Refresh"}
@@ -159,7 +164,7 @@ function PayoutQueue() {
                             <Th color="white">Reason</Th>
                             <Th color="white" isNumeric>Amount</Th>
                             <Th color="white">Contract id</Th>
-                            <Th color="white">CC tx hash</Th>
+                            <Th color="white">Transfer tx hash</Th>
                             <Th color="white"></Th>
                         </Tr>
                     </Thead>
@@ -169,7 +174,7 @@ function PayoutQueue() {
                                 <Td fontSize="xs" fontFamily="mono" title={r.user}>{truncate(r.user)}</Td>
                                 <Td>{r.marketId === 0 ? "—" : `#${r.marketId}`}</Td>
                                 <Td>{r.reason}</Td>
-                                <Td isNumeric>{r.amountCC.toFixed(4)} CC</Td>
+                                <Td isNumeric>{money(r)}</Td>
                                 <Td fontSize="xs" fontFamily="mono" whiteSpace="nowrap" title={r.contractId}>
                                     {truncate(r.contractId, 6, 4)}
                                     <Button

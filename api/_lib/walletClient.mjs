@@ -60,9 +60,10 @@ export async function collectHistory(fetchPage, { pageSize = HISTORY_PAGE_SIZE, 
 }
 
 /**
- * Every settled transfer the admin party has seen. Pages through the full history:
- * the reconciliation must see ALL of it — a truncated result would understate what
- * a user has sent in and silently under-credit them.
+ * Every settled transfer the admin party has seen. Pages through the full history: a
+ * sum over it must see ALL of it — a truncated result would understate what a party has
+ * sent in. (Deposit crediting itself is the accounts backend's, read from its ledger
+ * index per instrument — docs/TOKENS.md §2.5; this read is for operator diagnostics.)
  *
  * Wallet v0.1.35 replaced `GET /api/v1/transfer/{partyId}` with a unified
  * `GET /api/v1/history/{partyId}` returning `{ events: [{ eventType, timestamp, event }] }`,
@@ -130,13 +131,18 @@ export async function transferAlreadySubmitted(partyId, commandId) {
 }
 
 /**
- * Total CC that `counterparty` has transferred IN to `partyId`.
+ * Total of one instrument that `counterparty` has transferred IN to `partyId`.
  *
+ * `instrumentId` is the wallet's own id for the token (`Amulet` for Canton Coin, `cBYN`,
+ * `TRO`, …) and is required: a sum over "whatever rows are there" would add cBYN to TRO.
  * Direction strings are not pinned by the wallet's OpenAPI (`type: string`), so an
  * unrecognised value is skipped and logged rather than guessed at: counting an
  * outbound transfer as inbound would credit a user for money they withdrew.
  */
-export function totalReceivedFrom(rows, partyId, counterparty, instrumentId = "Amulet") {
+export function totalReceivedFrom(rows, partyId, counterparty, instrumentId) {
+  if (typeof instrumentId !== "string" || !instrumentId) {
+    throw new Error("totalReceivedFrom needs the wallet instrument id to sum");
+  }
   let total = 0;
   let skipped = 0;
   for (const row of rows) {
@@ -180,15 +186,24 @@ export function externalSubmit({ partyId, appName, commandId, commands, disclose
   });
 }
 
-/** Admin-signed CC transfer. `to` and `amountCC` must be derived, never client-supplied. */
-export function transfer({ from, to, amountCC, reason, app, commandId, metadata }) {
+/**
+ * Admin-signed token transfer in ANY instrument the Enterprise Wallet knows
+ * (v0.1.35 `POST /api/v1/transfer` is instrument-aware; docs/TOKENS.md §1). `to`,
+ * `instrumentId` and `amount` must be derived, never client-supplied. `instrumentId` is
+ * the wallet's id for the token (`Amulet` for Canton Coin, `cBYN`, `TRO`); `amount` is a
+ * number or a decimal string and leaves as the ledger's 10-dp string.
+ */
+export function transfer({ from, to, instrumentId, amount, reason, app, commandId, metadata }) {
+  if (typeof instrumentId !== "string" || !instrumentId) throw new Error("transfer needs an instrumentId");
+  const value = typeof amount === "number" ? amount : Number(amount);
+  if (!Number.isFinite(value) || value <= 0) throw new Error(`transfer amount must be a positive number, got ${amount}`);
   return wallet("/api/v1/transfer", {
     method: "POST",
     body: {
       from,
       to,
-      instrumentId: "Amulet",
-      transferAmount: amountCC.toFixed(10),
+      instrumentId,
+      transferAmount: value.toFixed(10),
       reason,
       app,
       commandId,

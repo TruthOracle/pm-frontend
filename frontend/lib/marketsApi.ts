@@ -11,11 +11,7 @@
  * they never have to know which source answered.
  */
 import { backendFetch, probeBackend, type BackendAvailability } from "@/lib/backend";
-import {
-  fetchAllPredictionMarkets,
-  type OutcomeTag,
-  type PredictionMarketRecord,
-} from "@/utils/activeContracts";
+import { fetchAllPredictionMarkets, type OutcomeTag, type PredictionMarketRecord } from "@/utils/activeContracts";
 import { setPrefetchedMarkets } from "@/utils/marketPrefetch";
 import type {
   ApiCandlesticks,
@@ -35,9 +31,10 @@ import type {
   PrepareOrderRequest,
 } from "@/lib/marketsTypes";
 import { toNumber } from "@/lib/marketsTypes";
+import { sameInstrument, type InstrumentRef } from "@/lib/instruments";
+import { fetchInAppWalletView, ledgerWalletToRecord } from "@/lib/inAppWallet";
 
-const secs = (iso: string | null | undefined): number | null =>
-  iso ? Math.floor(Date.parse(iso) / 1000) : null;
+const secs = (iso: string | null | undefined): number | null => (iso ? Math.floor(Date.parse(iso) / 1000) : null);
 
 /** The backend's market → the record every existing component renders (numbers, epoch seconds). */
 export function toMarketRecord(m: ApiMarket): PredictionMarketRecord {
@@ -62,9 +59,10 @@ export function toMarketRecord(m: ApiMarket): PredictionMarketRecord {
     currentPrice: toNumber(m.currentPrice),
     feeBps: m.feeBps,
     prizeFeeShareBps: m.prizeFeeShareBps,
-    accumulatedFeesCC: toNumber(m.accumulatedFeesCC),
-    prizePoolCC: toNumber(m.prizePoolCC),
-    totalVolumeCC: toNumber(m.totalVolumeCC),
+    collateral: m.collateral,
+    accumulatedFees: toNumber(m.accumulatedFees),
+    prizePool: toNumber(m.prizePool),
+    totalVolume: toNumber(m.totalVolume),
     status: m.status,
     outcome: (m.outcome as OutcomeTag | null) ?? null,
     resolvedAt: secs(m.resolvedAt),
@@ -73,7 +71,7 @@ export function toMarketRecord(m: ApiMarket): PredictionMarketRecord {
           proposer: m.proposal.proposer,
           proposedOutcome: m.proposal.proposedOutcome as OutcomeTag,
           proposedAt: secs(m.proposal.proposedAt) ?? 0,
-          bondCC: toNumber(m.proposal.bondCC),
+          bond: toNumber(m.proposal.bond),
           challenger: m.proposal.challenger,
           challengerOutcome: (m.proposal.challengerOutcome as OutcomeTag | null) ?? null,
         }
@@ -85,7 +83,7 @@ export function toMarketRecord(m: ApiMarket): PredictionMarketRecord {
       reporters: m.policy.reporters,
       quorum: m.policy.quorum,
       challengeSecs: m.policy.challengeSecs,
-      bondCC: toNumber(m.policy.bondCC),
+      bond: toNumber(m.policy.bond),
     },
     createdEventBlob: m.createdEventBlob ?? undefined,
     synchronizerId: m.synchronizerId ?? undefined,
@@ -98,9 +96,9 @@ export function toMarketRecord(m: ApiMarket): PredictionMarketRecord {
     templateId: m.templateId ?? undefined,
     previousPrice: m.previousPrice === null ? null : toNumber(m.previousPrice),
     priceChange24h: m.priceChange24h === null ? null : toNumber(m.priceChange24h),
-    volume24hCC: toNumber(m.volume24hCC),
+    volume24h: toNumber(m.volume24h),
     openInterest: toNumber(m.openInterest.total),
-    liquidityCC: toNumber(m.liquidityCC),
+    liquidity: toNumber(m.liquidity),
     book: m.book
       ? {
           yesBid: toNumber(m.book.yesBid),
@@ -143,7 +141,9 @@ export function fetchMarketsPage(query: MarketListQuery = {}): Promise<ApiPage<A
 }
 
 /** Every non-archived market the index knows (pages of 100, like the ledger read returned everything). */
-export async function fetchAllIndexedMarkets(query: Omit<MarketListQuery, "page" | "limit"> = {}): Promise<ApiMarket[]> {
+export async function fetchAllIndexedMarkets(
+  query: Omit<MarketListQuery, "page" | "limit"> = {},
+): Promise<ApiMarket[]> {
   const out: ApiMarket[] = [];
   for (let page = 1; page <= 20; page += 1) {
     const res = await fetchMarketsPage({ ...query, page, limit: 100 });
@@ -155,7 +155,9 @@ export async function fetchAllIndexedMarkets(query: Omit<MarketListQuery, "page"
 
 /** `:market` is a numeric id or a ticker. */
 export function fetchIndexedMarket(ref: string | number): Promise<ApiMarket> {
-  return backendFetch<{ market: ApiMarket }>(`/api/v1/markets/${encodeURIComponent(String(ref))}`).then((r) => r.market);
+  return backendFetch<{ market: ApiMarket }>(`/api/v1/markets/${encodeURIComponent(String(ref))}`).then(
+    (r) => r.market,
+  );
 }
 
 export function fetchCandlesticks(
@@ -180,17 +182,33 @@ function asTradeList(raw: unknown): ApiTradeList {
   return { items: r.items ?? r.trades ?? [], nextCursor: r.nextCursor ?? null };
 }
 
-export function fetchMarketTrades(ref: string | number, opts: { limit?: number; cursor?: string } = {}): Promise<ApiTradeList> {
-  return backendFetch<unknown>(`/api/v1/markets/${encodeURIComponent(String(ref))}/trades${qs({ limit: opts.limit ?? 30, cursor: opts.cursor })}`).then(asTradeList);
+export function fetchMarketTrades(
+  ref: string | number,
+  opts: { limit?: number; cursor?: string } = {},
+): Promise<ApiTradeList> {
+  return backendFetch<unknown>(
+    `/api/v1/markets/${encodeURIComponent(String(ref))}/trades${qs({ limit: opts.limit ?? 30, cursor: opts.cursor })}`,
+  ).then(asTradeList);
 }
 
-export function fetchEventTrades(ticker: string, opts: { limit?: number; cursor?: string } = {}): Promise<ApiTradeList> {
-  return backendFetch<unknown>(`/api/v1/events/${encodeURIComponent(ticker)}/trades${qs({ limit: opts.limit ?? 30, cursor: opts.cursor })}`).then(asTradeList);
+export function fetchEventTrades(
+  ticker: string,
+  opts: { limit?: number; cursor?: string } = {},
+): Promise<ApiTradeList> {
+  return backendFetch<unknown>(
+    `/api/v1/events/${encodeURIComponent(ticker)}/trades${qs({ limit: opts.limit ?? 30, cursor: opts.cursor })}`,
+  ).then(asTradeList);
 }
 
 export function fetchQuote(
   ref: string | number,
-  query: { action: "buy" | "sell" | "swap" | "provide_liquidity"; side?: "Yes" | "No"; amountCC?: string; shares?: string; slippageBps?: number },
+  query: {
+    action: "buy" | "sell" | "swap" | "provide_liquidity";
+    side?: "Yes" | "No";
+    amount?: string;
+    shares?: string;
+    slippageBps?: number;
+  },
 ): Promise<ApiQuote> {
   return backendFetch<ApiQuote>(`/api/v1/markets/${encodeURIComponent(String(ref))}/quote${qs(query)}`);
 }
@@ -202,7 +220,9 @@ export function prepareOrder(ref: string | number, body: PrepareOrderRequest): P
   });
 }
 
-export function fetchSeriesList(query: { category?: string; q?: string; status?: "active" | "archived" | "all" } = {}): Promise<ApiPage<ApiSeries>> {
+export function fetchSeriesList(
+  query: { category?: string; q?: string; status?: "active" | "archived" | "all" } = {},
+): Promise<ApiPage<ApiSeries>> {
   return backendFetch<ApiPage<ApiSeries>>(`/api/v1/series${qs({ ...query, limit: 100 })}`);
 }
 
@@ -295,49 +315,65 @@ export const marketSource = {
 // that come back empty when a browser asks the participant as an external party on mainnet.
 // ---------------------------------------------------------------------------
 
-import type { ApiIndexedWallet, ApiLiquidityPosition, ApiPosition } from "@/lib/marketsTypes";
+import type { ApiLiquidityPosition, ApiPosition } from "@/lib/marketsTypes";
 import type { LiquidityPositionRecord, UserMarketPosition, UserWalletRecord } from "@/utils/activeContracts";
 
-export function fetchMyPositions(status: "open" | "all" = "open"): Promise<{ parties: string[]; positions: ApiPosition[] }> {
+export function fetchMyPositions(
+  status: "open" | "all" = "open",
+): Promise<{ parties: string[]; positions: ApiPosition[] }> {
   return backendFetch<{ parties: string[]; positions: ApiPosition[] }>(`/api/v1/me/positions?status=${status}`);
 }
 
-export function fetchMyLiquidity(status: "open" | "all" = "open"): Promise<{ parties: string[]; positions: ApiLiquidityPosition[] }> {
-  return backendFetch<{ parties: string[]; positions: ApiLiquidityPosition[] }>(`/api/v1/me/liquidity?status=${status}`);
+export function fetchMyLiquidity(
+  status: "open" | "all" = "open",
+): Promise<{ parties: string[]; positions: ApiLiquidityPosition[] }> {
+  return backendFetch<{ parties: string[]; positions: ApiLiquidityPosition[] }>(
+    `/api/v1/me/liquidity?status=${status}`,
+  );
 }
 
-export function fetchMyLedgerWallet(): Promise<{ partyId: string | null; wallet: ApiIndexedWallet | null }> {
-  return backendFetch<{ partyId: string | null; wallet: ApiIndexedWallet | null }>("/api/v1/in-app-wallet/ledger");
-}
-
-/** The account's position, LP position and in-app wallet for one market, in the shapes the market page renders. */
-export async function fetchMyMarketView(marketId: number): Promise<{
+/**
+ * The account's position, LP position and in-app wallet for one market, in the shapes the market
+ * page renders. The wallet is the one for the market's collateral — a party holds one UserWallet
+ * per instrument (docs/TOKENS.md §2.1) and a market only debits or credits its own — read from
+ * `GET /in-app-wallet`, whose `balances` list every instrument the account has a wallet for.
+ */
+export async function fetchMyMarketView(market: { marketId: number; collateral: InstrumentRef }): Promise<{
   position: UserMarketPosition | null;
   lpPosition: LiquidityPositionRecord | null;
   wallet: UserWalletRecord | null;
   party: string | null;
 }> {
-  const [pos, lp, w] = await Promise.all([fetchMyPositions("open"), fetchMyLiquidity("open"), fetchMyLedgerWallet()]);
+  const { marketId } = market;
+  const [pos, lp, view] = await Promise.all([
+    fetchMyPositions("open"),
+    fetchMyLiquidity("open"),
+    fetchInAppWalletView(),
+  ]);
   const p = pos.positions.find((x) => x.marketId === marketId && x.active) ?? null;
   const l = lp.positions.find((x) => x.marketId === marketId && x.active) ?? null;
+  const w = view.balances.find((b) => sameInstrument(b.instrument, market.collateral))?.ledger ?? null;
   return {
     position: p
-      ? { contractId: p.contractId, marketId: p.marketId, yesShares: toNumber(p.yesShares), noShares: toNumber(p.noShares), costBasisCC: toNumber(p.costBasisCC) }
-      : null,
-    lpPosition: l
-      ? { contractId: l.contractId, marketId: l.marketId, provider: l.provider, lpTokens: toNumber(l.lpTokens), depositedCC: toNumber(l.depositedCC) }
-      : null,
-    wallet: w.wallet
       ? {
-          contractId: w.wallet.contractId,
-          admin: "",
-          owner: w.wallet.owner,
-          balanceCC: toNumber(w.wallet.balanceCC),
-          depositedCC: toNumber(w.wallet.depositedCC),
-          withdrawnCC: toNumber(w.wallet.withdrawnCC),
+          contractId: p.contractId,
+          marketId: p.marketId,
+          yesShares: toNumber(p.yesShares),
+          noShares: toNumber(p.noShares),
+          costBasis: toNumber(p.costBasis),
         }
       : null,
-    party: w.partyId,
+    lpPosition: l
+      ? {
+          contractId: l.contractId,
+          marketId: l.marketId,
+          provider: l.provider,
+          lpTokens: toNumber(l.lpTokens),
+          deposited: toNumber(l.deposited),
+        }
+      : null,
+    wallet: w ? ledgerWalletToRecord(w) : null,
+    party: view.partyId,
   };
 }
 
@@ -360,7 +396,17 @@ export async function waitForTradeLanding(prepared: ApiPreparedOrder, timeoutMs 
         floor = Math.max(floor, m.updatedOffset);
       } else {
         const { positions } = await fetchMyPositions("all");
-        if (positions.some((p) => p.marketId === prepared.marketId && (p.createdOffset > prepared.ledgerOffset || (p.archivedAt !== null && !p.active && p.createdOffset <= prepared.ledgerOffset && prepared.action === "redeem"))))
+        if (
+          positions.some(
+            (p) =>
+              p.marketId === prepared.marketId &&
+              (p.createdOffset > prepared.ledgerOffset ||
+                (p.archivedAt !== null &&
+                  !p.active &&
+                  p.createdOffset <= prepared.ledgerOffset &&
+                  prepared.action === "redeem")),
+          )
+        )
           return true;
         floor += 1;
       }

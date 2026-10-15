@@ -11,10 +11,10 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, ChevronLeft, ChevronRight, Clock } from "lucide-react";
 import EventPriceChart from "@/components/charts/EventPriceChart";
-import { EVENT_CHART_TOP_N, SERIES_PALETTE, compactCC, formatPercent, marketColorMap, timeLeft } from "@/lib/chartData";
+import { EVENT_CHART_TOP_N, SERIES_PALETTE, compactAmount, formatPercent, marketColorMap, timeLeft } from "@/lib/chartData";
 import { initialsOf, leadSentences, outcomeLabel, payoutMultiplier } from "@/lib/boardFormat";
 import { fetchSeries } from "@/lib/marketsApi";
-import { toNumber, type ApiEvent } from "@/lib/marketsTypes";
+import { eventInstrument, toNumber, type ApiEvent } from "@/lib/marketsTypes";
 import { barWidthPercent, outcomeRows, rowsHaveOwnImages } from "@/lib/outcomeRows";
 
 /** Row slots on every slide, as on Kalshi's board; events with more outcomes link to the rest. */
@@ -45,7 +45,8 @@ function BoardEvent({ event, nav }: { event: ApiEvent; nav: ReactNode }) {
   const showImages = rowsHaveOwnImages(rows);
   const lead = markets[0];
   const seriesTitle = useSeriesTitle(event.seriesTicker);
-  const volume24h = event.volume24hCC !== undefined ? toNumber(event.volume24hCC) : markets.reduce((acc, m) => acc + toNumber(m.volume24hCC), 0);
+  const instrument = eventInstrument(event);
+  const volume24h = event.volume24h !== undefined ? toNumber(event.volume24h) : markets.reduce((acc, m) => acc + toNumber(m.volume24h), 0);
   // Kalshi shows a news blurb here; we have no feed, so the event's own description is the honest
   // equivalent, and the likeliest market's resolution criteria stand in when the catalog has none.
   const about = event.description.trim() || (lead ? leadSentences(lead.resolutionDescription, 2) : "");
@@ -99,7 +100,7 @@ function BoardEvent({ event, nav }: { event: ApiEvent; nav: ReactNode }) {
 
           <div className="board-stats">
             <span className="board-stats-line">
-              <b>{compactCC(event.volumeCC)}</b> vol <span aria-hidden="true">·</span> <b>{compactCC(volume24h)}</b> 24h <span aria-hidden="true">·</span>{" "}
+              <b>{compactAmount(event.volume, instrument)}</b> vol <span aria-hidden="true">·</span> <b>{compactAmount(volume24h, instrument)}</b> 24h <span aria-hidden="true">·</span>{" "}
               {event.status === "settled" ? (
                 <b>Settled</b>
               ) : (

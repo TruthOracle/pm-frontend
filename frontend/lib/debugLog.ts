@@ -7,8 +7,7 @@
  * is built with VITE_DEBUG_WALLET=true to debug a live issue. Warnings and errors
  * are NOT routed through here: real failures stay visible everywhere.
  */
-const DEBUG: boolean =
-  import.meta.env.DEV || import.meta.env.VITE_DEBUG_WALLET === "true";
+const DEBUG: boolean = import.meta.env.DEV || import.meta.env.VITE_DEBUG_WALLET === "true";
 
 export function debugLog(...args: unknown[]): void {
   if (DEBUG) console.log(...args);

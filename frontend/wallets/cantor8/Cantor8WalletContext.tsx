@@ -7,12 +7,16 @@
  * partyId, commandId, commandsJson, disclosedContracts })` API. Resolution flows through
  * events (`txInitiated` / `txChanged`).
  *
- * Every method that needs the wallet's approval (connect, signMessage, transferCC,
+ * Every method that needs the wallet's approval (connect, signMessage, transfer,
  * signAndSubmitTransaction) opens a popup, and the browser allows ONE popup per click —
  * callers must give each its own button and call it first thing in the handler
  * (popupGesture.ts has the rules). When a popup is blocked anyway, the SDK crashes with a
  * TypeError and leaves its transport wedged; `guardPopup` translates the crash into
  * `WalletPopupBlockedError` and resets the transport so the next click can open a popup.
+ *
+ * `listInstruments` and `getAccounts` are the exceptions: SDK 0.5.1 answers both from its
+ * session (the tokens the connected account holds, named by the SDK's own table — `Amulet`
+ * reads "CC") without opening a popup, so they may run from an effect.
  */
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { C8WalletProvider } from "@cantor8/wallet-connect-sdk";
@@ -26,6 +30,8 @@ import type {
   CantonWalletItem,
   CantonWalletContextValue,
   ConnectOptions,
+  TransferArgs,
+  WalletInstrument,
 } from "../types";
 import { debugLog, debugWarn } from "@/lib/debugLog";
 import { isSdkPopupBlockedFailure, translateWalletError } from "./popupGesture";
@@ -66,14 +72,29 @@ function popupOriginFor(network: C8Network): string {
 function accountFromPayload(accounts?: AccountInfoPayload[] | null): CantonAccount | null {
   const first = accounts?.[0];
   if (!first?.partyId) return null;
-  // 0.5.0 exposes publicKey (and validator info) on the account payload.
-  return { address: first.partyId, partyId: first.partyId, publicKey: first.publicKey };
+  // 0.5.0 exposes publicKey (and validator info) on the account payload; 0.5.1 adds the
+  // holdings per token, which the UI labels through the instrument catalog.
+  return {
+    address: first.partyId,
+    partyId: first.partyId,
+    publicKey: first.publicKey,
+    holdings: Array.isArray(first.holdings)
+      ? first.holdings.map((h) => ({ instrumentId: h.instrumentId, balance: h.balance, balanceUsd: h.balanceUsd }))
+      : undefined,
+  };
 }
 
 export function Cantor8WalletProvider({ children }: { children: React.ReactNode }) {
   const [account, setAccount] = useState<CantonAccount | null>(null);
   const network = useRef<CantonNetworkInfo>({ networkId: resolveNetwork(), ledgerApi: undefined }).current;
   const walletRef = useRef<C8WalletProvider | null>(null);
+  /**
+   * `getInstruments()` once per connected party: the answer is the wallet's own session cache
+   * (SDK 0.5.1 derives it from the account's holdings at connect and on every account update),
+   * so a second call buys nothing. Keyed by party and dropped when the account changes or the
+   * wallet disconnects, because a different party holds different tokens.
+   */
+  const instrumentsRef = useRef<{ party: string; promise: Promise<WalletInstrument[]> } | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -100,7 +121,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     const onRawPopupMessage = (ev: MessageEvent) => {
       if (ev.origin !== popupOrigin) return;
       const data = ev.data as { kind?: string } | undefined;
-      const kind = data && typeof data === "object" ? data.kind ?? "(no-kind)" : typeof data;
+      const kind = data && typeof data === "object" ? (data.kind ?? "(no-kind)") : typeof data;
       debugLog(`[Cantor8] raw popup message kind=${kind}:`, ev.data);
     };
     window.addEventListener("message", onRawPopupMessage);
@@ -108,17 +129,20 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     // The "connected" event carries no accounts payload — fetch them explicitly.
     wallet.on("connected", (e) => {
       debugLog("[Cantor8] event=connected:", e);
+      instrumentsRef.current = null;
       void refreshAccount();
     });
 
     wallet.on("disconnected", (e) => {
       debugLog("[Cantor8] event=disconnected:", e);
+      instrumentsRef.current = null;
       setAccount(null);
     });
 
     // accountChanged delivers the updated account list directly.
     wallet.on("accountChanged", (e) => {
       debugLog("[Cantor8] event=accountChanged:", e);
+      instrumentsRef.current = null;
       setAccount(accountFromPayload(e.accounts));
     });
 
@@ -155,6 +179,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     } catch (e) {
       debugWarn("[Cantor8] reset after blocked popup failed", e);
     }
+    instrumentsRef.current = null;
     setAccount(null);
   }, []);
 
@@ -204,6 +229,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     if (walletRef.current) {
       await walletRef.current.disconnect();
     }
+    instrumentsRef.current = null;
     setAccount(null);
   }, []);
 
@@ -269,9 +295,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
           commandsJson: JSON.stringify(normalizeCommands(params.commands)),
           disclosedContracts: JSON.stringify(params.disclosedContracts ?? []),
         };
-        debugLog(
-          "[Cantor8] signAndExecute payload:\n" + JSON.stringify(signAndExecuteInput, null, 2),
-        );
+        debugLog("[Cantor8] signAndExecute payload:\n" + JSON.stringify(signAndExecuteInput, null, 2));
         // The popup opens synchronously inside signAndExecute(): it runs before any await
         // in this method, so a click handler that calls us first keeps its gesture.
         guardPopup(wallet, () => wallet.signAndExecute(signAndExecuteInput))
@@ -284,10 +308,7 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
           });
 
         // User may walk away from the wallet popup; bound the wait.
-        const timer = setTimeout(
-          () => finish(() => reject(new Error("Wallet sign timed out"))),
-          5 * 60 * 1000,
-        );
+        const timer = setTimeout(() => finish(() => reject(new Error("Wallet sign timed out"))), 5 * 60 * 1000);
         cleanup.push(() => clearTimeout(timer));
       });
     },
@@ -295,22 +316,25 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
   );
 
   /**
-   * High-level Amulet (Canton Coin) transfer via Cantor8 SDK's wallet.send().
-   * The SDK handles popup signing + AmuletRules / OpenMiningRound / fee plumbing
-   * internally — we just say "transfer X CC to Y".
+   * High-level token transfer via the Cantor8 SDK's wallet.send(), in whichever instrument the
+   * caller names by the wallet's id (`Amulet` for Canton Coin, `cBYN`, `TRO`). The SDK handles
+   * popup signing and the token's transfer plumbing internally — we just say "transfer X of
+   * this token to Y". A token the wallet does not list fails inside the popup; `listInstruments`
+   * is how callers avoid offering that.
    */
-  const transferCC = useCallback(
-    async ({ to, amount, memo, metadata }: { to: string; amount: number; memo?: string; metadata?: Record<string, string> }): Promise<{ txId: string }> => {
+  const transfer = useCallback(
+    async ({ instrumentId, to, amount, memo, metadata }: TransferArgs): Promise<{ txId: string }> => {
       const wallet = walletRef.current;
       if (!wallet) throw new Error("Cantor8 wallet not initialized");
       if (!account?.partyId) throw new Error("Cantor8 wallet not connected (no partyId)");
+      if (!instrumentId) throw new Error("Transfer needs the wallet's instrument id");
       if (!(amount > 0)) throw new Error("Transfer amount must be positive");
 
       // The popup opens synchronously inside send(): keep this the first await.
       const result = await guardPopup(wallet, () =>
         wallet.send({
           senderPartyId: account.partyId,
-          instrumentId: "Amulet",
+          instrumentId,
           amount,
           receiverPartyId: to,
           ...(memo ? { memo } : {}),
@@ -321,6 +345,33 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     },
     [account, guardPopup],
   );
+
+  /**
+   * The tokens the connected account can send, by the wallet's ids (SDK `getInstruments()`,
+   * answered from its session — no popup). One request per connected party; a failure is not
+   * cached, so the next caller asks again.
+   */
+  const listInstruments = useCallback(async (): Promise<WalletInstrument[]> => {
+    const wallet = walletRef.current;
+    if (!wallet) throw new Error("Cantor8 wallet not initialized");
+    const party = account?.partyId;
+    if (!party) throw new Error("Cantor8 wallet not connected (no partyId)");
+    const cached = instrumentsRef.current;
+    if (cached && cached.party === party) return cached.promise;
+    const promise = wallet
+      .getInstruments()
+      .then((res) =>
+        (res?.instruments ?? [])
+          .filter((i) => typeof i?.instrumentId === "string" && i.instrumentId !== "")
+          .map((i) => ({ instrumentId: i.instrumentId, name: i.name ?? i.instrumentId, symbol: i.symbol ?? i.instrumentId })),
+      )
+      .catch((e: unknown) => {
+        if (instrumentsRef.current?.promise === promise) instrumentsRef.current = null;
+        throw translateWalletError(e);
+      });
+    instrumentsRef.current = { party, promise };
+    return promise;
+  }, [account?.partyId]);
 
   /**
    * Sign a plain string with the connected party's key (SDK 0.5.0 `signMessage`).
@@ -350,17 +401,14 @@ export function Cantor8WalletProvider({ children }: { children: React.ReactNode 
     connect,
     disconnect,
     signAndSubmitTransaction,
-    transferCC,
+    transfer,
+    listInstruments,
     signMessage,
     wallets,
     network,
   };
 
-  return (
-    <Cantor8WalletContext.Provider value={value}>
-      {children}
-    </Cantor8WalletContext.Provider>
-  );
+  return <Cantor8WalletContext.Provider value={value}>{children}</Cantor8WalletContext.Provider>;
 }
 
 export function useCantor8Wallet(): CantonWalletContextValue {

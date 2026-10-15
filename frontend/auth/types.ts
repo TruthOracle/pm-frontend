@@ -5,8 +5,11 @@
  * validates it at runtime (`backendFetch` returns `data as T`), so a drift shows up
  * wherever a component first reads the missing field. Money is a STRING with exactly
  * ten decimals — never do arithmetic on it with `Number`; format it through
- * `accountUi.fmtMoney` / test it with `moneyIsPositive`.
+ * `formatAmount` (lib/instruments.ts, next to the instrument it is in) and test it
+ * with `moneyIsPositive`.
  */
+
+import type { InstrumentRef } from "@/lib/instruments";
 
 export type Money = string; // "0.0000000000"
 
@@ -38,6 +41,8 @@ export type BackendErrorCode =
   | "primary_wallet_in_use"
   | "deposit_in_progress"
   | "deposit_attribution_drift"
+  /** Reconcile refused because the ledger index lags the ledger end (503); transient, retried by the caller. */
+  | "ledger_stale"
   | "payout_not_found"
   | "payout_blocked"
   | "kyc_required"
@@ -54,12 +59,18 @@ export type BackendErrorCode =
   | "insufficient_shares"
   | "quote_unavailable"
   | "catalog_conflict"
+  /** `POST /admin/instruments` for an (admin, id) pair the catalog already has (409). */
+  | "instrument_exists"
+  /** A registry-mode treasury transfer finds too few unlocked holdings in the index (409). */
+  | "insufficient_treasury_holdings"
   | "validation_failed"
   | "bad_request"
   | "not_found"
   | "payload_too_large"
   | "unsupported_media_type"
   | "upstream_failed"
+  /** Cantor8's token-app (mint / burn) is not configured on this backend (503). */
+  | "token_app_unconfigured"
   /** `GET /health/ready` while a dependency check fails or the process drains. */
   | "not_ready"
   | "internal_error"
@@ -99,12 +110,28 @@ export interface Identity {
   kycLocked: boolean;
 }
 
+/**
+ * An on-ledger `UserWallet` as the index sees it. There is one per (owner, instrument)
+ * (docs/TOKENS.md §2.1): a party holds its collateral balance and its TRO balance in two
+ * contracts, and a market only ever debits or credits the wallet of its own collateral.
+ */
 export interface LedgerWallet {
   contractId: string;
   owner: string;
-  balanceCC: Money;
-  depositedCC: Money;
-  withdrawnCC: Money;
+  instrument: InstrumentRef;
+  balance: Money;
+  deposited: Money;
+  withdrawn: Money;
+  /** Refs already applied — deposit credits and reward grants — newest first. */
+  creditRefs: string[];
+}
+
+/** Deposits from one linked wallet credited to the account's in-app balance, per instrument. */
+export interface WalletCredit {
+  instrument: InstrumentRef;
+  credited: Money;
+  /** Only present in GET /in-app-wallet: what the ledger index shows received from this party in this instrument. */
+  received?: Money;
 }
 
 export interface Wallet {
@@ -116,17 +143,16 @@ export interface Wallet {
   isPrimary: boolean;
   status: "active" | "revoked";
   verifiedAt: string;
-  creditedCC: Money;
-  /** Only present in GET /in-app-wallet. */
-  receivedCC?: Money;
+  /** One entry per instrument this wallet was ever credited in (the only attribution — nothing predates the backend); empty until the first deposit. */
+  credits: WalletCredit[];
   /**
-   * A non-primary party's own on-ledger UserWallet. Null for the primary wallet and for
-   * nearly every other one: the backend creates UserWallets only for an account's primary
-   * party. The one exception (ARCHITECTURE §18) is an in-app payout (`bond` /
-   * `model-prize`) settled to a party that traded with its own key — that wallet is
-   * shown here and never folded into the account's balance.
+   * A non-primary party's own on-ledger UserWallets, one per instrument. Empty for the
+   * primary wallet and for nearly every other one: the backend creates UserWallets only
+   * for an account's primary party. The one exception (ARCHITECTURE §18) is an in-app
+   * payout (`bond` / `model-prize`) settled to a party that traded with its own key —
+   * those wallets are shown here and never folded into the account's balance.
    */
-  ownLedgerWallet: LedgerWallet | null;
+  ownLedgerWallets: LedgerWallet[];
 }
 
 export interface KycVerification {
@@ -184,7 +210,9 @@ export interface Payout {
   pendingPayoutCid: string;
   payeeParty: string;
   walletId: string | null;
-  amountCC: Money;
+  /** The instrument the payout is in: the market's collateral for bonds and prizes, the wallet's for a withdrawal. */
+  instrument: InstrumentRef;
+  amount: Money;
   reason: string;
   status:
     | "queued"
@@ -340,7 +368,7 @@ export interface AuthContextValue {
   /** `capabilities.primaryPartyId ?? user.partyId` from /me; null without /me. */
   primaryPartyId: string | null;
   /**
-   * The party whose UserWallet the money rails key on — non-null exactly in states A
+   * The party whose UserWallets the money rails key on — non-null exactly in states A
    * and B of §16 (connected wallet is the primary, or an active linked wallet). Null
    * for anonymous, unlinked (state C), degraded and unavailable.
    */

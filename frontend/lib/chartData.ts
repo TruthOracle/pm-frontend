@@ -4,8 +4,21 @@
  * palette and the number formatting the cards share. No React, no DOM — unit-tested from
  * test/chart-data.test.mjs.
  */
-import { toNumber, type ApiCandle, type ApiEventMarketCandles, type CandlePeriod, type Decimal } from "@/lib/marketsTypes";
-import { formatAxisLabel, formatLocalClock, formatLocalShortDateTime, formatMonthDayUTC, type AxisGranularity } from "@/lib/time";
+import {
+  toNumber,
+  type ApiCandle,
+  type ApiEventMarketCandles,
+  type CandlePeriod,
+  type Decimal,
+} from "@/lib/marketsTypes";
+import type { InstrumentRef } from "@/lib/instruments";
+import {
+  formatAxisLabel,
+  formatLocalClock,
+  formatLocalShortDateTime,
+  formatMonthDayUTC,
+  type AxisGranularity,
+} from "@/lib/time";
 
 export type Timeframe = "1H" | "6H" | "1D" | "1W" | "1M" | "ALL";
 export const TIMEFRAMES: Timeframe[] = ["1H", "6H", "1D", "1W", "1M", "ALL"];
@@ -91,7 +104,9 @@ export interface PricePoint {
 export function candlesToPoints(candles: ApiCandle[], nowMs = Date.now()): PricePoint[] {
   const first = candles[0];
   if (!first) return [];
-  const points: PricePoint[] = [{ t: first.startTs * 1000, price: clamp01(toNumber(first.price.previous ?? first.price.open)) }];
+  const points: PricePoint[] = [
+    { t: first.startTs * 1000, price: clamp01(toNumber(first.price.previous ?? first.price.open)) },
+  ];
   for (const c of candles) {
     const t = Math.min(c.endTs * 1000, nowMs);
     const price = clamp01(toNumber(c.price.close));
@@ -117,7 +132,10 @@ export interface AlignedRow {
  * The backend already returns them dense and aligned; this still merges by timestamp so a market
  * that lacks a bucket (or starts later) never shifts another market's line.
  */
-export function alignSeries(markets: Pick<ApiEventMarketCandles, "ticker" | "candlesticks">[], nowMs = Date.now()): AlignedRow[] {
+export function alignSeries(
+  markets: Pick<ApiEventMarketCandles, "ticker" | "candlesticks">[],
+  nowMs = Date.now(),
+): AlignedRow[] {
   const rows = new Map<number, AlignedRow>();
   for (const m of markets) {
     for (const p of candlesToPoints(m.candlesticks, nowMs)) {
@@ -141,9 +159,11 @@ export function seriesColor(index: number): string {
 export const EVENT_CHART_TOP_N = 5;
 
 /** Markets ordered for an event chart: most traded first, ties by current price. */
-export function rankMarketsForChart<T extends { ticker: string; totalVolumeCC?: Decimal | number; currentPrice: Decimal | number }>(markets: T[]): T[] {
+export function rankMarketsForChart<
+  T extends { ticker: string; totalVolume?: Decimal | number; currentPrice: Decimal | number },
+>(markets: T[]): T[] {
   return [...markets].sort((a, b) => {
-    const dv = toNum(b.totalVolumeCC) - toNum(a.totalVolumeCC);
+    const dv = toNum(b.totalVolume) - toNum(a.totalVolume);
     if (dv !== 0) return dv;
     return toNum(b.currentPrice) - toNum(a.currentPrice);
   });
@@ -157,7 +177,9 @@ function toNum(v: Decimal | number | undefined): number {
  * Colours per market for an event, from the same ranking the event chart uses, so outcome
  * rows, legend and lines always agree. Archived markets are skipped like the chart skips them.
  */
-export function marketColorMap<T extends { ticker: string; archived?: boolean; totalVolumeCC?: Decimal | number; currentPrice: Decimal | number }>(markets: T[]): Map<string, string> {
+export function marketColorMap<
+  T extends { ticker: string; archived?: boolean; totalVolume?: Decimal | number; currentPrice: Decimal | number },
+>(markets: T[]): Map<string, string> {
   const map = new Map<string, string>();
   rankMarketsForChart(markets.filter((m) => !m.archived)).forEach((m, i) => map.set(m.ticker, seriesColor(i)));
   return map;
@@ -212,7 +234,7 @@ export function niceYScale(values: number[], opts: { floorAtZero?: boolean; maxT
       const mid = (lo + hi) / 2;
       lo = Math.max(0, mid - 6);
       hi = Math.min(100, mid + 6);
-      if (hi - lo < 12) (lo === 0 ? (hi = 12) : (lo = 88));
+      if (hi - lo < 12) lo === 0 ? (hi = 12) : (lo = 88);
     }
   }
   for (const step of Y_STEPS) {
@@ -270,9 +292,17 @@ function localTicks(startMs: number, endMs: number, stepSec: number, max: number
   const first = new Date(startMs);
   if (stepSec >= 86_400) {
     const days = stepSec / 86_400;
-    for (let d = new Date(first.getFullYear(), first.getMonth(), first.getDate()); d.getTime() <= endMs; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+    for (
+      let d = new Date(first.getFullYear(), first.getMonth(), first.getDate());
+      d.getTime() <= endMs;
+      d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)
+    ) {
       // The calendar day as a number (days since 1970-01-01), whatever the zone.
-      if (d.getTime() < startMs || Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / DAY_MS) % days !== 0) continue;
+      if (
+        d.getTime() < startMs ||
+        Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / DAY_MS) % days !== 0
+      )
+        continue;
       ticks.push(d.getTime());
       if (ticks.length > max) break;
     }
@@ -393,19 +423,28 @@ export function formatPointTime(tMs: number, tf: Timeframe): string {
   return tf === "1H" || tf === "6H" || tf === "1D" ? formatLocalClock(tMs) : formatLocalShortDateTime(tMs);
 }
 
-/** `1.2k CC`, `3.4M CC`, `812 CC` — the compact volume figure of a card. */
-export function compactCC(v: Decimal | number, unit = "CC"): string {
+/**
+ * `1.2k cBYN`, `3.4M CC`, `812 CC` — the compact volume figure of a card, labelled with the
+ * instrument the figure is in. `null` gives the bare number (a figure whose label sits elsewhere,
+ * or a count that is not money). Small figures keep at most two decimals, and never more than the
+ * instrument has.
+ */
+export function compactAmount(
+  v: Decimal | number,
+  instrument: Pick<InstrumentRef, "symbol" | "decimals"> | null | undefined,
+): string {
   const n = toNum(v);
   const abs = Math.abs(n);
+  const smallDp = Math.max(0, Math.min(2, instrument?.decimals ?? 2));
   let text: string;
   if (abs >= 1_000_000) text = `${(n / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 1)}M`;
   else if (abs >= 1_000) text = `${(n / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}k`;
   else if (abs >= 100) text = n.toFixed(0);
-  else text = n.toFixed(abs >= 10 ? 1 : 2);
+  else text = n.toFixed(Math.min(smallDp, abs >= 10 ? 1 : 2));
   // Drop trailing zeros so small figures read naturally: 0.00 → 0, 0.50 → 0.5, 1.0k → 1k.
   text = text.replace(/(\.\d*?)0+(?=[kM]?$)/, "$1").replace(/\.(?=[kM]?$)/, "");
   if (text === "-0") text = "0";
-  return unit ? `${text} ${unit}` : text;
+  return instrument?.symbol ? `${text} ${instrument.symbol}` : text;
 }
 
 /** `3m ago`, `2h ago`, `Yesterday`, else a short UTC date. */

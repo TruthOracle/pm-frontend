@@ -12,9 +12,9 @@ import { ArrowUpRight, ChevronRight, Clock, Contrast, Gavel, Layers, ShieldCheck
 import EventPriceChart from "@/components/charts/EventPriceChart";
 import TradeFeed from "@/components/TradeFeed";
 import MarketView from "@/components/market/MarketView";
-import { marketColorMap, compactCC, formatCents, formatPercent, priceDelta, timeLeft } from "@/lib/chartData";
+import { marketColorMap, compactAmount, formatCents, formatPercent, priceDelta, timeLeft } from "@/lib/chartData";
 import { useEvent, useEventTrades } from "@/lib/marketQueries";
-import { toNumber, type ApiEvent, type ApiMarket } from "@/lib/marketsTypes";
+import { eventInstrument, toNumber, type ApiEvent, type ApiMarket } from "@/lib/marketsTypes";
 import { cn } from "@/lib/utils";
 import { ownImage } from "@/lib/outcomeRows";
 import { formatDateTimeUTC, formatMonthDayUTC, formatShortDateTimeUTC } from "@/lib/time";
@@ -93,12 +93,15 @@ export default function EventView() {
   const settled = event.status === "settled";
   const yesSum = markets.filter((m) => m.status === "Trading").reduce((acc, m) => acc + toNumber(m.currentPrice), 0);
   // Event-wide figures: the backend's aggregates when it sends them, else summed over the markets.
+  // They are all in the event's one instrument (every market of an event shares its collateral).
   const sum = (pick: (m: ApiMarket) => number) => markets.reduce((acc, m) => acc + pick(m), 0);
+  const instrument = eventInstrument(event);
+  const sym = instrument?.symbol ?? "";
   const stats = {
-    volume: toNumber(event.volumeCC),
-    volume24h: event.volume24hCC !== undefined ? toNumber(event.volume24hCC) : sum((m) => toNumber(m.volume24hCC)),
-    openInterest: event.openInterestCC !== undefined ? toNumber(event.openInterestCC) : sum((m) => toNumber(m.openInterest.total)),
-    liquidity: event.liquidityCC !== undefined ? toNumber(event.liquidityCC) : sum((m) => toNumber(m.liquidityCC)),
+    volume: toNumber(event.volume),
+    volume24h: event.volume24h !== undefined ? toNumber(event.volume24h) : sum((m) => toNumber(m.volume24h)),
+    openInterest: event.openInterest !== undefined ? toNumber(event.openInterest) : sum((m) => toNumber(m.openInterest.total)),
+    liquidity: event.liquidity !== undefined ? toNumber(event.liquidity) : sum((m) => toNumber(m.liquidity)),
     trades: sum((m) => m.tradeCount ?? 0),
     trading: markets.filter((m) => m.status === "Trading").length,
   };
@@ -145,23 +148,23 @@ export default function EventView() {
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6" aria-label="Event statistics">
             <div className="k-stat">
               <div className="k-stat-label">Volume</div>
-              <div className="k-stat-value k-num">{compactCC(stats.volume, "")}</div>
-              <div className="k-stat-sub">CC lifetime · {markets.length} market{markets.length === 1 ? "" : "s"}</div>
+              <div className="k-stat-value k-num">{compactAmount(stats.volume, null)}</div>
+              <div className="k-stat-sub">{sym ? `${sym} lifetime` : "lifetime"} · {markets.length} market{markets.length === 1 ? "" : "s"}</div>
             </div>
             <div className="k-stat">
               <div className="k-stat-label">Volume 24h</div>
-              <div className="k-stat-value k-num">{compactCC(stats.volume24h, "")}</div>
-              <div className="k-stat-sub">CC across the event</div>
+              <div className="k-stat-value k-num">{compactAmount(stats.volume24h, null)}</div>
+              <div className="k-stat-sub">{sym ? `${sym} across the event` : "across the event"}</div>
             </div>
             <div className="k-stat">
               <div className="k-stat-label">Open interest</div>
-              <div className="k-stat-value k-num">{compactCC(stats.openInterest, "")}</div>
+              <div className="k-stat-value k-num">{compactAmount(stats.openInterest, null)}</div>
               <div className="k-stat-sub">shares outstanding</div>
             </div>
             <div className="k-stat">
               <div className="k-stat-label">Liquidity</div>
-              <div className="k-stat-value k-num">{compactCC(stats.liquidity, "")}</div>
-              <div className="k-stat-sub">pool value, all markets</div>
+              <div className="k-stat-value k-num">{compactAmount(stats.liquidity, null)}</div>
+              <div className="k-stat-sub">{sym ? `pool value in ${sym}, all markets` : "pool value, all markets"}</div>
             </div>
             <div className="k-stat">
               <div className="k-stat-label">Trades</div>
@@ -220,7 +223,7 @@ export default function EventView() {
                           {outcomeLabel(m) !== m.question && <div className="truncate text-xs text-slate-500">{m.question}</div>}
                           <div className="mt-1.5 flex items-center gap-2">
                             <div className="outcome-bar max-w-[12rem]"><span style={{ width: `${Math.round(p * 100)}%`, background: color }} /></div>
-                            <span className="k-num text-[11px] text-slate-500">{compactCC(m.totalVolumeCC)}</span>
+                            <span className="k-num text-[11px] text-slate-500">{compactAmount(m.totalVolume, m.collateral)}</span>
                           </div>
                         </div>
                         <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-end sm:gap-4">

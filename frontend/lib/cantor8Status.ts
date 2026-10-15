@@ -103,8 +103,9 @@ export async function getWalletTransferHistory(_partyId: string): Promise<Wallet
  * by default — set `VITE_DEBUG_WALLET_STATUS=true` to re-enable for debugging.
  *
  * The actual trade flow doesn't depend on this; it's diagnostic logging only.
- * For real "did the trade commit" checks, poll the participant for
- * UserMarketData (see `waitForPositionUpdate` in MarketView).
+ * For real "did the trade commit" checks the market page waits for the index to
+ * show the trade — a new market version or a new `Position` version
+ * (`waitForTradeLanding` in lib/marketsApi.ts).
  */
 export async function probeWalletStatusEndpoints(partyId: string, commandId: string): Promise<void> {
   if (!DEBUG_WALLET_STATUS) return;

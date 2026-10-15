@@ -1,6 +1,8 @@
 # Active contracts API reference (JSON Ledger API)
 
-Based on the [OpenAPI spec](https://docs.digitalasset.com/build/3.4/reference/json-api/openapi.html) for the JSON Ledger API.
+Based on the [OpenAPI spec](https://docs.digitalasset.com/build/3.4/reference/json-api/openapi.html)
+for the JSON Ledger API, checked against the participant the app talks to (Canton 3.6.1 on
+DevNet, 2026-10-15 — `truthoracle-backend/docs/TOKENS.md` §1).
 
 ## Endpoint
 
@@ -14,7 +16,8 @@ Based on the [OpenAPI spec](https://docs.digitalasset.com/build/3.4/reference/js
 | `limit` | integer (int64) | No | Max number of elements to return. Capped by server `http-list-max-elements-limit`. |
 | `stream_idle_timeout_ms` | integer (int64) | No | Timeout for open-ended streams. |
 
-**Note:** Some implementations also accept a `party` query parameter for server-side filtering; it is not in the OpenAPI path. Our client sends `party=<partyId>` for compatibility.
+The app sends neither: the party is named inside `eventFormat.filtersByParty`, and the
+participant's default page is enough for one template's contracts.
 
 ## Request body: `GetActiveContractsRequest`
 
@@ -24,12 +27,15 @@ Content-Type: `application/json`.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `activeAtOffset` | integer (int64) | **Yes** | Snapshot offset. Must be ≤ ledger end and ≥ last pruning offset. Use `0` for ledger begin (returns empty set). |
-| `eventFormat` | `EventFormat` | No* | Format of contract entries in the response (ACS_DELTA shape). Use this **or** legacy `filter`/`verbose`, not both. |
-| `filter` | `TransactionFilter` | No | Deprecated (removed in 3.5.0). If set, `eventFormat` must be unset. |
-| `verbose` | boolean | No | Deprecated. If set, `eventFormat` must be unset. |
+| `activeAtOffset` | integer (int64) — the app sends it as a string | **Yes** | Snapshot offset. Must be ≤ ledger end and ≥ last pruning offset. `0` is ledger begin (returns the empty set). |
+| `eventFormat` | `EventFormat` | **Yes** (for us) | Format of contract entries in the response (ACS_DELTA shape). |
+| `filter` | `TransactionFilter` | **Never** | Legacy. Canton 3.6 refuses it with `DEPRECATED_API_DISABLED`. |
+| `verbose` | boolean | **Never** | Legacy. Same refusal — the verbose flag lives INSIDE `eventFormat`. |
 
-\* If neither `eventFormat` nor legacy `filter` is set, the API defaults from `filter`/`verbose`; for new code, prefer `eventFormat`.
+Nothing may sit next to `eventFormat` but `activeAtOffset`. Both clients in this repository
+build exactly that body (`frontend/lib/cantonParticipant.ts` `queryActiveContracts`,
+`api/_lib/ledgerClient.mjs` `activeContractsRequest`), and `test/ledger-client.test.mjs`
+pins the shape.
 
 ### `EventFormat`
 
@@ -37,7 +43,7 @@ Content-Type: `application/json`.
 |-------|------|-------------|
 | `filtersByParty` | `Map_Filters` | Map: party ID → `Filters`. For active-contracts: create/archive events for contracts whose **stakeholders** include at least one listed party and match the per-party filter. |
 | `filtersForAnyParty` | `Filters` | Wildcard filters applied to all parties. |
-| `verbose` | boolean | If true, include labels for record fields in values. |
+| `verbose` | boolean | If true, include labels for record fields in values. The app sends `false`. |
 
 ### `Filters` (per-party or for-any-party)
 
@@ -53,10 +59,17 @@ Content-Type: `application/json`.
 
 ### `IdentifierFilter` (one-of)
 
-- **TemplateFilter** – specific template:
-  - `TemplateFilter.value.templateId` (string, required): e.g. `"packageId:moduleName:entityName"` (package-id reference format).
-  - `TemplateFilter.value.includeCreatedEventBlob` (boolean, optional): include blob for disclosed contracts.
-- **InterfaceFilter** – contracts implementing an interface (`interfaceId`, etc.).
+- **TemplateFilter** – one template:
+  - `TemplateFilter.value.templateId` (string, required): the **package-name reference**
+    `"#packageName:moduleName:entityName"`, e.g. `"#truthoracle-v17:Truthoracle:MarketCounter"`.
+    The package-id form (`"<64-hex>:Module:Entity"`) is rejected here with `INVALID_FIELD`
+    "Received an identifier with package ID …, but expected a package name"; commands, by
+    contrast, pin the package by id.
+  - `TemplateFilter.value.includeCreatedEventBlob` (boolean, optional): include the blob a
+    `DisclosedContract` needs (the market page asks for it on `PredictionMarket`).
+- **InterfaceFilter** – contracts implementing an interface (`interfaceId`,
+  `includeInterfaceView`). The backend's indexer uses it for the token standard
+  (`#splice-api-token-holding-v1:Splice.Api.Token.HoldingV1:Holding`); the browser does not.
 - **WildcardFilter** – all templates (`includeCreatedEventBlob` optional).
 - **Empty** – no filter.
 
@@ -64,7 +77,7 @@ Content-Type: `application/json`.
 
 ```json
 {
-  "activeAtOffset": 12345,
+  "activeAtOffset": "12345",
   "eventFormat": {
     "filtersByParty": {
       "<partyId>": {
@@ -73,7 +86,7 @@ Content-Type: `application/json`.
             "identifierFilter": {
               "TemplateFilter": {
                 "value": {
-                  "templateId": "packageId:moduleName:entityName",
+                  "templateId": "#truthoracle-v17:Truthoracle:MarketCounter",
                   "includeCreatedEventBlob": false
                 }
               }
@@ -82,15 +95,15 @@ Content-Type: `application/json`.
         ]
       }
     },
-    "filtersForAnyParty": {},
-    "verbose": true
+    "verbose": false
   }
 }
 ```
 
-- `activeAtOffset`: get from `GET /v2/state/ledger-end` → `response.offset` (or `0` for empty snapshot).
-- Replace `<partyId>` with the Daml party ID (e.g. `619a8e89...::12202464...`).
-- `templateId`: package-id reference format; both package-name and package-id reference are supported (package-id format deprecated in 3.4).
+- `activeAtOffset`: `GET /v2/state/ledger-end` → `response.offset`.
+- `<partyId>`: the full Daml party id (`Hint::1220…`). Only a stakeholder sees the contract —
+  `MarketCounter` is seen by its admin (the treasury), a `UserWallet` by its owner and the
+  treasury, a `PredictionMarket` by the treasury and its observers.
 
 ## Response
 
@@ -101,12 +114,21 @@ Content-Type: `application/json`.
 For `JsActiveContract`, the contract id and payload come from:
 
 - `contractEntry.JsActiveContract.createdEvent.contractId`
-- `contractEntry.JsActiveContract.createdEvent.createArgument` (contract payload)
+- `contractEntry.JsActiveContract.createdEvent.createArgument` (contract payload; Daml `Int`
+  and `Decimal` fields arrive as strings, `InstrumentId` as `{ admin, id }`)
+- `contractEntry.JsActiveContract.createdEvent.createdEventBlob` and `synchronizerId` when
+  `includeCreatedEventBlob` was set
+- `templateId` comes back in package-id form even though the filter named the package — that
+  asymmetry is normal.
 
 ## Flow used in this project
 
-1. `GET /v2/state/ledger-end` → obtain `offset`.
-2. `POST /v2/state/active-contracts?limit=200&party=<partyId>` with body:
-   - `activeAtOffset`: that offset (or 0).
-   - `eventFormat`: `filtersByParty` for the party with a single `TemplateFilter` for the desired template, plus `verbose: true`.
-3. Parse the returned array; for each item take `contractEntry.JsActiveContract.createdEvent` and use `contractId` and `createArgument` (and filter client-side by payload if needed, e.g. `admin === partyId` for `MarketCounter`).
+1. `GET /v2/state/ledger-end` → `offset`.
+2. `POST /v2/state/active-contracts` with `activeAtOffset` (as a string) and one
+   `TemplateFilter` under the party, `verbose: false` inside `eventFormat`, nothing else.
+3. Parse the array; for each item take `contractEntry.JsActiveContract.createdEvent`, use
+   `contractId` and `createArgument`, and filter client-side by payload where the template
+   is shared (`owner === partyId` on `UserWallet`, `marketId` on `Position`).
+
+Set `VITE_DEBUG_ACTIVE_CONTRACTS=true` to log each browser lookup (`[active-contracts]`
+with the template id, offset and raw response).

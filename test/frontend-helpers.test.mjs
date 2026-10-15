@@ -312,7 +312,8 @@ describe("payout helpers (lib/inAppWallet.ts)", () => {
     pendingPayoutCid: CID,
     payeeParty: "user::1220aa",
     walletId: "w1",
-    amountCC: "5.0000000000",
+    instrument: { admin: "dso::1220aa", id: "Amulet", symbol: "CC", name: "Canton Coin", decimals: 10 },
+    amount: "5.0000000000",
     reason: "withdraw",
     status,
     retryAfterKyc: status === "blocked_kyc",
@@ -395,6 +396,22 @@ describe("creditPendingDeposits (lib/inAppWallet.ts, §8.3 credit-only rail)", (
     assert.equal(calls[0].url, "/__backend/api/v1/in-app-wallet/deposits/reconcile");
     assert.equal(calls[0].init.method, "POST");
     assert.equal(calls[0].init.body, undefined, "the browser never asserts an amount");
+  });
+
+  it("names the instrument when asked for one, and waits out a stale ledger index inside the window", async () => {
+    const instrument = { admin: "dso::1220aa", id: "Amulet" };
+    const result = { instrument: { ...instrument, symbol: "CC", name: "Canton Coin", decimals: 10 }, credited: "1.0000000000", status: "confirmed", perWallet: [], ledger: null };
+    const calls = stubFetch(() => json(result));
+    assert.deepEqual(await wallet.creditPendingDeposits({ windowMs: 0, instrument }), result);
+    assert.deepEqual(JSON.parse(calls[0].init.body), { instrument }, "only the identity travels, never a symbol or an amount");
+
+    // 503 ledger_stale is transient: retried until the window is spent, then surfaced as credit-pending.
+    stubFetch(() => json({ error: "ledger_stale", message: "index lags the ledger end" }, 503));
+    await assert.rejects(wallet.creditPendingDeposits({ windowMs: 0 }), (e) => {
+      assert.ok(wallet.isDepositCreditPending(e));
+      assert.match(e.message, /catching up/);
+      return true;
+    });
   });
 
   it("returns nothing_outstanding once the window is spent instead of looping", async () => {

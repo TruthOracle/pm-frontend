@@ -134,7 +134,8 @@ export function describeKyc(summary: KycSummary): KycStatusView {
       return {
         label: "Manual review",
         tone: "pending",
-        sentence: "Your documents were received and are being reviewed by an operator. There is nothing more to do right now.",
+        sentence:
+          "Your documents were received and are being reviewed by an operator. There is nothing more to do right now.",
         canStart: false,
         startLabel: "",
       };
@@ -142,7 +143,8 @@ export function describeKyc(summary: KycSummary): KycStatusView {
     return {
       label: "Under review",
       tone: "pending",
-      sentence: "Your documents are being reviewed. This usually takes a few minutes; the status updates here automatically.",
+      sentence:
+        "Your documents are being reviewed. This usually takes a few minutes; the status updates here automatically.",
       canStart: false,
       startLabel: "",
     };

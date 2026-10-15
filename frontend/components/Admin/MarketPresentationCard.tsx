@@ -7,8 +7,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { updateMarketMetadata } from "@/lib/backendAdmin";
 import type { ApiMarket } from "@/lib/marketsTypes";
-import { btn, btnQuiet, Card, field, label } from "./adminUi";
-import type { Run } from "./CreateMarketForm";
+import { btn, btnQuiet, Card, field, label, type Run } from "./adminUi";
 
 const SHOWN = 50;
 

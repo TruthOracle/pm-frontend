@@ -3,11 +3,26 @@
  * Both implementations expose the same interface for easy switching.
  */
 
+import type { TransferArgs } from "@/lib/inAppWallet";
+
+/** What the wallet says this party holds, under the wallet's own token ids (Cantor8: `Amulet`, `cBYN`, …). */
+export interface CantonAccountHolding {
+  instrumentId: string;
+  balance: number;
+  balanceUsd: number;
+}
+
 export interface CantonAccount {
   address: string;
   partyId: string;
   publicKey?: string;
   namespace?: string;
+  /**
+   * The wallet's snapshot of the party's holdings at connect / account change. Labelled in the
+   * UI through the instrument catalog's `walletInstrumentId` (lib/instruments.ts), never by the
+   * wallet's id itself. Absent on wallets that do not report holdings (Loop).
+   */
+  holdings?: CantonAccountHolding[];
 }
 
 export interface CantonNetworkInfo {
@@ -29,16 +44,18 @@ export interface ConnectOptions {
 
 /** Re-export for wallet implementations that submit transactions */
 export type { PrepareExecuteParams } from "@/lib/cantonDapp";
+export type { TransferArgs };
 
-export interface TransferCCArgs {
-  /** Recipient party id. */
-  to: string;
-  /** Amount in whole CC units (e.g. 1.5). */
-  amount: number;
-  /** Optional memo shown in the wallet popup / on-ledger metadata. */
-  memo?: string;
-  /** Optional structured metadata. */
-  metadata?: Record<string, string>;
+/**
+ * A token the connected wallet can send, under the wallet's OWN id — what `transfer()` takes
+ * as `instrumentId` and what the catalog's `walletInstrumentId` maps to (`Amulet` for Canton
+ * Coin). `name` and `symbol` are the wallet's labels, kept for logs and fallbacks; the UI labels
+ * tokens from the instrument catalog.
+ */
+export interface WalletInstrument {
+  instrumentId: string;
+  name: string;
+  symbol: string;
 }
 
 export interface CantonWalletContextValue {
@@ -48,11 +65,21 @@ export interface CantonWalletContextValue {
   disconnect: () => Promise<void>;
   signAndSubmitTransaction: (params: import("@/lib/cantonDapp").PrepareExecuteParams) => Promise<{ hash: string }>;
   /**
-   * High-level Canton Coin transfer. Wraps Cantor8 SDK's `wallet.send()` — the
-   * wallet handles AmuletRules / OpenMiningRound / fees / popup signing internally.
-   * Resolves with the txId after the user confirms in the wallet popup.
+   * High-level token transfer in ANY instrument the wallet lists (docs/TOKENS.md §5): wraps the
+   * Cantor8 SDK's `wallet.send({ instrumentId, … })` — the wallet handles the token's transfer
+   * rules, fees and popup signing internally. `instrumentId` is the wallet's id for the token
+   * (`ApiInstrument.walletInstrumentId`). Resolves with the txId once the person confirms in the
+   * wallet popup; opens ONE popup, so it must be the first thing a click handler awaits
+   * (wallets/cantor8/popupGesture.ts).
    */
-  transferCC: (args: TransferCCArgs) => Promise<{ txId: string }>;
+  transfer: (args: TransferArgs) => Promise<{ txId: string }>;
+  /**
+   * The tokens the connected wallet can send, by the wallet's own ids. Answered from the wallet's
+   * session (no popup), fetched once per connected party and cached until the account changes —
+   * the deposit button is disabled for a token that is missing here, before any transfer is
+   * offered ("Your Cantor8 wallet does not list <symbol> yet").
+   */
+  listInstruments: () => Promise<WalletInstrument[]>;
   /**
    * Sign an arbitrary string with the connected party's key. Used for the admin
    * login challenge (frontend/lib/adminSession.ts) — the popup prompts the operator,

@@ -1,5 +1,7 @@
 import { YourLpBox, YourPositionBox } from "./MarketPositionCards";
-import { fmtCC } from "./marketHelpers";
+import type { WalletHolding } from "@/lib/walletHoldings";
+import { fmtNum } from "./marketHelpers";
+import { formatMoney } from "@/lib/instruments";
 import { formatDateTimeUTC } from "@/lib/time";
 
 type SettlementContext = {
@@ -17,13 +19,17 @@ type SettlementContext = {
   setWithdrawPct: any;
   handleWithdrawLiquidity: any;
   userPosition: any;
-  holdings: any;
+  /** Every token the external wallet reports; YourPositionBox shows the market's collateral. */
+  holdings: WalletHolding[] | null;
   probYes: any;
   probNo: any;
 };
 
 export default function MarketSettlementPanel({ context }: { context: SettlementContext }) {
   const { phase, market, redeemable, busy, account, signInFirst = false, tradeLockReason = null, handleRedeem, lpPosition, setWithdrawPct, handleWithdrawLiquidity, userPosition, holdings, probYes, probNo } = context;
+  // Every figure here is in the market's collateral (a winning share pays one unit of it).
+  const collateral = market.collateral;
+  const sym: string = collateral.symbol;
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
           <div className="flex-1 space-y-4">
@@ -34,7 +40,7 @@ export default function MarketSettlementPanel({ context }: { context: Settlement
               </div>
               <div className="mt-4 space-y-2 text-sm text-muted-foreground">
                 <div className="flex justify-between"><span>Final probability</span><span>{(probYes * 100).toFixed(1)}% Yes</span></div>
-                <div className="flex justify-between"><span>Total volume</span><span>{fmtCC(market.totalVolumeCC, 2)} CC</span></div>
+                <div className="flex justify-between"><span>Total volume</span><span>{formatMoney(market.totalVolume, collateral, 2)}</span></div>
                 {market.resolvedAt && (
                   <div className="flex justify-between"><span>Settled</span><span>{formatDateTimeUTC(market.resolvedAt * 1000)}</span></div>
                 )}
@@ -48,11 +54,11 @@ export default function MarketSettlementPanel({ context }: { context: Settlement
               ) : (
                 <>
                   <div className="mb-3 space-y-1 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
-                    <div className="flex justify-between"><span>YES held</span><span className="text-oracle-yes">{fmtCC(userPosition.yesShares, 2)}</span></div>
-                    <div className="flex justify-between"><span>NO held</span><span className="text-oracle-no">{fmtCC(userPosition.noShares, 2)}</span></div>
+                    <div className="flex justify-between"><span>YES held</span><span className="text-oracle-yes">{fmtNum(userPosition.yesShares, 2)}</span></div>
+                    <div className="flex justify-between"><span>NO held</span><span className="text-oracle-no">{fmtNum(userPosition.noShares, 2)}</span></div>
                     <div className="flex justify-between border-t border-border pt-1">
-                      <span>{phase === "voided" ? "Refund (cost basis)" : "Payout (1 CC / winning share)"}</span>
-                      <span className="font-bold text-primary">{fmtCC(redeemable)} CC</span>
+                      <span>{phase === "voided" ? "Refund (cost basis)" : `Payout (1 ${sym} / winning share)`}</span>
+                      <span className="font-bold text-primary">{formatMoney(redeemable, collateral)}</span>
                     </div>
                   </div>
                   <button
@@ -65,8 +71,8 @@ export default function MarketSettlementPanel({ context }: { context: Settlement
                       ? "Redeeming…"
                       : redeemable > 0
                         ? phase === "voided"
-                          ? `Redeem refund — ${fmtCC(redeemable)} CC`
-                          : `Redeem winnings — ${fmtCC(redeemable)} CC`
+                          ? `Redeem refund — ${formatMoney(redeemable, collateral)}`
+                          : `Redeem winnings — ${formatMoney(redeemable, collateral)}`
                         : "Nothing to redeem"}
                   </button>
                 </>
@@ -78,8 +84,8 @@ export default function MarketSettlementPanel({ context }: { context: Settlement
                 <h3 className="mb-3 text-center text-sm font-bold text-foreground">Withdraw Liquidity</h3>
                 <p className="mb-3 text-center text-xs text-muted-foreground">
                   {phase === "voided"
-                    ? "Deposit share + accrued fees returned as CC."
-                    : "Your share of the winning reserve + accrued fees, paid as CC."}
+                    ? `Deposit share + accrued fees returned as ${sym}.`
+                    : `Your share of the winning reserve + accrued fees, paid as ${sym}.`}
                 </p>
                 <button
                   onClick={() => {
@@ -96,7 +102,7 @@ export default function MarketSettlementPanel({ context }: { context: Settlement
             )}
           </div>
           <div className="w-full space-y-4 lg:w-80 lg:shrink-0">
-            <YourPositionBox account={account} signInFirst={signInFirst} userPosition={userPosition} holdings={holdings} probYes={probYes} probNo={probNo} />
+            <YourPositionBox account={account} signInFirst={signInFirst} userPosition={userPosition} holdings={holdings} collateral={collateral} probYes={probYes} probNo={probNo} />
             {lpPosition && lpPosition.lpTokens > 0 && <YourLpBox account={account} signInFirst={signInFirst} lpPosition={lpPosition} market={market} />}
           </div>
 

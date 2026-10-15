@@ -27,7 +27,9 @@ export async function reattachIdentity(identity: Identity, proof: ReattachProof)
     { method: "POST", body: proof },
   );
   if (!res?.identity || res.identity.id !== identity.id) {
-    throw new Error("The server re-attached a different sign-in method than the one selected. Reload the page and check your sign-in methods.");
+    throw new Error(
+      "The server re-attached a different sign-in method than the one selected. Reload the page and check your sign-in methods.",
+    );
   }
   if (res.identity.status !== "active") {
     throw new Error("The sign-in method is still unlinked. Contact support if this keeps happening.");

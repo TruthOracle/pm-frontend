@@ -1,5 +1,7 @@
 import { YourPositionBox } from "./MarketPositionCards";
-import { fmtCC, fmtCountdown } from "./marketHelpers";
+import type { WalletHolding } from "@/lib/walletHoldings";
+import { fmtCountdown } from "./marketHelpers";
+import { formatMoney } from "@/lib/instruments";
 import type { OutcomeArg } from "@/utils/cantonCommands";
 
 type ResolutionContext = {
@@ -21,7 +23,8 @@ type ResolutionContext = {
   handleChallenge: any;
   handleFinalize: any;
   userPosition: any;
-  holdings: any;
+  /** Every token the external wallet reports; YourPositionBox shows the market's collateral. */
+  holdings: WalletHolding[] | null;
   probYes: any;
   probNo: any;
   isAdmin: any;
@@ -39,7 +42,7 @@ export default function MarketResolutionPanel({ context }: { context: Resolution
                 <div className="mb-3 text-center">
                   <h2 className="text-sm font-bold text-foreground">Optimistic Resolution (T3)</h2>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Bond {fmtCC(market.policy.bondCC)} CC · challenges escalate to the objective tier, never a vote.
+                    Bond {formatMoney(market.policy.bond, market.collateral)} · challenges escalate to the objective tier, never a vote.
                   </p>
                 </div>
                 {phase === "expired" && (
@@ -183,7 +186,7 @@ export default function MarketResolutionPanel({ context }: { context: Resolution
               </div>
             )}
           </div>
-          <div className="w-full space-y-4 lg:w-80 lg:shrink-0"><YourPositionBox account={account} signInFirst={signInFirst} userPosition={userPosition} holdings={holdings} probYes={probYes} probNo={probNo} /></div>
+          <div className="w-full space-y-4 lg:w-80 lg:shrink-0"><YourPositionBox account={account} signInFirst={signInFirst} userPosition={userPosition} holdings={holdings} collateral={market.collateral} probYes={probYes} probNo={probNo} /></div>
 
     </div>
   );

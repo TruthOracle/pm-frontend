@@ -3,7 +3,9 @@
  *
  * These exist so admin-signed actions can be derived from what is actually on the
  * ledger instead of from what the browser claims. Read-only by design — writes go
- * through the wallet, which holds the signing key.
+ * through the wallet, which holds the signing key. Record shapes follow truthoracle-v17
+ * (truthoracle-backend docs/TOKENS.md §3): one UserWallet per (owner, instrument), every
+ * money field next to the instrument it is in, no currency suffix anywhere.
  */
 
 import {
@@ -46,34 +48,43 @@ async function ledgerEnd() {
   return String(typeof end?.offset === "number" ? end.offset : 0);
 }
 
+/**
+ * The GetActiveContractsRequest body for one template visible to `party`. Only
+ * `activeAtOffset` sits next to `eventFormat`: Canton 3.6 disables the legacy top-level
+ * `filter` / `verbose` fields (DEPRECATED_API_DISABLED), so the verbose flag lives inside
+ * the eventFormat and nowhere else. Exported so a test can pin the shape without a ledger.
+ */
+export function activeContractsRequest(party, entity, activeAtOffset, module = TRUTHORACLE_MODULE) {
+  return {
+    activeAtOffset,
+    eventFormat: {
+      filtersByParty: {
+        [party]: {
+          cumulative: [
+            {
+              identifierFilter: {
+                TemplateFilter: {
+                  value: {
+                    templateId: filterTemplateId(entity, module),
+                    includeCreatedEventBlob: false,
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+      verbose: false,
+    },
+  };
+}
+
 /** Active contracts of one template, visible to `party`. */
 export async function activeContracts(party, entity, module = TRUTHORACLE_MODULE) {
   const activeAtOffset = await ledgerEnd();
   const response = await ledger("/v2/state/active-contracts", {
     method: "POST",
-    body: {
-      verbose: false,
-      activeAtOffset,
-      eventFormat: {
-        filtersByParty: {
-          [party]: {
-            cumulative: [
-              {
-                identifierFilter: {
-                  TemplateFilter: {
-                    value: {
-                      templateId: filterTemplateId(entity, module),
-                      includeCreatedEventBlob: false,
-                    },
-                  },
-                },
-              },
-            ],
-          },
-        },
-        verbose: false,
-      },
-    },
+    body: activeContractsRequest(party, entity, activeAtOffset, module),
   });
 
   const items = Array.isArray(response)
@@ -93,20 +104,36 @@ const num = (value) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/** `Truthoracle.InstrumentId` as the ledger serialises it: the registry party and the token id. */
+export function parseInstrument(value) {
+  return { admin: String(value?.admin ?? ""), id: String(value?.id ?? "") };
+}
+
+export function sameInstrument(a, b) {
+  return !!a && !!b && a.admin === b.admin && a.id === b.id;
+}
+
 /**
- * The owner's UserWallet, read as the admin (signatory, so it sees every wallet).
- * Returns null when the user has never deposited — the caller creates one.
+ * The owner's UserWallet for one instrument, read as the admin (signatory, so it sees
+ * every wallet). A party holds one wallet per instrument, so the caller names the one it
+ * means — a market's collateral, or the rewards token. Null when the user has never
+ * deposited or been granted that instrument — the backend creates it.
  */
-export async function fetchUserWallet(adminParty, ownerParty) {
+export async function fetchUserWallet(adminParty, ownerParty, instrument) {
+  if (!instrument?.admin || !instrument?.id) throw new Error("fetchUserWallet needs the wallet's instrument { admin, id }");
   const rows = await activeContracts(adminParty, "UserWallet");
   for (const row of rows) {
     if (String(row.payload?.owner ?? "") !== ownerParty) continue;
+    const rowInstrument = parseInstrument(row.payload?.instrument);
+    if (!sameInstrument(rowInstrument, instrument)) continue;
     return {
       contractId: row.contractId,
       owner: String(row.payload.owner),
-      balanceCC: num(row.payload.balanceCC),
-      depositedCC: num(row.payload.depositedCC),
-      withdrawnCC: num(row.payload.withdrawnCC),
+      instrument: rowInstrument,
+      balance: num(row.payload.balance),
+      deposited: num(row.payload.deposited),
+      withdrawn: num(row.payload.withdrawn),
+      creditRefs: Array.isArray(row.payload.creditRefs) ? row.payload.creditRefs.map(String) : [],
     };
   }
   return null;
@@ -117,12 +144,14 @@ export async function fetchPendingPayout(adminParty, contractId) {
   const rows = await activeContracts(adminParty, "PendingPayout");
   for (const row of rows) {
     if (row.contractId !== contractId) continue;
-    // Field names mirror truthoracle-contracts/daml/daml/Truthoracle.daml (PendingPayout) — the payee is `user`.
+    // Field names mirror truthoracle-contracts/daml/daml/Truthoracle.daml (PendingPayout) — the payee is `user`,
+    // and the row carries the instrument it is owed in (the market's collateral, or the wallet's for a withdrawal).
     return {
       contractId: row.contractId,
       user: String(row.payload?.user ?? ""),
       marketId: num(row.payload?.marketId),
-      amountCC: num(row.payload?.amountCC),
+      instrument: parseInstrument(row.payload?.instrument),
+      amount: num(row.payload?.amount),
       reason: String(row.payload?.reason ?? ""),
     };
   }

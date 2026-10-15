@@ -13,6 +13,7 @@ import { useCantonWallet } from "@/wallets";
 import { WALLET_DISPLAY_NAME } from "@/config";
 import { shortPartyId } from "@/lib/party";
 import { creditPendingDeposits, moneyErrorMessage } from "@/lib/inAppWallet";
+import { formatMoney } from "@/lib/instruments";
 import { authErrorMessage } from "@/auth/wallet";
 import { accountErrorMessage, type ErrorSentences } from "@/lib/backendErrors";
 import {
@@ -21,7 +22,6 @@ import {
   Pill,
   SectionCard,
   fmtDateTime,
-  fmtMoney,
   moneyIsPositive,
   primaryBtn,
   smallBtn,
@@ -72,7 +72,7 @@ export default function WalletsSection({ me }: { me: MeResponse }) {
 
   const connected = account?.address ?? null;
   const primaryParty = me.capabilities.primaryPartyId ?? me.user.partyId;
-  const hasDeposit = me.wallets.some((w) => w.isPrimary && moneyIsPositive(w.creditedCC));
+  const hasDeposit = me.wallets.some((w) => w.isPrimary && w.credits.some((c) => moneyIsPositive(c.credited)));
   const hasWallets = me.wallets.some((w) => w.status === "active");
   const wallets = [...me.wallets].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || Number(a.status === "revoked") - Number(b.status === "revoked"));
 
@@ -95,11 +95,12 @@ export default function WalletsSection({ me }: { me: MeResponse }) {
   };
 
   /**
-   * Re-run the §8.3 reconcile without moving any CC — the way out when a transfer
-   * reached the treasury but its credit never showed (a slow history walk, an expired
+   * Re-run the §8.3 reconcile without moving any tokens — the way out when a transfer
+   * reached the treasury but its credit never showed (an index that lagged, an expired
    * session mid-deposit). Deliberately unconditional: the only cheap signal that
-   * something is owed lives in GET /in-app-wallet's history walk, which this page
-   * does not run on load.
+   * something is owed lives in GET /in-app-wallet's attribution, which this page does
+   * not run on load. Reconciles the default collateral; the wallet card reconciles the
+   * instrument it is showing.
    */
   const creditPending = async () => {
     setCrediting(true);
@@ -110,7 +111,7 @@ export default function WalletsSection({ me }: { me: MeResponse }) {
       } else {
         toast({
           title: res.status === "confirmed" ? "Deposit credited" : "Credit submitted",
-          description: `${fmtMoney(res.credited)} CC ${res.status === "confirmed" ? "credited to" : "being credited to"} your in-app balance.`,
+          description: `${formatMoney(res.credited, res.instrument)} ${res.status === "confirmed" ? "credited to" : "being credited to"} your in-app balance.`,
           status: "success",
           duration: 6000,
           isClosable: true,
@@ -164,7 +165,7 @@ export default function WalletsSection({ me }: { me: MeResponse }) {
               type="button"
               onClick={() => void creditPending()}
               disabled={crediting}
-              title="Re-check the treasury for transfers from your wallets that are not credited yet (moves no CC)"
+              title="Re-check the treasury for transfers from your wallets that are not credited yet (moves no tokens)"
               className={smallBtn}
             >
               <RefreshCw className={`h-3.5 w-3.5 ${crediting ? "animate-spin" : ""}`} /> {crediting ? "Checking…" : "Credit pending deposits"}
@@ -231,17 +232,20 @@ export default function WalletsSection({ me }: { me: MeResponse }) {
                   {w.label && <div className="text-xs text-slate-600">{w.label}</div>}
                   {w.isPrimary && <p className="mt-1 text-[11px] leading-4 text-slate-500">{PRIMARY_NOTE}</p>}
                   <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-slate-500">
-                    <span title="Deposits from this wallet credited to the account's in-app balance">
-                      Credited {fmtMoney(w.creditedCC)} CC
+                    <span title="Deposits from this wallet credited to the account's in-app balance, per instrument">
+                      Credited {w.credits.length === 0 ? "nothing yet" : w.credits.map((c) => formatMoney(c.credited, c.instrument)).join(" · ")}
                     </span>
-                    {w.ownLedgerWallet && moneyIsPositive(w.ownLedgerWallet.balanceCC) && (
-                      <span
-                        className="text-slate-700"
-                        title="This party has its own on-ledger wallet, separate from the account's balance. Contact support to have it folded into the account."
-                      >
-                        Own on-ledger balance {fmtMoney(w.ownLedgerWallet.balanceCC)} CC
-                      </span>
-                    )}
+                    {w.ownLedgerWallets
+                      .filter((lw) => moneyIsPositive(lw.balance))
+                      .map((lw) => (
+                        <span
+                          key={lw.contractId}
+                          className="text-slate-700"
+                          title="This party has its own on-ledger wallet, separate from the account's balance. Contact support to have it folded into the account."
+                        >
+                          Own on-ledger balance {formatMoney(lw.balance, lw.instrument)}
+                        </span>
+                      ))}
                     <span>Linked {fmtDateTime(w.verifiedAt)}</span>
                   </div>
                 </div>

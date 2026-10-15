@@ -45,13 +45,7 @@ export function normalizeCommands(commands: unknown): Record<string, unknown>[] 
 
 function templateIdToString(tid: unknown): string {
   if (typeof tid === "string") return tid;
-  if (
-    tid &&
-    typeof tid === "object" &&
-    "packageId" in tid &&
-    "moduleName" in tid &&
-    "entityName" in tid
-  ) {
+  if (tid && typeof tid === "object" && "packageId" in tid && "moduleName" in tid && "entityName" in tid) {
     const t = tid as Record<string, string>;
     return `${t.packageId}:${t.moduleName}:${t.entityName}`;
   }

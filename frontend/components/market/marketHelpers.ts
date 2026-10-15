@@ -25,7 +25,12 @@ export function ammState(m: PredictionMarketRecord): AmmMarketState & { lpTokenS
   };
 }
 
-export function fmtCC(v: number, dp = 4) {
+/**
+ * A plain figure — shares, LP tokens, reserves — with at most `dp` decimals and trailing zeros
+ * trimmed. Money is formatted next to its instrument with `formatAmount` / `formatMoney`
+ * (lib/instruments.ts), never here.
+ */
+export function fmtNum(v: number, dp = 4) {
   return v.toFixed(dp).replace(/\.?0+$/, "") || "0";
 }
 

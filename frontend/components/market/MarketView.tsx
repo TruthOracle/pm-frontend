@@ -10,7 +10,8 @@ import { TRUTHORACLE_PACKAGE_ID, WALLET_DISPLAY_NAME } from "@/config";
 import { backendErrorMessage } from "@/lib/backendErrors";
 import { fetchMyMarketView, marketSource, prepareOrder, waitForTradeLanding } from "@/lib/marketsApi";
 import { useMarketTrades } from "@/lib/marketQueries";
-import { compactCC, formatCents, formatPercent, priceDelta } from "@/lib/chartData";
+import { compactAmount, formatCents, formatPercent, priceDelta } from "@/lib/chartData";
+import { formatMoney, instrumentKey, type InstrumentRef } from "@/lib/instruments";
 import PriceChart from "@/components/charts/PriceChart";
 import TradeFeed from "@/components/TradeFeed";
 import { YourLpBox, YourPositionBox } from "./MarketPositionCards";
@@ -49,7 +50,7 @@ import {
   type UserWalletRecord,
   type OutcomeAttestationRecord,
 } from "@/utils/activeContracts";
-import { getCantonCoinHoldings, type AmuletHoldings } from "@/view-functions/getAccountBalance";
+import { fetchWalletHoldings, type WalletHolding } from "@/lib/walletHoldings";
 import InAppWalletCard from "@/components/InAppWalletCard";
 import {
   enterpriseWalletPartyId,
@@ -63,7 +64,7 @@ import {
   marketEffectiveL,
   poolValue,
 } from "@/lib/marketPricing";
-import { ammState, fmtCC, fmtCountdown, getMarketPhase } from "./marketHelpers";
+import { ammState, fmtNum, fmtCountdown, getMarketPhase } from "./marketHelpers";
 import OrderPanel, { type OrderPanelContext } from "./OrderPanel";
 import { ownImage } from "@/lib/outcomeRows";
 import MarketResolutionPanel from "./MarketResolutionPanel";
@@ -127,7 +128,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
   const [mainTab, setMainTab] = useState<MainTab>("trade");
   const [tradeSubTab, setTradeSubTab] = useState<TradeSubTab>("swap");
   const [liquiditySubTab, setLiquiditySubTab] = useState<LiquiditySubTab>("add");
-  const [collateralIn, setCollateralIn] = useState<number>(0); // Buy: CC in
+  const [collateralIn, setCollateralIn] = useState<number>(0); // Buy: collateral in
   const [sharesIn, setSharesIn] = useState<number>(0); // Sell: shares in
   // Yes is preselected, as on Kalshi; `?side=` / the event page's pills override it.
   const [selectedSide, setSelectedSide] = useState<"yes" | "no" | null>("yes");
@@ -136,7 +137,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
   const [userPosition, setUserPosition] = useState<UserMarketPosition | null>(null);
   const [lpPosition, setLpPosition] = useState<LiquidityPositionRecord | null>(null);
   const [wallet, setWallet] = useState<UserWalletRecord | null>(null);
-  const [holdings, setHoldings] = useState<AmuletHoldings | null>(null);
+  const [holdings, setHoldings] = useState<WalletHolding[] | null>(null);
   const [splitMergeAmount, setSplitMergeAmount] = useState<number>(0);
   const [mintMode, setMintMode] = useState<"mint" | "merge">("mint");
   const [liquidityValue, setLiquidityValue] = useState<number>(0);
@@ -151,7 +152,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
   const { tradingActive } = useExchangeStatus();
   // Prepared orders: the index knows the active market version and the account's contracts.
   const usePrepared = indexed && auth.status === "authenticated";
-  const adminPartyForCC = enterpriseWalletPartyId();
+  const treasuryParty = enterpriseWalletPartyId();
   const isAdmin = useIsAdmin();
   const toast = useToast();
   // Recent pool trades (index only); refetched with the page's 15 s cadence.
@@ -239,8 +240,15 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
     if (initialSide) setSelectedSide(initialSide);
   }, [initialSide, marketRef]);
 
+  // The market's collateral, keyed by identity so the 15 s market refresh (a new object each time)
+  // does not re-read the account's contracts. It names which of the party's UserWallets a trade
+  // spends: one wallet per instrument, and a market only debits or credits its own.
+  const collateralKey = market ? instrumentKey(market.collateral) : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const collateral = useMemo<InstrumentRef | null>(() => market?.collateral ?? null, [collateralKey]);
+
   const refreshUserData = useCallback(async () => {
-    if (!account?.address || isNaN(marketIdNum)) {
+    if (!account?.address || isNaN(marketIdNum) || !collateral) {
       setUserPosition(null);
       setLpPosition(null);
       setWallet(null);
@@ -252,19 +260,19 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
     // With the index and an account, the account's contracts come from the backend (read as the
     // treasury — the participant answers an external party's own reads with nothing on mainnet);
     // the ledger reads stay as the fallback and for anonymous wallets.
-    const viaIndex = usePrepared ? await fetchMyMarketView(marketIdNum).catch(() => null) : null;
+    const viaIndex = usePrepared ? await fetchMyMarketView({ marketId: marketIdNum, collateral }).catch(() => null) : null;
     const [pos, lp, w, h] = await Promise.all([
       viaIndex ? Promise.resolve(viaIndex.position) : fetchUserPosition(account.address, marketIdNum),
       viaIndex ? Promise.resolve(viaIndex.lpPosition) : fetchUserLpPosition(account.address, marketIdNum),
-      viaIndex ? Promise.resolve(viaIndex.wallet) : fetchUserWallet(walletParty ?? account.address),
-      getCantonCoinHoldings(),
+      viaIndex ? Promise.resolve(viaIndex.wallet) : fetchUserWallet(walletParty ?? account.address, collateral),
+      fetchWalletHoldings(),
     ]);
     setUserPosition(pos);
     setLpPosition(lp);
     setWallet(w);
     setHoldings(h);
     setUserDataLoaded(true);
-  }, [account?.address, walletParty, marketIdNum, usePrepared]);
+  }, [account?.address, walletParty, marketIdNum, usePrepared, collateral]);
 
   useEffect(() => {
     refreshUserData();
@@ -272,9 +280,9 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
 
   // Admin: load attestations for the T1/T2 resolution console.
   useEffect(() => {
-    if (!isAdmin || !adminPartyForCC || isNaN(marketIdNum)) return;
-    fetchAttestations(adminPartyForCC, marketIdNum).then(setAttestations).catch(() => {});
-  }, [isAdmin, adminPartyForCC, marketIdNum, market?.status]);
+    if (!isAdmin || !treasuryParty || isNaN(marketIdNum)) return;
+    fetchAttestations(treasuryParty, marketIdNum).then(setAttestations).catch(() => {});
+  }, [isAdmin, treasuryParty, marketIdNum, market?.status]);
 
   const phase = market ? getMarketPhase(market, nowSecs) : "trading";
 
@@ -394,8 +402,8 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
     }
   };
 
-  /** Guard: every money choice spends from / pays into the in-app wallet. */
-  const requireWallet = (needCC?: number): UserWalletRecord | null => {
+  /** Guard: every money choice spends from / pays into the in-app wallet of the market's collateral. */
+  const requireWallet = (need?: number): UserWalletRecord | null => {
     if (tradeLockReason) {
       toast({
         title: tradeLockReason,
@@ -416,10 +424,10 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
       });
       return null;
     }
-    if (needCC != null && wallet.balanceCC < needCC) {
+    if (need != null && wallet.balance < need) {
       toast({
         title: "Insufficient in-app balance",
-        description: `Need ${fmtCC(needCC)} CC but the in-app balance is ${fmtCC(wallet.balanceCC)} CC. Top up via Deposit.`,
+        description: `Need ${formatMoney(need, wallet.instrument)} but the in-app balance is ${formatMoney(wallet.balance, wallet.instrument)}. Top up via Deposit.`,
         status: "warning",
         duration: 6000,
         isClosable: true,
@@ -449,7 +457,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
 
     if (tradeSide === "buy") {
       if (!buyQuote || collateralIn <= 0) {
-        toast({ title: "Enter CC amount to spend", status: "info", duration: 3000, isClosable: true });
+        toast({ title: `Enter the ${market.collateral.symbol} amount to spend`, status: "info", duration: 3000, isClosable: true });
         return;
       }
       const spendWallet = usePrepared ? null : requireWallet(collateralIn);
@@ -460,7 +468,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
       try {
         const ok = await runPrepared(
           "Buy",
-          { action: "buy", side: sideArg === "Yes" ? "Yes" : "No", amountCC: collateralIn.toFixed(10), slippageBps },
+          { action: "buy", side: sideArg === "Yes" ? "Yes" : "No", amount: collateralIn.toFixed(10), slippageBps },
           () =>
             buildBuyParams(
               account.address,
@@ -475,7 +483,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
         );
         if (!ok) return;
         const verified = usePrepared
-          ? await fetchMyMarketView(marketIdNum).then((v) => v.position).catch(() => null)
+          ? await fetchMyMarketView(market).then((v) => v.position).catch(() => null)
           : await waitForPositionUpdate(
               account.address,
               marketIdNum,
@@ -488,7 +496,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
         toast({
           title: verified ? "Position updated" : "Trade submitted — confirmation pending",
           description: verified
-            ? `Now holding ${fmtCC(verified.yesShares, 2)} YES / ${fmtCC(verified.noShares, 2)} NO.`
+            ? `Now holding ${fmtNum(verified.yesShares, 2)} YES / ${fmtNum(verified.noShares, 2)} NO.`
             : "Wallet accepted the transaction but the participant hasn't shown the new position yet.",
           status: verified ? "success" : "warning",
           duration: 8000,
@@ -500,7 +508,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
       return;
     }
 
-    // Convert (direct YES<->NO share swap — single popup, no CC involved)
+    // Convert (direct YES<->NO share swap — single popup, no collateral involved)
     if (tradeSide === "convert") {
       if (!swapQuote || sharesIn <= 0) {
         toast({ title: "Enter shares to convert", status: "info", duration: 3000, isClosable: true });
@@ -514,7 +522,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
       if (!usePrepared && ownedFrom < sharesIn) {
         toast({
           title: "Not enough shares to convert",
-          description: `You own ${fmtCC(ownedFrom, 2)} ${sideArg} shares.`,
+          description: `You own ${fmtNum(ownedFrom, 2)} ${sideArg} shares.`,
           status: "warning",
           duration: 4000,
           isClosable: true,
@@ -544,7 +552,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
         await refreshAllViews();
         toast({
           title: "Shares converted",
-          description: `Swapped ${fmtCC(sharesIn, 2)} ${sideArg} → ~${fmtCC(swapQuote.sharesOut, 2)} ${sideArg === "Yes" ? "NO" : "YES"}.`,
+          description: `Swapped ${fmtNum(sharesIn, 2)} ${sideArg} → ~${fmtNum(swapQuote.sharesOut, 2)} ${sideArg === "Yes" ? "NO" : "YES"}.`,
           status: "success",
           duration: 7000,
           isClosable: true,
@@ -568,7 +576,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
     if (!usePrepared && owned < sharesIn) {
       toast({
         title: "Not enough shares to sell",
-        description: `You own ${fmtCC(owned, 2)} ${sideArg} shares.`,
+        description: `You own ${fmtNum(owned, 2)} ${sideArg} shares.`,
         status: "warning",
         duration: 4000,
         isClosable: true,
@@ -601,7 +609,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
       await refreshAllViews();
       toast({
         title: "Shares sold",
-        description: `Sold ${fmtCC(sharesIn, 2)} ${sideArg} for ~${fmtCC(sellQuote.netProceeds)} CC (after ${(market.feeBps / 100).toFixed(2)}% fee) — credited to your in-app balance.`,
+        description: `Sold ${fmtNum(sharesIn, 2)} ${sideArg} for ~${formatMoney(sellQuote.netProceeds, market.collateral)} (after ${(market.feeBps / 100).toFixed(2)}% fee) — credited to your in-app balance.`,
         status: "success",
         duration: 7000,
         isClosable: true,
@@ -634,7 +642,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
       if (!userPosition || userPosition.yesShares < amt || userPosition.noShares < amt) {
         toast({
           title: "Not enough Yes + No pairs",
-          description: `You own ${fmtCC(userPosition?.yesShares ?? 0, 2)} Yes / ${fmtCC(userPosition?.noShares ?? 0, 2)} No.`,
+          description: `You own ${fmtNum(userPosition?.yesShares ?? 0, 2)} Yes / ${fmtNum(userPosition?.noShares ?? 0, 2)} No.`,
           status: "warning",
           duration: 5000,
           isClosable: true,
@@ -648,7 +656,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
     setBusy("splitmerge");
     try {
       const disclosed = disclosedForMarket();
-      const ok = await runPrepared(action === "split" ? "Mint set" : "Merge", { action, amountCC: amt.toFixed(10) }, () =>
+      const ok = await runPrepared(action === "split" ? "Mint set" : "Merge", { action, amount: amt.toFixed(10) }, () =>
         !setWallet
           ? null
           : action === "split"
@@ -662,8 +670,8 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
       toast({
         title: action === "split" ? "Complete sets minted" : "Pairs merged",
         description: action === "split"
-          ? `Minted ${fmtCC(amt, 2)} Yes + ${fmtCC(amt, 2)} No for ${fmtCC(amt)} CC from your in-app balance.`
-          : `Burned ${fmtCC(amt, 2)} pairs — ${fmtCC(amt)} CC credited to your in-app balance.`,
+          ? `Minted ${fmtNum(amt, 2)} Yes + ${fmtNum(amt, 2)} No for ${formatMoney(amt, market.collateral)} from your in-app balance.`
+          : `Burned ${fmtNum(amt, 2)} pairs — ${formatMoney(amt, market.collateral)} credited to your in-app balance.`,
         status: "success",
         duration: 6000,
         isClosable: true,
@@ -683,7 +691,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
       toast({ title: "Enter a pool-value increase", status: "info", duration: 3000, isClosable: true });
       return;
     }
-    const cost = liquidityQuote.costCC;
+    const cost = liquidityQuote.cost;
     const maxCost = cost * (1 + slippage);
     const lpWallet = usePrepared ? null : requireWallet(maxCost);
     if (!usePrepared && !lpWallet) return;
@@ -691,7 +699,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
     try {
       const ok = await runPrepared(
         "Provide liquidity",
-        { action: "provide_liquidity", amountCC: liquidityValue.toFixed(10), slippageBps },
+        { action: "provide_liquidity", amount: liquidityValue.toFixed(10), slippageBps },
         () =>
           lpWallet
             ? buildProvideLiquidityParams(
@@ -709,7 +717,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
         await refreshAllViews();
         toast({
           title: "Liquidity added",
-          description: `${fmtCC(cost)} CC debited from your in-app balance (≈${fmtCC(liquidityQuote.lpMinted, 4)} LP tokens).`,
+          description: `${formatMoney(cost, market.collateral)} debited from your in-app balance (≈${fmtNum(liquidityQuote.lpMinted, 4)} LP tokens).`,
           status: "success",
           duration: 5000,
           isClosable: true,
@@ -758,7 +766,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
       await refreshAllViews();
       toast({
         title: "Liquidity withdrawn",
-        description: "CC proceeds were credited to your in-app balance.",
+        description: `Proceeds in ${market.collateral.symbol} were credited to your in-app balance.`,
         status: "success",
         duration: 5000,
         isClosable: true,
@@ -848,7 +856,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
 
   const handlePropose = async (outcome: OutcomeArg) => {
     if (!market || !account) return;
-    const bond = market.policy.bondCC;
+    const bond = market.policy.bond;
     const bondWallet = requireWallet(bond > 0 ? bond : undefined);
     if (!bondWallet) return;
     setBusy("propose");
@@ -861,7 +869,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
         await refreshAllViews();
         toast({
           title: `Proposed ${outcome}`,
-          description: `${bond > 0 ? `${fmtCC(bond)} CC bond debited from your in-app balance. ` : ""}Challenge window: ${fmtCountdown(nowSecs + market.policy.challengeSecs, nowSecs)}.`,
+          description: `${bond > 0 ? `${formatMoney(bond, market.collateral)} bond debited from your in-app balance. ` : ""}Challenge window: ${fmtCountdown(nowSecs + market.policy.challengeSecs, nowSecs)}.`,
           status: "success",
           duration: 6000,
           isClosable: true,
@@ -874,7 +882,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
 
   const handleChallenge = async (outcome: OutcomeArg) => {
     if (!market || !account) return;
-    const bond = market.policy.bondCC;
+    const bond = market.policy.bond;
     const bondWallet = requireWallet(bond > 0 ? bond : undefined);
     if (!bondWallet) return;
     setBusy("challenge");
@@ -887,7 +895,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
         await refreshAllViews();
         toast({
           title: `Challenged with ${outcome}`,
-          description: `${bond > 0 ? `${fmtCC(bond)} CC bond debited from your in-app balance. ` : ""}Escalates objectively to the reporter quorum / signed source — never a vote.`,
+          description: `${bond > 0 ? `${formatMoney(bond, market.collateral)} bond debited from your in-app balance. ` : ""}Escalates objectively to the reporter quorum / signed source — never a vote.`,
           status: "success",
           duration: 7000,
           isClosable: true,
@@ -980,7 +988,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
 
   const redeemable = (phase === "resolved" || phase === "voided") && userPosition
     ? phase === "voided"
-      ? Math.min(userPosition.costBasisCC, Math.max(userPosition.yesShares, userPosition.noShares))
+      ? Math.min(userPosition.costBasis, Math.max(userPosition.yesShares, userPosition.noShares))
       : market.outcome === "Yes"
         ? userPosition.yesShares
         : market.outcome === "No"
@@ -994,7 +1002,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
   if (market.policy.operatorResolution) tiers.push("T0 operator");
   if (market.policy.sourceKeys.length > 0) tiers.push("T1 signed source");
   if (market.policy.reporters.length > 0) tiers.push(`T2 ${market.policy.quorum}-of-${market.policy.reporters.length} reporters`);
-  if (market.policy.challengeSecs > 0) tiers.push(`T3 optimistic (${Math.round(market.policy.challengeSecs / 3600)}h window, ${fmtCC(market.policy.bondCC)} CC bond)`);
+  if (market.policy.challengeSecs > 0) tiers.push(`T3 optimistic (${Math.round(market.policy.challengeSecs / 3600)}h window, ${formatMoney(market.policy.bond, market.collateral)} bond)`);
 
   const showResolveTab = (isAdmin || market.policy.challengeSecs > 0) && (phase === "expired" || phase === "proposed");
   const showSettleTab = phase === "resolved" || phase === "voided";
@@ -1032,7 +1040,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
   const panel = (
     <OrderPanel
       context={orderContext}
-      walletFooter={<InAppWalletCard wallet={wallet} walletLoaded={userDataLoaded} onChanged={refreshAllViews} variant="inline" />}
+      walletFooter={<InAppWalletCard wallet={wallet} walletLoaded={userDataLoaded} instrument={market.collateral} onChanged={refreshAllViews} variant="inline" />}
     />
   );
 
@@ -1115,18 +1123,18 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
             </div>
             <div className="k-stat">
               <div className="k-stat-label">Volume 24h</div>
-              <div className="k-stat-value k-num">{compactCC(market.volume24hCC ?? 0, "")}</div>
-              <div className="k-stat-sub">{compactCC(market.totalVolumeCC)} lifetime</div>
+              <div className="k-stat-value k-num">{compactAmount(market.volume24h ?? 0, null)}</div>
+              <div className="k-stat-sub">{compactAmount(market.totalVolume, market.collateral)} lifetime</div>
             </div>
             <div className="k-stat">
               <div className="k-stat-label">Open interest</div>
-              <div className="k-stat-value k-num">{compactCC(market.openInterest ?? reserveInventory, "")}</div>
+              <div className="k-stat-value k-num">{compactAmount(market.openInterest ?? reserveInventory, null)}</div>
               <div className="k-stat-sub">shares outstanding</div>
             </div>
             <div className="k-stat">
               <div className="k-stat-label">Liquidity</div>
-              <div className="k-stat-value k-num">{compactCC(market.liquidityCC ?? currentPoolValue, "")}</div>
-              <div className="k-stat-sub">pool value · {(market.feeBps / 100).toFixed(2)}% fee</div>
+              <div className="k-stat-value k-num">{compactAmount(market.liquidity ?? currentPoolValue, null)}</div>
+              <div className="k-stat-sub">pool value in {market.collateral.symbol} · {(market.feeBps / 100).toFixed(2)}% fee</div>
             </div>
             <div className="k-stat">
               <div className="k-stat-label">Trades</div>
@@ -1143,7 +1151,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
           {mainTab === "liquidity" ? (
             <YourLpBox account={account} signInFirst={signInRequired} lpPosition={lpPosition} market={market} />
           ) : (
-            <YourPositionBox account={account} signInFirst={signInRequired} userPosition={userPosition} holdings={holdings} probYes={probYes} probNo={probNo} />
+            <YourPositionBox account={account} signInFirst={signInRequired} userPosition={userPosition} holdings={holdings} collateral={market.collateral} probYes={probYes} probNo={probNo} />
           )}
 
           {showResolveTab && <MarketResolutionPanel context={resolutionContext} />}
