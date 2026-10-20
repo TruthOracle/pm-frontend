@@ -412,7 +412,9 @@ export function consentBody(form: ConsentForm, termsVersion: string): ConsentChe
   };
 }
 
-type RandomSource = { getRandomValues<T extends ArrayBufferView | null>(array: T): T; randomUUID?: () => string };
+// getRandomValues comes from the DOM lib, whose signature changes between TypeScript releases
+// (5.9 dropped `| null`); CI installs the newest 5.x, as there is no lockfile.
+type RandomSource = Pick<Crypto, "getRandomValues"> & { randomUUID?: () => string };
 
 /**
  * A fresh retry token for one order attempt (`web-<uuid>`). `crypto.randomUUID` exists only on
