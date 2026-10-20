@@ -8,7 +8,7 @@
  * a panel renders nothing until `ready`.
  *
  * This is separate from the older `to_admin` Vercel session (`lib/adminSession.ts`, AdminGate),
- * which still gates the browser-side ledger / wallet relays the payout queue uses.
+ * which still gates the browser-side ledger relay's operator reads the payout queue uses.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useToast } from "@chakra-ui/react";

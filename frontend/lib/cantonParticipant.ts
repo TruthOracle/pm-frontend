@@ -9,6 +9,7 @@
  */
 
 import type { PrepareExecuteParams } from "./cantonDapp";
+import { adminInstanceHeaders } from "./adminSession";
 import { DEBUG_ACTIVE_CONTRACTS, IS_DEV, PARTICIPANT_PROXY_URL } from "@/config";
 import { normalizeCommand } from "@/utils/normalizeCommand";
 
@@ -65,7 +66,10 @@ export class CantonParticipantClient {
    * end-user token), it's attached, otherwise the proxy injects the client token.
    */
   private async ledgerHeaders(): Promise<Record<string, string>> {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    // An operator's console (admin session) reads the treasury's private contracts, e.g. the payout
+    // queue's PendingPayouts: the relay wants the session's instance header for those (F1) and
+    // strips it before the participant. Empty for everyone else.
+    const headers: Record<string, string> = { "Content-Type": "application/json", ...adminInstanceHeaders() };
     const token = await this.config.getToken();
     if (typeof token === "string" && token.trim()) {
       headers.Authorization = `Bearer ${token.trim()}`;

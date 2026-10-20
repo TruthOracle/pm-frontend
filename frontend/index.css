@@ -546,15 +546,18 @@
   .board-right { @apply flex min-w-0 flex-col; }
   .board-chart-head { @apply flex items-center justify-between gap-4; }
   .board-legend { @apply flex min-w-0 flex-wrap items-center gap-x-5 gap-y-1.5 text-[13px] text-slate-600; }
-  .board-legend li { @apply inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap; }
+  /* A long label (a market still on the generic Yes/No outcome shows its question) is cut with an
+     ellipsis inside the legend's column, so it never runs under the wordmark and the % stays visible. */
+  .board-legend li { @apply inline-flex min-w-0 max-w-full items-center gap-1.5 whitespace-nowrap; }
+  .board-legend-name { @apply min-w-0 truncate; }
   .board-legend-dot { @apply inline-block h-2 w-2 shrink-0 rounded-full; }
-  .board-legend b { @apply font-bold text-slate-950; font-variant-numeric: tabular-nums; }
+  .board-legend b { @apply shrink-0 font-bold text-slate-950; font-variant-numeric: tabular-nums; }
   .board-wordmark { @apply hidden shrink-0 text-[15px] font-extrabold tracking-[-0.04em] text-slate-950 sm:inline; }
   .board-wordmark span { @apply text-primary; }
   .board-chart-wrap { @apply relative mt-3 min-h-[12rem] flex-1; }
   .board-chart { @apply absolute inset-0 !rounded-none !border-0 !bg-transparent !p-0 !shadow-none; }
   .board-empty { @apply flex min-h-[18rem] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500; }
-  .outcome-link { @apply inline-flex min-w-0 items-center gap-1 text-sm font-semibold text-slate-950 underline-offset-4 decoration-2 hover:text-primary hover:underline; }
+  .outcome-link { @apply inline-flex min-w-0 max-w-full items-center gap-1 text-sm font-semibold text-slate-950 underline-offset-4 decoration-2 hover:text-primary hover:underline; }
   .outcome-link svg { @apply opacity-40 transition-opacity; }
   .outcome-link:hover svg { @apply opacity-100; }
   .outcome-row .pill-yes, .outcome-row .pill-no { @apply min-h-[2.5rem] sm:min-h-0; }

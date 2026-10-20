@@ -41,12 +41,12 @@ export const WALLET_DISPLAY_NAME = WALLET_TYPE === "canton" ? "Canton" : "Cantor
 export const TRUTHORACLE_PACKAGE_ID = readString(import.meta.env.VITE_TRUTHORACLE_PACKAGE_ID, "");
 export const TRUTHORACLE_PACKAGE_NAME = readString(import.meta.env.VITE_TRUTHORACLE_PACKAGE_NAME, "truthoracle-v17");
 
-// The browser never calls the participant or the wallet directly — it calls the
-// proxies below, which resolve the upstream URL and inject a Keycloak token
-// server-side. Each proxy accepts two names, first match wins:
+// The browser never calls the participant directly — it calls the ledger proxy below,
+// which resolves the upstream URL and injects a Keycloak token server-side. It accepts
+// two names, first match wins:
 //   api/proxy/ledger.mjs    CANTON_LEDGER_PROXY_TARGET_URL → VITE_CANTON_PARTICIPANT_URL
-//   api/proxy/wallet.mjs    ENTERPRISE_WALLET_PROXY_TARGET_URL → VITE_ENTERPRISE_WALLET_URL
-//   api/proxy/keycloak.mjs  KEYCLOAK_PROXY_TARGET_URL → KEYCLOAK_URL → VITE_KEYCLOAK_URL
+// There is no browser path to the Enterprise Wallet: nothing in the browser signs as the
+// treasury (market resolution is the accounts backend's approval-backed route, review F0).
 //
 // The VITE_* spellings are what .env uses and they stay out of the bundle only
 // because nothing in THIS file reads them: Vite inlines a VITE_ var when it sees an
@@ -69,11 +69,8 @@ export const USE_PARTICIPANT_API = readBoolean(import.meta.env.VITE_USE_PARTICIP
 // env (KEYCLOAK_CLIENT_ID / KEYCLOAK_CLIENT_SECRET, no VITE_ prefix) and never reach
 // the browser bundle. See the enterprise-wallet repository README → Authentication.
 
+/** The treasury party: the observer the market reads are keyed by, and where deposits go. */
 export const ENTERPRISE_WALLET_PARTY_ID = readString(import.meta.env.VITE_ENTERPRISE_WALLET_PARTY_ID);
-export const ENTERPRISE_WALLET_APP_NAME = readString(import.meta.env.VITE_ENTERPRISE_WALLET_APP_NAME, "truthoracle");
-export const ENTERPRISE_WALLET_PROXY_URL = trimTrailingSlash(
-  readString(import.meta.env.VITE_ENTERPRISE_WALLET_PROXY_URL, "/__proxy/wallet"),
-);
 
 export const DEBUG_ACTIVE_CONTRACTS = readBoolean(import.meta.env.VITE_DEBUG_ACTIVE_CONTRACTS);
 export const DEBUG_WALLET_STATUS = readBoolean(import.meta.env.VITE_DEBUG_WALLET_STATUS);

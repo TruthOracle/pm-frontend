@@ -12,7 +12,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { authErrorMessage } from "@/auth/wallet";
 import { ENTERPRISE_WALLET_PARTY_ID } from "@/config";
-import { burnTokens, fetchTokenStatus, mintTokens, type TokenMintResult, type TokenStatus } from "@/lib/backendAdmin";
+import {
+  burnTokens,
+  fetchTokenStatus,
+  isApprovalOutcome,
+  mintTokens,
+  type TokenMintResult,
+  type TokenOperationAnswer,
+  type TokenStatus,
+} from "@/lib/backendAdmin";
+import { outcomeSentence } from "@/lib/rampAdmin";
 import { formatMoney, instrumentKey, instrumentLabel, useInstruments, type InstrumentRef } from "@/lib/instruments";
 import { ConfirmDialog, Pill } from "@/components/Account/accountUi";
 import { btn, btnDanger, btnQuiet, Card, field, label, truncateId, useRun } from "./adminUi";
@@ -90,6 +99,11 @@ export default function TokensPanel() {
     `Minted ${formatMoney(r.amount, r.instrument)} to ${partyLabel(r.party)}${
       r.credit ? ` and credited the user's in-app wallet (${r.credit.txRef}, ${r.credit.status})` : ""
     } · command ${r.commandId} (${r.status})`;
+  const describeBurn = (r: TokenMintResult) =>
+    `Burned ${formatMoney(r.amount, r.instrument)} from ${partyLabel(r.party)} · command ${r.commandId} (${r.status})`;
+  // On mainnet a non-ramp instrument's mint or burn is a four-eyes request: say so instead of a figure.
+  const describeAnswer = (what: string, r: TokenOperationAnswer, describe: (x: TokenMintResult) => string) =>
+    isApprovalOutcome(r) ? (r.result ? describe(r.result) : outcomeSentence(what, r)) : describe(r);
 
   const submitMint = async () => {
     if (!mintInstrument) return;
@@ -103,7 +117,7 @@ export default function TokensPanel() {
           ...(mint.destination === "user" ? { creditUserId: mint.userId.trim() } : {}),
           reason: mint.reason.trim(),
         }),
-      describeMint,
+      (r) => describeAnswer("Mint", r, describeMint),
     );
     setConfirm(null);
     if (ok) setMint({ ...mint, amount: "", party: "", userId: "", reason: "" });
@@ -120,7 +134,7 @@ export default function TokensPanel() {
           party: burn.party.trim(),
           reason: burn.reason.trim(),
         }),
-      (r) => `Burned ${formatMoney(r.amount, r.instrument)} from ${partyLabel(r.party)} · command ${r.commandId} (${r.status})`,
+      (r) => describeAnswer("Burn", r, describeBurn),
     );
     setConfirm(null);
     if (ok) setBurn({ ...burn, amount: "", party: "", reason: "" });

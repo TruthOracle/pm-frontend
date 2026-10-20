@@ -12,6 +12,7 @@ import Activity from "./Portfolio/Activity";
 import PendingPayouts from "./Portfolio/PendingPayouts";
 import Summary from "./Portfolio/Summary";
 import InAppWalletCard from "./InAppWalletCard";
+import RampCard from "./ramp/RampCard";
 import { buildRows, type ActivityRow } from "./Portfolio/portfolioRows";
 
 function Portfolio() {
@@ -52,6 +53,7 @@ function Portfolio() {
       </div>
       <div className="space-y-6">
         <InAppWalletCard reloadKey={walletVersion} />
+        <RampCard reloadKey={walletVersion} />
         {account && <Summary rows={rows} loading={loading} />}
         <PendingPayouts onChanged={() => setWalletVersion((v) => v + 1)} />
         <Activity rows={rows} loading={loading} refresh={refresh} />

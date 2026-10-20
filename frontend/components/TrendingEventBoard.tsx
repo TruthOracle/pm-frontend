@@ -131,7 +131,7 @@ function BoardEvent({ event, nav }: { event: ApiEvent; nav: ReactNode }) {
               {legend.map((m) => (
                 <li key={m.marketId}>
                   <span className="board-legend-dot" style={{ background: colors.get(m.ticker) ?? SERIES_PALETTE[0] }} />
-                  <span>{outcomeLabel(m)}</span>
+                  <span className="board-legend-name" title={outcomeLabel(m)}>{outcomeLabel(m)}</span>
                   <b>{formatPercent(toNumber(m.currentPrice))}</b>
                 </li>
               ))}

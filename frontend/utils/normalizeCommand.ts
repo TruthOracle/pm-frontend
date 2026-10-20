@@ -3,8 +3,8 @@
  *   { exercise: { templateId: { packageId, moduleName, entityName }, contractId, choice, choiceArgument } }
  *   { create:   { templateId: { packageId, moduleName, entityName }, createArguments } }
  * into the JSON Ledger API shape expected by the participant's
- * /v2/interactive-submission/prepare (and by Enterprise Wallet /external/submit
- * and the popup SDK's commandsJson, which forward straight to a participant):
+ * /v2/interactive-submission/prepare (and by the popup SDK's commandsJson, which
+ * forwards straight to a participant):
  *   { ExerciseCommand: { templateId: "pkg:Module:Entity", contractId, choice, choiceArgument } }
  *   { CreateCommand:   { templateId: "pkg:Module:Entity", createArguments } }
  *

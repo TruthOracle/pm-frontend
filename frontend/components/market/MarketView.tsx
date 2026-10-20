@@ -28,12 +28,9 @@ import {
   buildMergeParams,
   buildProvideLiquidityParams,
   buildWithdrawLiquidityParams,
-  buildResolveT0Params,
-  buildResolveParams,
   buildProposeOutcomeParams,
   buildChallengeOutcomeParams,
   buildFinalizeOutcomeParams,
-  buildVoidMarketParams,
   buildRedeemPositionParams,
   templateId,
   type DisclosedContractArg,
@@ -52,10 +49,7 @@ import {
 } from "@/utils/activeContracts";
 import { fetchWalletHoldings, type WalletHolding } from "@/lib/walletHoldings";
 import InAppWalletCard from "@/components/InAppWalletCard";
-import {
-  enterpriseWalletPartyId,
-  submitAdminTransaction,
-} from "@/lib/enterpriseWalletSubmit";
+import { enterpriseWalletPartyId } from "@/lib/enterpriseWalletSubmit";
 import {
   quoteBuy,
   quoteSell,
@@ -142,8 +136,6 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
   const [mintMode, setMintMode] = useState<"mint" | "merge">("mint");
   const [liquidityValue, setLiquidityValue] = useState<number>(0);
   const [withdrawPct, setWithdrawPct] = useState<number>(100);
-  const [resolveOutcome, setResolveOutcome] = useState<OutcomeArg>("Yes");
-  const [resolveSource, setResolveSource] = useState<string>("");
   const [attestations, setAttestations] = useState<OutcomeAttestationRecord[]>([]);
   const [busy, setBusy] = useState<string | null>(null); // which action is running
   const { account, connect, signAndSubmitTransaction } = useCantonWallet();
@@ -153,7 +145,11 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
   // Prepared orders: the index knows the active market version and the account's contracts.
   const usePrepared = indexed && auth.status === "authenticated";
   const treasuryParty = enterpriseWalletPartyId();
-  const isAdmin = useIsAdmin();
+  // Market resolution is the backend's four-eyes `market.resolve` (lib/marketResolution.ts): its
+  // console shows for a backend operator session; the browser relay's admin session alone only
+  // learns where resolution moved. Nothing here signs as the treasury.
+  const operator = auth.sessionKind === "admin";
+  const relayAdmin = useIsAdmin();
   const toast = useToast();
   // Recent pool trades (index only); refetched with the page's 15 s cadence.
   const tradesQuery = useMarketTrades(indexed && market ? market.ticker || market.marketId : null, 30, variant === "page");
@@ -278,11 +274,11 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
     refreshUserData();
   }, [refreshUserData]);
 
-  // Admin: load attestations for the T1/T2 resolution console.
+  // Operator: load attestations for the T1/T2 resolution request (a public read as the treasury).
   useEffect(() => {
-    if (!isAdmin || !treasuryParty || isNaN(marketIdNum)) return;
+    if (!operator || !treasuryParty || isNaN(marketIdNum)) return;
     fetchAttestations(treasuryParty, marketIdNum).then(setAttestations).catch(() => {});
-  }, [isAdmin, treasuryParty, marketIdNum, market?.status]);
+  }, [operator, treasuryParty, marketIdNum, market?.status]);
 
   const phase = market ? getMarketPhase(market, nowSecs) : "trading";
 
@@ -777,82 +773,9 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
   };
 
   // -------------------------------------------------------------------------
-  // Resolution (T0 admin; T3 propose/finalize; void) and redemption
+  // Resolution (T3 propose/challenge/finalize; the operator's T0 / T1-T2 / void requests go to
+  // the backend, MarketOperatorResolution.tsx) and redemption
   // -------------------------------------------------------------------------
-
-  const handleResolveT0 = async () => {
-    if (!market || !account || !isAdmin) return;
-    const source = resolveSource || market.policy.sources[0] || market.resolutionDescription || "operator";
-    setBusy("resolve");
-    try {
-      const adminParty = enterpriseWalletPartyId() || account.address;
-      const params = buildResolveT0Params(adminParty, market.contractId, resolveOutcome, source);
-      await submitAdminTransaction(params, signAndSubmitTransaction);
-      await refreshAllViews();
-      toast({
-        title: "Market resolved",
-        description: `Recorded ${resolveOutcome} (T0 operator resolution from ${source}).`,
-        status: "success",
-        duration: 7000,
-        isClosable: true,
-      });
-    } catch (e) {
-      debugError("Market action failed", e);
-      toast({
-        title: "Resolve failed",
-        description: e instanceof Error ? e.message : "Could not submit ResolveT0.",
-        status: "error",
-        duration: 6000,
-        isClosable: true,
-      });
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const handleResolveWithAttestations = async () => {
-    if (!market || !account || !isAdmin || attestations.length === 0) return;
-    setBusy("resolve");
-    try {
-      const adminParty = enterpriseWalletPartyId() || account.address;
-      const params = buildResolveParams(adminParty, market.contractId, attestations.map((a) => a.contractId));
-      await submitAdminTransaction(params, signAndSubmitTransaction);
-      await refreshAllViews();
-      toast({ title: "Market resolved from attestations", status: "success", duration: 7000, isClosable: true });
-    } catch (e) {
-      debugError("Market action failed", e);
-      toast({
-        title: "Resolve failed",
-        description: e instanceof Error ? e.message : "Quorum/signature requirements not met.",
-        status: "error",
-        duration: 7000,
-        isClosable: true,
-      });
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const handleVoidMarket = async () => {
-    if (!market || !account || !isAdmin) return;
-    setBusy("void");
-    try {
-      const adminParty = enterpriseWalletPartyId() || account.address;
-      await submitAdminTransaction(buildVoidMarketParams(adminParty, market.contractId), signAndSubmitTransaction);
-      await refreshAllViews();
-      toast({ title: "Market voided", description: "Traders can redeem their cost basis.", status: "success", duration: 6000, isClosable: true });
-    } catch (e) {
-      toast({
-        title: "Void failed",
-        description: e instanceof Error ? e.message : "Grace period may not have elapsed.",
-        status: "error",
-        duration: 6000,
-        isClosable: true,
-      });
-    } finally {
-      setBusy(null);
-    }
-  };
 
   const handlePropose = async (outcome: OutcomeArg) => {
     if (!market || !account) return;
@@ -1004,7 +927,7 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
   if (market.policy.reporters.length > 0) tiers.push(`T2 ${market.policy.quorum}-of-${market.policy.reporters.length} reporters`);
   if (market.policy.challengeSecs > 0) tiers.push(`T3 optimistic (${Math.round(market.policy.challengeSecs / 3600)}h window, ${formatMoney(market.policy.bond, market.collateral)} bond)`);
 
-  const showResolveTab = (isAdmin || market.policy.challengeSecs > 0) && (phase === "expired" || phase === "proposed");
+  const showResolveTab = (operator || relayAdmin || market.policy.challengeSecs > 0) && (phase === "expired" || phase === "proposed");
   const showSettleTab = phase === "resolved" || phase === "voided";
 
   const orderContext: OrderPanelContext = {
@@ -1024,10 +947,9 @@ const MarketView = ({ marketRef: refProp, variant = "page", initialSide = null, 
     handleTradeClick, handleSplitMerge, handleProvideLiquidity, handleWithdrawLiquidity,
   };
   const resolutionContext = {
-    market, phase, nowSecs, busy, account, setResolveOutcome, resolveOutcome,
-    handleResolveT0, attestations, handleResolveWithAttestations, resolveSource,
-    setResolveSource, handlePropose, handleChallenge, handleFinalize, userPosition,
-    holdings, probYes, probNo, isAdmin, handleVoidMarket, signInFirst: signInRequired,
+    market, phase, nowSecs, busy, account, operator, relayAdmin, attestations,
+    onResolutionSubmitted: refreshAllViews, handlePropose, handleChallenge, handleFinalize, userPosition,
+    holdings, probYes, probNo, signInFirst: signInRequired,
   };
   const settlementContext = {
     phase, market, redeemable, busy, account, signInFirst: signInRequired, tradeLockReason, handleRedeem, lpPosition,

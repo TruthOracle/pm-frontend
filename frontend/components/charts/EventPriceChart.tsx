@@ -8,6 +8,7 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { EVENT_CHART_TOP_N, MUTED_SERIES_COLOR, OPENING_TIMEFRAME, alignSeries, axisScale, formatAxisTime, formatPercent, formatPointTime, niceYScale, rankMarketsForChart, seriesColor, type AlignedRow, type Timeframe } from "@/lib/chartData";
+import { outcomeLabel } from "@/lib/boardFormat";
 import { useEventCandles } from "@/lib/marketQueries";
 import { toNumber, type ApiMarket } from "@/lib/marketsTypes";
 import { cn } from "@/lib/utils";
@@ -76,7 +77,7 @@ export default function EventPriceChart({ eventTicker, markets, selectedTicker =
 
   const series = useMemo(() => {
     const map = new Map<string, SeriesMeta>();
-    ranked.forEach((m, i) => map.set(m.ticker, { ticker: m.ticker, label: m.yesSubTitle || m.question, color: seriesColor(i), rank: i, currentPrice: toNumber(m.currentPrice) }));
+    ranked.forEach((m, i) => map.set(m.ticker, { ticker: m.ticker, label: outcomeLabel(m), color: seriesColor(i), rank: i, currentPrice: toNumber(m.currentPrice) }));
     return map;
   }, [ranked]);
 

@@ -67,6 +67,27 @@ const BASE: ErrorSentences = {
     "The treasury does not hold enough of that token to send this amount right now. Top it up (or wait for the index) and try again.",
   token_app_unconfigured:
     "Minting and burning are not available: Cantor8's token-app is not configured on this backend.",
+  // BYN ramp (lib/ramp.ts adds the figures from `details`). Compliance never gets its own
+  // sentence here: an ineligible account reads the same neutral line whatever the reason.
+  ramp_unavailable: "Buying and cashing out are not available right now. Try again later.",
+  ramp_paused: "Buying and cashing out are paused right now. Orders already in progress continue.",
+  ramp_not_eligible: "Buying and cashing out are not available for this account at the moment.",
+  ramp_limit_exceeded: "This is above your limit. Try a smaller amount.",
+  ramp_quote_changed: "The figures changed while you were deciding. Review the new ones and confirm again.",
+  ramp_order_open: "You already have an order waiting for you. Finish or cancel it first.",
+  ramp_order_state: "This order has moved on. Reload it to see where it stands.",
+  ramp_exposure:
+    "Part of your balance was bought by card and cannot go to a bank account yet. It can go back to your card at any time.",
+  ramp_card_cashout_limit: "This card cannot take back that much. Send the rest to a bank account.",
+  ramp_rail_unavailable: "This payout method is not available right now.",
+  idempotency_key_reused: "This request was already used for a different order. Reload the page and try again.",
+  bank_account_invalid:
+    "This bank account cannot receive payouts. Check the IBAN, or use another BYN account in your own name.",
+  bank_account_exists: "This bank account is already saved.",
+  bank_account_limit: "You have saved the most bank accounts allowed. Remove one first.",
+  bank_account_in_use: "A payout to this account is still on its way. Remove it once the payout has finished.",
+  recent_auth_required: "For your security, sign out and sign in again, then add the account within 15 minutes.",
+  kyc_identity_unavailable: "Your verified identity could not be read right now. Try again in a moment.",
   deposit_in_progress:
     "Another deposit is still being credited. Your transfer is safe — check the balance again in a moment.",
   deposit_attribution_drift:
@@ -84,6 +105,7 @@ const BASE: ErrorSentences = {
   // server-to-server only and never reaches a browser.
   not_found: "That record no longer exists. Reload the page and try again.",
   payload_too_large: "The request was too large to send. Try again with less data.",
+  body_too_large: "The request was too large to send. Try again with less data.",
   unsupported_media_type:
     "The request was sent in a format the accounts service does not accept. Reload the page and try again.",
   upstream_failed: "A service we depend on did not answer. Try again in a moment.",

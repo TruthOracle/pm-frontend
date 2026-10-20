@@ -43,7 +43,7 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Unit tests (proxies, helpers, wallet client)
+      - name: Unit tests (proxies, helpers)
         run: npm test
 
       - name: Typecheck + production build

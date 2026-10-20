@@ -4,7 +4,9 @@ import CatalogPanel from "./CatalogPanel";
 import InstrumentsPanel from "./InstrumentsPanel";
 import TokensPanel from "./TokensPanel";
 import RewardsPanel from "./RewardsPanel";
+import RampConsole from "./RampConsole";
 import { BackendOperatorProvider, OperatorSessionCard } from "./BackendOperatorSession";
+import { RampAdminSessionProvider } from "./RampAdminSession";
 
 type Props = {};
 
@@ -12,8 +14,10 @@ type Props = {};
  * The operator console. Everything that configures the exchange lives in the accounts backend
  * behind one operator session (BackendOperatorSession.tsx): the catalog and the treasury-signed
  * market factory (truthoracle-backend docs/MARKETS.md §4), the instrument registry, Cantor8's
- * token-app (mint / burn) and the rewards rules (docs/TOKENS.md §4). The payout queue below them
- * still runs on the older `to_admin` relay session (ADMIN_AUTH.md "Known gaps").
+ * token-app (mint / burn), the rewards rules (docs/TOKENS.md §4), the fiat ramp's operator
+ * console (docs/RAMP.md §12.2: orders, four-eyes approvals, halts and reconciliation, token
+ * commands, bank batches and statements, compliance) and the payout queue's overrides, which are
+ * approval-backed backend routes now — the browser relays no longer sign treasury money moves.
  */
 function Admin({}: Props) {
   return (
@@ -30,9 +34,12 @@ function Admin({}: Props) {
           <InstrumentsPanel />
           <TokensPanel />
           <RewardsPanel />
+          <RampAdminSessionProvider>
+            <RampConsole />
+            <PayoutQueue />
+          </RampAdminSessionProvider>
         </Box>
       </BackendOperatorProvider>
-      <PayoutQueue />
     </Box>
   );
 }

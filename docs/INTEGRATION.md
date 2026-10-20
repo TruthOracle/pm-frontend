@@ -319,6 +319,22 @@ with kind, amount, status and time, explains the rule kinds, and offers "Withdra
 Cantor8 wallet" through the in-app wallet card pinned to the rewards instrument (the common
 withdraw flow). The Aptos-era `blockend/`, `utils/cantonClient.ts` and the claim-rewards UI are gone.
 
+### Card ramp (buy and cash out with a bank card)
+
+truthoracle-backend docs/RAMP.md. `lib/ramp.ts` is the client and the wording: `GET /ramp`
+(enabled, fees, limits with what remains, the card hold, why the account may not use a
+direction), the quote, `startCardPurchase` (opens the order with an `Idempotency-Key` and returns
+the acquirer's hosted checkout URL — card entry and 3-D Secure never touch this app) and
+`cashOutToCard` (opens the cash-out, signs `UserWallet.Withdraw` for exactly its amount with the
+common withdraw builder, finds the new PendingPayout and calls `attach`; if the page dies after the
+signature the backend binds it on its scan). `components/ramp/CardRampCard.tsx` sits under the
+in-app wallet on /portfolio and renders nothing until the backend reports the ramp enabled;
+`RampOrderPage` (`/wallet/ramp/:orderId`, where the checkout returns) polls the order until only an
+operator can move it — the redirect's query string decides nothing; `MockCheckoutPage`
+(`/wallet/ramp/mock-checkout`) is the mock acquirer's page on dev / test deployments. The relay
+forwards `idempotency-key` (api/proxy/backend.mjs). A plain withdrawal of card-bought value inside
+the hold shows "On hold (card purchase)" in the payouts table and settles by itself.
+
 ### Operator console
 
 `/admin` (components/Admin) runs on two sessions: the Vercel `to_admin` session (AdminGate, the
