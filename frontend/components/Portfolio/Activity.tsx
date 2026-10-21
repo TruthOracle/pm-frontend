@@ -1,102 +1,32 @@
+/**
+ * Trading activity: one row per market the connected party holds a Position in (portfolioRows.ts),
+ * every money figure labelled with that market's collateral, and a footer that adds cost basis
+ * and redeemable value up PER INSTRUMENT — positions in different collaterals never share a total.
+ * The rows are loaded once by the Portfolio page and shared with the Summary above.
+ */
+import { useEffect } from "react";
+import { Link } from "react-router-dom";
+import { Activity as ActivityIcon } from "lucide-react";
 import { useCantonWallet } from "@/wallets";
 import { useAccountWallet } from "@/auth/AuthContext";
 import { WALLET_DISPLAY_NAME } from "@/config";
-import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import {
-  fetchAllPredictionMarkets,
-  fetchAllUserPositions,
-  type PredictionMarketRecord,
-  type UserMarketPosition,
-} from "@/utils/activeContracts";
-import { Activity as ActivityIcon } from "lucide-react";
+import { formatMoney, useInstruments } from "@/lib/instruments";
+import { statusLabel, summarizeRows, type ActivityRow } from "./portfolioRows";
 
-/**
- * One row per market the user has a Position in. Joins the on-ledger Position
- * with the PredictionMarket (single template; status field carries lifecycle).
- */
-type ActivityRow = {
-  position: UserMarketPosition;
-  market: PredictionMarketRecord | null;
-  /** Redeemable CC (winning shares 1:1 when Resolved; bounded cost basis when Voided). */
-  redeemable: number;
-};
-
-function buildRows(
-  positions: UserMarketPosition[],
-  markets: PredictionMarketRecord[],
-): ActivityRow[] {
-  const byId = new Map(markets.map((m) => [m.marketId, m]));
-  return positions.map((position) => {
-    const market = byId.get(position.marketId) ?? null;
-    let redeemable = 0;
-    if (market?.status === "Resolved") {
-      redeemable =
-        market.outcome === "Yes"
-          ? position.yesShares
-          : market.outcome === "No"
-            ? position.noShares
-            : 0;
-    } else if (market?.status === "Voided") {
-      redeemable = Math.min(
-        position.costBasisCC,
-        Math.max(position.yesShares, position.noShares),
-      );
-    }
-    return { position, market, redeemable };
-  });
-}
-
-function statusLabel(market: PredictionMarketRecord | null): string {
-  if (!market) return "Unknown";
-  switch (market.status) {
-    case "Trading":
-      return Math.floor(Date.now() / 1000) >= market.expiresAt ? "Awaiting resolution" : "Active";
-    case "Proposed":
-      return "Outcome proposed";
-    case "Resolved":
-      return `Resolved (${market.outcome ?? "?"})`;
-    case "Voided":
-      return "Voided";
-    default:
-      return market.status;
-  }
-}
-
-function Activity() {
+function Activity({ rows, loading, refresh }: { rows: ActivityRow[]; loading: boolean; refresh: () => void | Promise<void> }) {
   const { account } = useCantonWallet();
   const { signInRequired } = useAccountWallet();
-  const [rows, setRows] = useState<ActivityRow[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const fetchBets = useCallback(async () => {
-    if (!account?.address) {
-      setRows([]);
-      return;
-    }
-    setLoading(true);
-    try {
-      const [positions, markets] = await Promise.all([
-        fetchAllUserPositions(account.address),
-        fetchAllPredictionMarkets(),
-      ]);
-      setRows(buildRows(positions, markets));
-    } finally {
-      setLoading(false);
-    }
-  }, [account?.address]);
-
-  useEffect(() => {
-    fetchBets();
-  }, [fetchBets]);
+  const instruments = useInstruments().data;
 
   // Expose so MarketView can refresh us after a trade commits.
   useEffect(() => {
-    (window as unknown as { refreshPortfolio?: () => void }).refreshPortfolio = fetchBets;
+    (window as unknown as { refreshPortfolio?: () => void }).refreshPortfolio = () => void refresh();
     return () => {
       delete (window as unknown as { refreshPortfolio?: () => void }).refreshPortfolio;
     };
-  }, [fetchBets]);
+  }, [refresh]);
+
+  const totals = summarizeRows(rows, instruments).byInstrument;
 
   return (
     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl shadow-slate-200/60">
@@ -106,12 +36,12 @@ function Activity() {
           <h2 className="text-base font-extrabold text-slate-950">Trading Activity</h2>
         </div>
         <p className="mt-1 text-xs leading-5 text-slate-500">
-          Your positions across markets: cost basis, shares, and what's redeemable. Redeem from the
-          market page after resolution.
+          Your positions across markets: cost basis, shares, and what's redeemable, each in the market's collateral. Redeem
+          from the market page after resolution.
         </p>
       </div>
 
-      {loading ? (
+      {loading && rows.length === 0 ? (
         <div className="px-6 py-8 text-center text-sm text-slate-500">Loading positions...</div>
       ) : rows.length === 0 ? (
         <div className="px-6 py-8 text-center text-sm text-slate-500">
@@ -137,6 +67,7 @@ function Activity() {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {rows.map((row) => {
                 const question = row.market?.question ?? `Market #${row.position.marketId}`;
+                const collateral = row.market?.collateral ?? null;
                 return (
                   <tr key={row.position.contractId} className="transition-colors hover:bg-slate-50">
                     <td className="max-w-[380px] px-5 py-4 font-semibold text-slate-950 sm:px-6">
@@ -149,18 +80,13 @@ function Activity() {
                         {statusLabel(row.market)}
                       </span>
                     </td>
-                    <td className="px-5 py-4 text-right font-semibold sm:px-6">
-                      {row.position.costBasisCC.toFixed(2)} CC
-                    </td>
+                    <td className="px-5 py-4 text-right font-semibold sm:px-6">{formatMoney(row.position.costBasis, collateral, 2)}</td>
                     <td className="px-5 py-4 text-right sm:px-6">{row.position.yesShares.toFixed(2)}</td>
                     <td className="px-5 py-4 text-right sm:px-6">{row.position.noShares.toFixed(2)}</td>
                     <td className="px-5 py-4 text-right font-bold text-primary sm:px-6">
                       {row.redeemable > 0 ? (
-                        <Link
-                          to={`/market/${row.position.marketId}`}
-                          className="underline decoration-dotted hover:text-emerald-700"
-                        >
-                          {row.redeemable.toFixed(2)} CC — redeem
+                        <Link to={`/market/${row.position.marketId}`} className="underline decoration-dotted hover:text-emerald-700">
+                          {formatMoney(row.redeemable, collateral, 2)} — redeem
                         </Link>
                       ) : (
                         "-"
@@ -170,6 +96,22 @@ function Activity() {
                 );
               })}
             </tbody>
+            {totals.length > 0 && (
+              <tfoot className="border-t border-slate-200 bg-slate-50 text-xs text-slate-600">
+                {totals.map((t) => (
+                  <tr key={t.instrument.symbol}>
+                    <td className="px-5 py-2 font-semibold sm:px-6" colSpan={2}>
+                      Total in {t.instrument.symbol} · {t.markets} market{t.markets === 1 ? "" : "s"}
+                    </td>
+                    <td className="px-5 py-2 text-right font-semibold tabular-nums sm:px-6">{formatMoney(t.costBasis, t.instrument, 2)}</td>
+                    <td className="px-5 py-2 sm:px-6" colSpan={2} />
+                    <td className="px-5 py-2 text-right font-semibold tabular-nums text-primary sm:px-6">
+                      {t.redeemable > 0 ? formatMoney(t.redeemable, t.instrument, 2) : "-"}
+                    </td>
+                  </tr>
+                ))}
+              </tfoot>
+            )}
           </table>
         </div>
       )}

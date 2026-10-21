@@ -7,71 +7,31 @@ import { useAccountWallet, useAuth } from "@/auth/AuthContext";
 import type { Payout } from "@/auth/types";
 import { fetchPendingPayouts, fetchUserWallet, type PendingPayoutRecord } from "@/utils/activeContracts";
 import { buildCancelPayoutParams } from "@/utils/cantonCommands";
-import { fetchBackendPayouts, moneyErrorMessage, payoutBlockedSentence, settlePayoutWithBackend } from "@/lib/inAppWallet";
+import {
+  fetchBackendPayouts,
+  moneyErrorMessage,
+  payoutBlockedSentence,
+  payoutCancelAllowed,
+  payoutCancelDescription,
+  payoutStatusView,
+  settlePayoutWithBackend,
+} from "@/lib/inAppWallet";
 import { shortPartyId } from "@/lib/party";
 import { authErrorMessage } from "@/auth/wallet";
 import { ConfirmDialog, Pill, type PillTone } from "@/components/Account/accountUi";
-import { fmtCC } from "@/components/market/marketHelpers";
+import { formatMoney, resolveInstrument, sumByInstrument, useInstruments } from "@/lib/instruments";
 import { formatDateTimeUTC } from "@/lib/time";
-
-/** Status pill per backend `Payout.status` (API.md). */
-function statusView(p: Payout | undefined): { label: string; tone: PillTone; verifyLink?: boolean } {
-  if (!p) return { label: "Queued", tone: "neutral" };
-  switch (p.status) {
-    case "queued":
-      return { label: "Queued", tone: "neutral" };
-    case "settling":
-      return { label: "Settling", tone: "pending" };
-    case "blocked_kyc":
-      return { label: "Waiting for identity verification", tone: "warn", verifyLink: true };
-    case "blocked_wallet_revoked":
-      return { label: "Wallet unlinked", tone: "warn" };
-    case "blocked_unknown_user":
-    case "blocked_unknown_reason":
-      return { label: "Needs review", tone: "warn" };
-    case "failed":
-      return { label: "Failed", tone: "bad" };
-    case "settled_external":
-    case "settled_in_app":
-      return { label: "Settled", tone: "ok" };
-    case "archived":
-      return { label: "Cancelled", tone: "neutral" };
-    default:
-      return { label: p.status, tone: "neutral" };
-  }
-}
-
-/**
- * A user-signed CancelPayout is only safe while the backend has NOT started settling:
- * the external path calls transfer() BEFORE MarkPaid (§9.4), so a cancel that lands in
- * between refunds the in-app balance on top of the CC already sent. Allowed: blocked
- * rows (nothing is moving) and a queued row the processor has not touched. Refused:
- * settling, anything settled, failed, and a row the backend does not know at all once
- * an account is signed in (it will pick it up within a scan and may settle it).
- */
-function cancelAllowed(p: Payout | undefined): boolean {
-  if (!p) return false;
-  switch (p.status) {
-    case "blocked_kyc":
-    case "blocked_wallet_revoked":
-    case "blocked_unknown_user":
-      return true;
-    case "queued":
-      return p.attempts === 0;
-    default:
-      return false;
-  }
-}
 
 const CANCEL_REFUSED = "This withdrawal is being sent right now (or was already settled) and can no longer be cancelled.";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
- * Lists CC payouts the treasury owes the connected user. Each row is a `PendingPayout`
- * contract on-ledger — Sell, Merge, resolved-winner shares and withdrawals all flow
- * through this queue, and the accounts backend settles them (real CC out via the
- * Enterprise Wallet, or in-app for bonds / prizes).
+ * Lists the payouts the treasury owes the connected user, each in its own instrument (the
+ * market's collateral for bonds and prizes, the wallet's for a withdrawal). Each row is a
+ * `PendingPayout` contract on-ledger — Sell, Merge, resolved-winner shares and withdrawals
+ * all flow through this queue, and the accounts backend settles them (a real transfer out
+ * through the treasury, or in-app for bonds / prizes).
  *
  * Anonymous: read-only — the on-ledger rows and nothing else. With an account signed
  * in, the backend's view of each row (queued / settling / blocked on KYC / failed) is
@@ -91,6 +51,9 @@ function PendingPayouts({ onChanged }: { onChanged?: () => void | Promise<void> 
   const [linking, setLinking] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<PendingPayoutRecord | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  // A ledger read knows only the instrument's identity; the catalog supplies its symbol and decimals.
+  const instruments = useInstruments().data;
+  const money = (r: PendingPayoutRecord) => formatMoney(r.amount, resolveInstrument(instruments, r.instrument));
 
   const withAccount = me !== null;
   const connected = account?.address ?? null;
@@ -151,8 +114,8 @@ function PendingPayouts({ onChanged }: { onChanged?: () => void | Promise<void> 
           title: "Payout settled",
           description:
             outcome.mode === "in_app"
-              ? `${fmtCC(r.amountCC)} CC credited to your in-app balance.`
-              : `${fmtCC(r.amountCC)} CC sent.`,
+              ? `${money(r)} credited to your in-app balance.`
+              : `${money(r)} sent.`,
           status: "success",
           duration: 6000,
           isClosable: true,
@@ -200,7 +163,7 @@ function PendingPayouts({ onChanged }: { onChanged?: () => void | Promise<void> 
       // cancel at any time); this shrinks it to the wallet popup's duration.
       if (withAccount) {
         const latest = (await fetchBackendPayouts()).find((p) => p.pendingPayoutCid === r.contractId);
-        if (!cancelAllowed(latest)) {
+        if (!payoutCancelAllowed(latest)) {
           setBackend((m) => (latest ? new Map(m).set(r.contractId, latest) : m));
           throw new Error(latest ? CANCEL_REFUSED : "The server has not recorded this withdrawal yet; try again in a minute.");
         }
@@ -215,9 +178,9 @@ function PendingPayouts({ onChanged }: { onChanged?: () => void | Promise<void> 
       // "browser blocked the wallet popup" sentence and the person retries
       // (frontend/wallets/cantor8/popupGesture.ts). Correctness first; never reorder these
       // reads after the signature.
-      const w = await fetchUserWallet(r.user);
-      if (!w) throw new Error("No in-app wallet found for this party, so there is nothing to refund into.");
-      const before = w.balanceCC;
+      const w = await fetchUserWallet(r.user, r.instrument);
+      if (!w) throw new Error("No in-app wallet for this instrument found for this party, so there is nothing to refund into.");
+      const before = w.balance;
       await signAndSubmitTransaction(buildCancelPayoutParams(r.user, r.contractId, w.contractId));
       // The wallet resolves on `txInitiated` (submitted, not committed). Wait for the
       // contract to disappear so the row is not re-offered for a second, doomed cancel
@@ -228,16 +191,16 @@ function PendingPayouts({ onChanged }: { onChanged?: () => void | Promise<void> 
         await sleep(1_000);
         const [stillThere, latestWallet] = await Promise.all([
           fetchPendingPayouts(r.user).then((l) => l.some((p) => p.contractId === r.contractId)),
-          fetchUserWallet(r.user),
+          fetchUserWallet(r.user, r.instrument),
         ]);
-        gone = !stillThere || (latestWallet?.balanceCC ?? 0) >= before + r.amountCC - 1e-6;
+        gone = !stillThere || (latestWallet?.balance ?? 0) >= before + r.amount - 1e-6;
       }
       setCancelTarget(null);
       toast({
         title: gone ? "Refunded to in-app wallet" : "Cancellation submitted",
         description: gone
-          ? `${fmtCC(r.amountCC)} CC is back in your in-app balance.`
-          : `The cancellation was submitted; ${fmtCC(r.amountCC)} CC returns to your in-app balance once it commits.`,
+          ? `${money(r)} is back in your in-app balance.`
+          : `The cancellation was submitted; ${money(r)} returns to your in-app balance once it commits.`,
         status: gone ? "success" : "info",
         duration: 6000,
         isClosable: true,
@@ -253,7 +216,8 @@ function PendingPayouts({ onChanged }: { onChanged?: () => void | Promise<void> 
 
   if (!account) return null;
 
-  const total = rows.reduce((sum, r) => sum + r.amountCC, 0);
+  // One total per instrument: a cBYN payout and a TRO payout do not add up to one figure.
+  const totals = sumByInstrument(rows.map((r) => ({ instrument: resolveInstrument(instruments, r.instrument), amount: r.amount })));
   const kycGated = me?.capabilities.kycRequiredForWithdrawal === true;
 
   return (
@@ -265,8 +229,8 @@ function PendingPayouts({ onChanged }: { onChanged?: () => void | Promise<void> 
             <h2 className="text-base font-extrabold text-slate-950">Pending Payouts</h2>
           </div>
           <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500">
-            CC owed after sells, merged pairs, resolved winning shares or withdrawals. Paid asynchronously via the
-            Enterprise Wallet
+            Owed after sells, merged pairs, resolved winning shares or withdrawals, each in the market's or wallet's
+            instrument. Paid asynchronously by the treasury
             {withAccount
               ? kycGated
                 ? "; withdrawals settle once your identity is verified, bonds and prizes settle into your in-app balance."
@@ -275,7 +239,7 @@ function PendingPayouts({ onChanged }: { onChanged?: () => void | Promise<void> 
           </p>
         </div>
         <div className="rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm font-bold text-primary">
-          {total.toFixed(4)} CC
+          {totals.length === 0 ? "0" : totals.map((t) => formatMoney(t.amount, t.instrument)).join(" · ")}
         </div>
       </div>
 
@@ -315,7 +279,8 @@ function PendingPayouts({ onChanged }: { onChanged?: () => void | Promise<void> 
                 // account's wallets. Anything else (state C's own rows, a party linked
                 // to nobody) would 404, so offer the link instead of a doomed button.
                 const ownedByAccount = withAccount && accountParties.has(r.user);
-                const view = ownedByAccount || !withAccount ? statusView(b) : { label: "Not linked to your account", tone: "warn" as PillTone };
+                const view: { label: string; tone: PillTone; verifyLink?: boolean } =
+                  ownedByAccount || !withAccount ? payoutStatusView(b) : { label: "Not linked to your account", tone: "warn" };
                 // Cancelling while the transfer may already be in flight would pay twice;
                 // cancelAndRefund re-checks right before signing.
                 const cancellable = isWithdraw && !settled && b?.status !== "settling" && b?.status !== "failed";
@@ -326,13 +291,20 @@ function PendingPayouts({ onChanged }: { onChanged?: () => void | Promise<void> 
                     <td className="px-5 py-4 font-bold text-slate-950 sm:px-6">{r.marketId === 0 ? "—" : `#${r.marketId}`}</td>
                     <td className="px-5 py-4 sm:px-6">
                       {r.reason}
+                      {b?.offrampOrderId && (
+                        <div className="text-[11px]">
+                          <Link to={`/wallet/ramp/${encodeURIComponent(b.offrampOrderId)}`} className="font-semibold text-primary underline">
+                            Cash-out order
+                          </Link>
+                        </div>
+                      )}
                       {withAccount && primaryPartyId && r.user !== primaryPartyId && (
                         <div className="font-mono text-[11px] text-slate-400" title={r.user}>
                           to {shortPartyId(r.user)}
                         </div>
                       )}
                     </td>
-                    <td className="px-5 py-4 text-right font-bold text-primary sm:px-6">{r.amountCC.toFixed(4)} CC</td>
+                    <td className="px-5 py-4 text-right font-bold text-primary sm:px-6">{money(r)}</td>
                     <td className="px-5 py-4 text-slate-500 sm:px-6">{formatDateTimeUTC(r.createdAt * 1000)}</td>
                     {withAccount && (
                       <td className="px-5 py-4 sm:px-6">
@@ -349,6 +321,9 @@ function PendingPayouts({ onChanged }: { onChanged?: () => void | Promise<void> 
                           )}
                           {b?.retryAfterKyc && !settled && (
                             <span className="text-[11px] text-slate-500">Retries automatically after verification</span>
+                          )}
+                          {b?.status === "blocked_ramp_exposure" && (
+                            <span className="text-[11px] text-slate-500">Settles by itself after the card dispute window</span>
                           )}
                           {b?.status === "failed" && b.lastError && (
                             <span className="text-[11px] text-slate-500" title={b.lastError}>
@@ -392,7 +367,7 @@ function PendingPayouts({ onChanged }: { onChanged?: () => void | Promise<void> 
                                 setCancelTarget(r);
                               }}
                               disabled={acting !== null || !canSign}
-                              title={canSign ? "Return this CC to your in-app balance" : `Connect ${shortPartyId(r.user)} to cancel`}
+                              title={canSign ? "Return this amount to your in-app balance" : `Connect ${shortPartyId(r.user)} to cancel`}
                               className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               <Undo2 className="h-3 w-3" /> Cancel and refund to in-app wallet
@@ -414,12 +389,8 @@ function PendingPayouts({ onChanged }: { onChanged?: () => void | Promise<void> 
         onOpenChange={(open) => {
           if (!open) setCancelTarget(null);
         }}
-        title="Cancel this withdrawal?"
-        description={
-          cancelTarget
-            ? `${fmtCC(cancelTarget.amountCC)} CC goes back into your in-app balance instead of being sent to your external wallet. Your wallet will ask you to sign the cancellation. If settlement has started in the meantime the cancel is refused.`
-            : ""
-        }
+        title={cancelTarget && backend.get(cancelTarget.contractId)?.offrampOrderId ? "Cancel this cash-out?" : "Cancel this withdrawal?"}
+        description={cancelTarget ? payoutCancelDescription(money(cancelTarget), backend.get(cancelTarget.contractId)?.offrampOrderId) : ""}
         confirmLabel="Cancel and refund"
         busy={acting !== null && acting === cancelTarget?.contractId}
         error={cancelError}

@@ -76,7 +76,6 @@ function clearAllLocalState(opts?: { closePopup?: boolean }): void {
   if (opts?.closePopup) popup.close();
 }
 
-
 interface SpliceProvider {
   request<T>(args: { method: string; params?: unknown }): Promise<T>;
   on<T>(event: string, listener: (...args: T[]) => void): SpliceProvider;
@@ -87,7 +86,7 @@ interface SpliceProvider {
 function withTimeout(
   reject: (err: { status: string; error: number; details: string }) => void,
   details: string,
-  timeoutMs = 10_000
+  timeoutMs = 10_000,
 ): ReturnType<typeof setTimeout> {
   return setTimeout(() => {
     debugWarn(`SDK: ${details}`);
@@ -113,8 +112,7 @@ function buildDappController(provider: SpliceProvider) {
         });
       });
     },
-    disconnect: async (): Promise<Null> =>
-      provider.request({ method: "disconnect" }) as Promise<Null>,
+    disconnect: async (): Promise<Null> => provider.request({ method: "disconnect" }) as Promise<Null>,
     prepareExecute: async (params: PrepareExecuteParams): Promise<Null> => {
       const response = await provider.request<{ userUrl?: string }>({
         method: "prepareExecute",
@@ -161,15 +159,11 @@ class CantonProvider implements SpliceProvider {
   private provider: SpliceProvider;
 
   constructor(discovery: DiscoverResult, session?: { accessToken?: string }) {
-    this.providerType =
-      discovery.walletType === "extension" ? ProviderType.WINDOW : ProviderType.HTTP;
+    this.providerType = discovery.walletType === "extension" ? ProviderType.WINDOW : ProviderType.HTTP;
     this.provider =
       this.providerType === ProviderType.WINDOW
         ? new SpliceProviderWindow()
-        : new SpliceProviderHttp(
-            new URL(discovery.walletType === "remote" ? discovery.url : ""),
-            session?.accessToken
-          );
+        : new SpliceProviderHttp(new URL(discovery.walletType === "remote" ? discovery.url : ""), session?.accessToken);
   }
 
   request<T>(args: { method: string; params?: unknown }): Promise<T> {
@@ -215,7 +209,9 @@ class CantonProvider implements SpliceProvider {
 function injectProvider(discovery: DiscoverResult): SpliceProvider {
   const session = getKernelSession()?.session;
   const provider = new CantonProvider(discovery, session);
-  return injectSpliceProvider(provider as import("@canton-network/core-splice-provider").SpliceProvider) as unknown as SpliceProvider;
+  return injectSpliceProvider(
+    provider as import("@canton-network/core-splice-provider").SpliceProvider,
+  ) as unknown as SpliceProvider;
 }
 
 function assertProvider(): SpliceProvider {
@@ -279,9 +275,7 @@ export async function listAccounts(): Promise<ListAccountsResult> {
   return assertProvider().request({ method: "listAccounts" });
 }
 
-export async function prepareExecuteAndWait(
-  params: PrepareExecuteParams
-): Promise<PrepareExecuteAndWaitResult> {
+export async function prepareExecuteAndWait(params: PrepareExecuteParams): Promise<PrepareExecuteAndWaitResult> {
   return assertProvider().request({ method: "prepareExecuteAndWait", params });
 }
 

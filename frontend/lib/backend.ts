@@ -23,13 +23,15 @@ import type { BackendErrorCode } from "@/auth/types";
 
 export { BACKEND_BASE_URL };
 
-export type BackendMethod = "GET" | "POST" | "PATCH" | "DELETE";
+export type BackendMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export interface BackendFetchInit {
   method?: BackendMethod;
   /** JSON-serialised as the request body. Omit for bodiless requests. */
   body?: unknown;
   signal?: AbortSignal;
+  /** Extra request headers the relay forwards (today only `idempotency-key`, the card ramp's retry token). */
+  headers?: Record<string, string>;
 }
 
 /**
@@ -75,6 +77,7 @@ function fallbackMessage(status: number, text: string): string {
 export async function backendFetch<T>(path: string, init: BackendFetchInit = {}): Promise<T> {
   const method = init.method ?? "GET";
   const headers: Record<string, string> = {
+    ...init.headers,
     accept: "application/json",
     "x-requested-with": "truthoracle",
   };
@@ -116,9 +119,7 @@ export async function backendFetch<T>(path: string, init: BackendFetchInit = {})
     const envelope: ErrorEnvelope = parsed && data && typeof data === "object" ? (data as ErrorEnvelope) : {};
     const code = typeof envelope.error === "string" && envelope.error ? envelope.error : `http_${res.status}`;
     const message =
-      typeof envelope.message === "string" && envelope.message
-        ? envelope.message
-        : fallbackMessage(res.status, text);
+      typeof envelope.message === "string" && envelope.message ? envelope.message : fallbackMessage(res.status, text);
     const error = new BackendError(res.status, code, message, envelope.details);
     // A revoked / expired session shows up as a 401 on whatever call came next. Tell
     // AuthProvider so the header and the account page stop claiming a signed-in state
@@ -198,4 +199,105 @@ export function probeBackend(): Promise<BackendAvailability> {
 /** Test / recovery hook: forget the cached answer so the next probe hits the relay again. */
 export function resetBackendAvailability(): void {
   availability = null;
+}
+
+// ---------------------------------------------------------------------------
+// File downloads (operator exports: the bank payout file, CSV reports)
+// ---------------------------------------------------------------------------
+
+/** A file the backend answered with. */
+export interface BackendDownload {
+  blob: Blob;
+  filename: string;
+  contentType: string;
+}
+
+/**
+ * The file name a `Content-Disposition` header names — the RFC 5987 `filename*` form first, then
+ * `filename` — reduced to a safe basename (no path, no control characters). `fallback` when the
+ * header names none.
+ */
+export function filenameFromDisposition(header: string | null | undefined, fallback: string): string {
+  const value = String(header ?? "");
+  let name = "";
+  const extended = /filename\*\s*=\s*([^;]+)/i.exec(value);
+  if (extended) {
+    const raw = extended[1].trim().replace(/^"(.*)"$/, "$1");
+    const encoded = raw.includes("''") ? raw.slice(raw.indexOf("''") + 2) : raw;
+    try {
+      name = decodeURIComponent(encoded);
+    } catch {
+      name = "";
+    }
+  }
+  if (!name) {
+    const plain = /filename\s*=\s*("([^"]*)"|[^;]+)/i.exec(value);
+    if (plain) name = (plain[2] ?? plain[1]).trim();
+  }
+  // eslint-disable-next-line no-control-regex
+  const visible = name.replace(/[\u0000-\u001f\u007f]/g, "");
+  const safe = visible.split(/[\\/]/).pop()?.trim() ?? "";
+  return safe && safe !== "." && safe !== ".." ? safe : fallback;
+}
+
+/**
+ * Fetch a file from the backend. POST by default: an export is audited and may change state (the
+ * first export of a payout batch), so it is never a GET a cross-site navigation could trigger. The
+ * same session and CSRF conventions as backendFetch; a failure is the usual JSON envelope and throws
+ * BackendError, a success is the raw bytes plus the file name the server chose.
+ */
+export async function backendDownload(
+  path: string,
+  init: BackendFetchInit & { fallbackName?: string } = {},
+): Promise<BackendDownload> {
+  const method = init.method ?? "POST";
+  const headers: Record<string, string> = {
+    ...init.headers,
+    accept: "text/csv, application/octet-stream, application/json;q=0.5",
+    "x-requested-with": "truthoracle",
+  };
+  let body: string | undefined;
+  if (init.body !== undefined && method !== "GET") {
+    headers["content-type"] = "application/json";
+    body = JSON.stringify(init.body);
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${BACKEND_BASE_URL}${path}`, {
+      method,
+      headers,
+      body,
+      credentials: "include",
+      cache: "no-store",
+      signal: init.signal,
+    });
+  } catch (error) {
+    if (init.signal?.aborted) throw error;
+    throw new BackendError(0, "network_error", "Could not reach the accounts backend.");
+  }
+
+  if (!res.ok) {
+    const text = await res.text();
+    let envelope: ErrorEnvelope = {};
+    try {
+      const data: unknown = JSON.parse(text);
+      if (data && typeof data === "object") envelope = data as ErrorEnvelope;
+    } catch {
+      envelope = {};
+    }
+    const code = typeof envelope.error === "string" && envelope.error ? envelope.error : `http_${res.status}`;
+    const message =
+      typeof envelope.message === "string" && envelope.message ? envelope.message : fallbackMessage(res.status, text);
+    const error = new BackendError(res.status, code, message, envelope.details);
+    if (res.status === 401 && code === "unauthenticated") notifyUnauthenticated(error);
+    throw error;
+  }
+
+  const blob = await res.blob();
+  return {
+    blob,
+    filename: filenameFromDisposition(res.headers.get("content-disposition"), init.fallbackName ?? "download"),
+    contentType: res.headers.get("content-type") ?? blob.type ?? "application/octet-stream",
+  };
 }

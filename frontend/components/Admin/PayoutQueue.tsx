@@ -1,221 +1,232 @@
-import {
-    Box,
-    Button,
-    Heading,
-    Input,
-    Table,
-    Tbody,
-    Td,
-    Text,
-    Th,
-    Thead,
-    Tr,
-    useToast,
-} from "@chakra-ui/react";
-import { useCallback, useEffect, useState } from "react";
-import { useCantonWallet } from "@/wallets";
-import {
-    fetchPendingPayouts,
-    type PendingPayoutRecord,
-} from "@/utils/activeContracts";
-import { buildMarkPaidParams } from "@/utils/cantonCommands";
-import {
-    enterpriseWalletPartyId,
-    submitAdminTransaction,
-} from "@/lib/enterpriseWalletSubmit";
-import { debugError } from "@/lib/debugLog";
-
-function truncate(s: string, head = 8, tail = 6) {
-    if (s.length <= head + tail + 1) return s;
-    return `${s.slice(0, head)}…${s.slice(-tail)}`;
-}
-
 /**
- * Admin payout queue. Lists every PendingPayout the admin party can see (i.e. they're
- * signatory).
+ * The treasury's payout queue: every PendingPayout the treasury party sees on the ledger (Sell,
+ * Merge, withdrawals, resolved-winner shares, bonds, prizes), read through the public ledger relay.
  *
- * Settlement is the accounts backend's job: its payout processor settles bond /
- * model-prize rows into the in-app balance and withdrawals after identity verification,
- * and an operator force-settles a stuck row through its admin API
- * (POST /api/v1/admin/payouts/:cid/settle). That API needs a backend ADMIN session,
- * which this UI's operator cookie (to_admin) is not — so nothing here pretends to call
- * it; the contract id is copyable instead. The paste-a-hash Mark Paid remains as the
- * escape hatch for payouts that were genuinely settled out-of-band (wallet-signed,
- * amount never leaves the browser).
+ * Settlement is the accounts backend's job (its payout processor). The two operator overrides are
+ * backend admin routes behind the operator session, and both are four-eyes approvals now
+ * (truthoracle-backend docs/RAMP.md §6.5, X1): "Mark paid" — a payout genuinely settled out of band,
+ * archived with the transfer reference (`payout.mark_paid`; it replaces the old paste-a-hash
+ * MarkPaid the browser once signed through the wallet relay, now deleted) — and "Force
+ * settle" for a stuck row (`payout.force_settle`). A PendingPayout bound to a ramp cash-out is never
+ * marked paid by hand: only its order may consume it, or the cash-out would read as a user cancel.
  */
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { fetchPendingPayouts, type PendingPayoutRecord } from "@/utils/activeContracts";
+import { enterpriseWalletPartyId } from "@/lib/enterpriseWalletSubmit";
+import { fetchAdminPayouts, requestPayoutForceSettle, requestPayoutMarkPaid } from "@/lib/backendAdmin";
+import { exactMoney, markPaidReferenceProblem, outcomeSentence } from "@/lib/rampAdmin";
+import type { ApiAdminPayout } from "@/lib/rampAdminTypes";
+import { formatMoney, resolveInstrument, sumByInstrument, useInstruments } from "@/lib/instruments";
+import { ConfirmDialog, Pill } from "@/components/Account/accountUi";
+import { btnDanger, btnQuiet, Card, field } from "./adminUi";
+import { useBackendOperator } from "./BackendOperatorSession";
+import { ErrorLine, Field, Id, td, th, tableCls, theadCls, useRampRun, useRoleHint } from "./RampAdminUi";
+
+type Pending = { act: "mark" | "force"; row: PendingPayoutRecord } | null;
+
 function PayoutQueue() {
-    const { account, signAndSubmitTransaction } = useCantonWallet();
-    const [rows, setRows] = useState<PendingPayoutRecord[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [marking, setMarking] = useState<string | null>(null);
-    const [txHashes, setTxHashes] = useState<Record<string, string>>({});
-    const [copied, setCopied] = useState<string | null>(null);
-    const toast = useToast();
+  const { ready } = useBackendOperator();
+  const opsHint = useRoleHint("ops");
+  const instruments = useInstruments().data;
+  const adminParty = enterpriseWalletPartyId();
+  const [rows, setRows] = useState<PendingPayoutRecord[]>([]);
+  const [backendRows, setBackendRows] = useState<Map<string, ApiAdminPayout>>(new Map());
+  const [backendError, setBackendError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [txHashes, setTxHashes] = useState<Record<string, string>>({});
+  const [reason, setReason] = useState("");
+  const [confirm, setConfirm] = useState<Pending>(null);
 
-    const adminParty = enterpriseWalletPartyId();
-
-    const refresh = useCallback(async () => {
-        if (!adminParty) return;
-        setLoading(true);
+  const refresh = useCallback(async () => {
+    if (!adminParty) return;
+    setLoading(true);
+    try {
+      setRows(await fetchPendingPayouts(adminParty));
+      if (ready) {
         try {
-            const list = await fetchPendingPayouts(adminParty);
-            setRows(list);
-        } finally {
-            setLoading(false);
-        }
-    }, [adminParty]);
-
-    useEffect(() => {
-        refresh();
-    }, [refresh]);
-
-    const copyCid = async (cid: string) => {
-        try {
-            await navigator.clipboard.writeText(cid);
-            setCopied(cid);
-            window.setTimeout(() => setCopied((c) => (c === cid ? null : c)), 1500);
-        } catch {
-            toast({ title: "Could not copy", description: cid, status: "info", duration: 6000, isClosable: true });
-        }
-    };
-
-    const markPaid = async (cid: string) => {
-        if (!account) return;
-        const hash = (txHashes[cid] ?? "").trim();
-        if (!hash) {
-            toast({ title: "Paste the CC tx hash first", status: "info", duration: 3000, isClosable: true });
-            return;
-        }
-        setMarking(cid);
-        try {
-            const params = buildMarkPaidParams(adminParty || account.address, cid, hash);
-            const committed = await submitAdminTransaction(params, signAndSubmitTransaction);
-            void committed.hash;
-            toast({
-                title: "Payout marked paid",
-                description: "PendingPayout archived. The user's row will disappear on next refresh.",
-                status: "success",
-                duration: 5000,
-                isClosable: true,
-            });
-            setTxHashes((m) => {
-                const next = { ...m };
-                delete next[cid];
-                return next;
-            });
-            await refresh();
+          const page = await fetchAdminPayouts();
+          setBackendRows(new Map(page.items.map((p) => [p.pendingPayoutCid, p])));
+          setBackendError(null);
         } catch (e) {
-            debugError("Mark paid failed", e);
-            toast({
-                title: "Mark paid failed",
-                description: e instanceof Error ? e.message : String(e),
-                status: "error",
-                duration: 5000,
-                isClosable: true,
-            });
-        } finally {
-            setMarking(null);
+          setBackendError(e instanceof Error ? e.message : String(e));
         }
-    };
-
-    if (!adminParty) {
-        return (
-            <Box color="white" p={6}>
-                <Text color="orange.400" fontSize="sm">
-                    VITE_ENTERPRISE_WALLET_PARTY_ID is not set — payout queue can't load.
-                </Text>
-            </Box>
-        );
+      }
+    } finally {
+      setLoading(false);
     }
+  }, [adminParty, ready]);
 
-    const total = rows.reduce((s, r) => s + r.amountCC, 0);
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
+  const { busy, run } = useRampRun(refresh);
+  const money = (r: PendingPayoutRecord) => formatMoney(r.amount, resolveInstrument(instruments, r.instrument));
+  // The confirm dialog names the exact figure: the backend's decimal string when it indexed the row.
+  const exact = (r: PendingPayoutRecord) => {
+    const b = backendRows.get(r.contractId);
+    const instrument = resolveInstrument(instruments, r.instrument);
+    return b ? exactMoney(b.amount, instrument.decimals, instrument.symbol) : money(r);
+  };
+  const totals = useMemo(
+    () => sumByInstrument(rows.map((r) => ({ instrument: resolveInstrument(instruments, r.instrument), amount: r.amount }))),
+    [rows, instruments],
+  );
+
+  if (!adminParty) {
     return (
-        <Box className="font-jbm" color="white" p={6} mt={6} borderRadius="lg" borderWidth="2px" borderColor="#CCCCFF" bg="#18191C" maxW="6xl" mx="auto">
-            <Heading size="md" mb={1} color="#CCCCFF">Payout Queue</Heading>
-            <Text fontSize="xs" color="gray.500" mb={2}>
-                Sell, Merge, withdrawals, and resolved-winner shares each create a `PendingPayout` row here.
-                Use Mark Paid only for payouts already settled out-of-band.
-            </Text>
-            <Text fontSize="xs" color="amber.300" mb={3}>
-                Settlement runs in the accounts backend (bond and model-prize into the in-app balance,
-                withdrawals after identity verification). To force-settle a stuck row, copy its contract
-                id and use the backend&apos;s admin API: POST /api/v1/admin/payouts/:cid/settle.
-            </Text>
-            <Text fontSize="sm" color="amber.300" mb={3}>
-                Outstanding: <strong>{total.toFixed(4)} CC</strong> across <strong>{rows.length}</strong> row{rows.length === 1 ? "" : "s"}
-            </Text>
-            <Button size="sm" onClick={refresh} isDisabled={loading} mb={4}>
-                {loading ? "Refreshing…" : "Refresh"}
-            </Button>
-            {rows.length === 0 ? (
-                <Text color="gray.500" fontSize="sm">No outstanding payouts.</Text>
-            ) : (
-                <Table variant="simple" size="sm">
-                    <Thead>
-                        <Tr>
-                            <Th color="white">User</Th>
-                            <Th color="white">Market</Th>
-                            <Th color="white">Reason</Th>
-                            <Th color="white" isNumeric>Amount</Th>
-                            <Th color="white">Contract id</Th>
-                            <Th color="white">CC tx hash</Th>
-                            <Th color="white"></Th>
-                        </Tr>
-                    </Thead>
-                    <Tbody>
-                        {rows.map((r) => (
-                            <Tr color="#CCCCFF" key={r.contractId}>
-                                <Td fontSize="xs" fontFamily="mono" title={r.user}>{truncate(r.user)}</Td>
-                                <Td>{r.marketId === 0 ? "—" : `#${r.marketId}`}</Td>
-                                <Td>{r.reason}</Td>
-                                <Td isNumeric>{r.amountCC.toFixed(4)} CC</Td>
-                                <Td fontSize="xs" fontFamily="mono" whiteSpace="nowrap" title={r.contractId}>
-                                    {truncate(r.contractId, 6, 4)}
-                                    <Button
-                                        size="xs"
-                                        variant="ghost"
-                                        colorScheme="gray"
-                                        ml={1}
-                                        onClick={() => void copyCid(r.contractId)}
-                                        aria-label="Copy contract id"
-                                    >
-                                        {copied === r.contractId ? "Copied" : "Copy"}
-                                    </Button>
-                                </Td>
-                                <Td>
-                                    <Input
-                                        size="sm"
-                                        placeholder="paste off-ledger tx hash"
-                                        value={txHashes[r.contractId] ?? ""}
-                                        onChange={(e) =>
-                                            setTxHashes((m) => ({ ...m, [r.contractId]: e.target.value }))
-                                        }
-                                        bg="white"
-                                        color="black"
-                                    />
-                                </Td>
-                                <Td>
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        colorScheme="gray"
-                                        onClick={() => markPaid(r.contractId)}
-                                        isDisabled={
-                                            marking === r.contractId ||
-                                            !(txHashes[r.contractId] ?? "").trim()
-                                        }
-                                    >
-                                        {marking === r.contractId ? "…" : "Mark Paid"}
-                                    </Button>
-                                </Td>
-                            </Tr>
-                        ))}
-                    </Tbody>
-                </Table>
-            )}
-        </Box>
+      <Card title="Payout queue">
+        <p className="text-sm text-amber-700">VITE_ENTERPRISE_WALLET_PARTY_ID is not set, so the treasury&apos;s payout queue cannot load.</p>
+      </Card>
     );
+  }
+
+  const submit = async () => {
+    if (!confirm) return;
+    const { act, row } = confirm;
+    if (act === "mark") {
+      const ok = await run("Mark paid", () => requestPayoutMarkPaid(row.contractId, { txHash: (txHashes[row.contractId] ?? "").trim(), reason: reason.trim() }));
+      if (ok) setTxHashes((m) => ({ ...m, [row.contractId]: "" }));
+    } else {
+      await run(
+        "Force settle",
+        () => requestPayoutForceSettle(row.contractId, { reason: reason.trim() }),
+        (r) => ("approval" in r ? outcomeSentence("Force settle", r) : `Settled (${r.mode}).`),
+      );
+    }
+    setConfirm(null);
+  };
+
+  return (
+    <Card
+      title="Payout queue (treasury PendingPayouts)"
+      aside={
+        <button type="button" className={btnQuiet} disabled={loading || busy !== null} onClick={() => void refresh()}>
+          {loading ? "Refreshing…" : "Refresh"}
+        </button>
+      }
+    >
+      <p className="mb-2 text-xs text-slate-600">
+        Outstanding: <strong>{totals.length === 0 ? "0" : totals.map((t) => formatMoney(t.amount, t.instrument)).join(" · ")}</strong> across{" "}
+        <strong>{rows.length}</strong> row{rows.length === 1 ? "" : "s"}. The backend&apos;s processor settles them; the overrides below are
+        four-eyes requests.
+      </p>
+      {!ready && <p className="mb-2 text-xs text-amber-700">Sign in to the backend as an operator to act on a payout.</p>}
+      <ErrorLine error={backendError ? `The backend's payout index could not be read: ${backendError}` : null} />
+      {ready && (
+        <div className="mb-3 max-w-md">
+          <Field label="Reason (kept on the approval and the audit row)">
+            <input className={field} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="how it was paid / why it is stuck" />
+          </Field>
+        </div>
+      )}
+      {rows.length === 0 ? (
+        <p className="text-sm text-slate-500">{loading ? "Loading…" : "No outstanding payouts."}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className={tableCls}>
+            <thead className={theadCls}>
+              <tr>
+                <th className={th}>User</th>
+                <th className={th}>Market</th>
+                <th className={th}>Reason</th>
+                <th className={`${th} text-right`}>Amount</th>
+                <th className={th}>Contract</th>
+                <th className={th}>Backend</th>
+                {ready && <th className={th}>Out-of-band transfer reference</th>}
+                {ready && <th className={th}></th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {rows.map((r) => {
+                const b = backendRows.get(r.contractId);
+                const bound = Boolean(b?.offrampOrderId);
+                const refProblem = markPaidReferenceProblem(txHashes[r.contractId] ?? "");
+                const blocked = busy !== null || !reason.trim() || opsHint !== null;
+                return (
+                  <tr key={r.contractId}>
+                    <td className={td}>
+                      <Id value={r.user} />
+                    </td>
+                    <td className={td}>{r.marketId === 0 ? "—" : `#${r.marketId}`}</td>
+                    <td className={`${td} text-xs`}>{r.reason}</td>
+                    <td className={`${td} text-right tabular-nums`}>{money(r)}</td>
+                    <td className={td}>
+                      <Id value={r.contractId} />
+                    </td>
+                    <td className={`${td} text-xs`}>
+                      {b ? <Pill tone={b.status.startsWith("blocked") || b.status === "failed" ? "warn" : "neutral"}>{b.status}</Pill> : ready ? "not indexed" : "—"}
+                      {b?.lastError && <div className="max-w-[12rem] truncate text-[11px] text-red-700" title={b.lastError}>{b.lastError}</div>}
+                      {bound && (
+                        <div className="text-[11px] text-slate-500">
+                          cash-out <Id value={b?.offrampOrderId ?? null} />
+                        </div>
+                      )}
+                    </td>
+                    {ready && (
+                      <td className={td}>
+                        <input
+                          className={field}
+                          value={txHashes[r.contractId] ?? ""}
+                          disabled={bound}
+                          onChange={(e) => setTxHashes((m) => ({ ...m, [r.contractId]: e.target.value }))}
+                          placeholder={bound ? "bound to a cash-out" : "bank / chain reference"}
+                        />
+                      </td>
+                    )}
+                    {ready && (
+                      <td className={`${td} whitespace-nowrap text-right`}>
+                        <button
+                          type="button"
+                          className={btnDanger}
+                          disabled={blocked || bound || refProblem !== null}
+                          title={
+                            bound
+                              ? "Bound to a ramp cash-out: resolve it from the order, never by hand."
+                              : (opsHint ?? (!reason.trim() ? "Write the reason first." : (refProblem ?? undefined)))
+                          }
+                          onClick={() => setConfirm({ act: "mark", row: r })}
+                        >
+                          Mark paid…
+                        </button>
+                        <button
+                          type="button"
+                          className={`${btnQuiet} ml-1`}
+                          disabled={blocked}
+                          title={opsHint ?? (!reason.trim() ? "Write the reason first." : undefined)}
+                          onClick={() => setConfirm({ act: "force", row: r })}
+                        >
+                          Force settle…
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <ConfirmDialog
+        open={confirm !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirm(null);
+        }}
+        title={confirm?.act === "mark" ? "Request marking this payout paid?" : "Request a forced settlement?"}
+        description={
+          confirm
+            ? confirm.act === "mark"
+              ? `${exact(confirm.row)} owed to ${confirm.row.user} was paid outside the platform under "${(txHashes[confirm.row.contractId] ?? "").trim()}". Once a second person approves, the PendingPayout is archived and nothing more is paid. Reason: "${reason.trim()}".`
+              : `${exact(confirm.row)} owed to ${confirm.row.user} is settled now by the backend, past its own wait (KYC, revoked wallet). A second person approves. Reason: "${reason.trim()}".`
+            : ""
+        }
+        confirmLabel="Request"
+        destructive={confirm?.act === "mark"}
+        busy={busy !== null}
+        onConfirm={() => void submit()}
+      />
+    </Card>
+  );
 }
 
 export default PayoutQueue;

@@ -56,8 +56,28 @@ export function outcomeRows(
     const p = toNumber(m.currentPrice);
     return {
       rows: [
-        { key: `${m.ticker}:yes`, ticker: m.ticker, label: m.yesSubTitle || "Yes", title: m.question, price: p, color: colorOf(m.ticker), image: "", href: `/markets/${m.ticker}?side=yes`, result: sideResult(m, "Yes") },
-        { key: `${m.ticker}:no`, ticker: m.ticker, label: m.noSubTitle || "No", title: m.question, price: 1 - p, color: NO_SIDE_COLOR, image: "", href: `/markets/${m.ticker}?side=no`, result: sideResult(m, "No") },
+        {
+          key: `${m.ticker}:yes`,
+          ticker: m.ticker,
+          label: m.yesSubTitle || "Yes",
+          title: m.question,
+          price: p,
+          color: colorOf(m.ticker),
+          image: "",
+          href: `/markets/${m.ticker}?side=yes`,
+          result: sideResult(m, "Yes"),
+        },
+        {
+          key: `${m.ticker}:no`,
+          ticker: m.ticker,
+          label: m.noSubTitle || "No",
+          title: m.question,
+          price: 1 - p,
+          color: NO_SIDE_COLOR,
+          image: "",
+          href: `/markets/${m.ticker}?side=no`,
+          result: sideResult(m, "No"),
+        },
       ],
       hidden: 0,
     };

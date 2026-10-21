@@ -9,11 +9,8 @@
  */
 
 import type { PrepareExecuteParams } from "./cantonDapp";
-import {
-  DEBUG_ACTIVE_CONTRACTS,
-  IS_DEV,
-  PARTICIPANT_PROXY_URL,
-} from "@/config";
+import { adminInstanceHeaders } from "./adminSession";
+import { DEBUG_ACTIVE_CONTRACTS, IS_DEV, PARTICIPANT_PROXY_URL } from "@/config";
 import { normalizeCommand } from "@/utils/normalizeCommand";
 
 /** Cache synchronizerId from GET /v2/state/connected-synchronizers (per baseUrl). */
@@ -69,7 +66,10 @@ export class CantonParticipantClient {
    * end-user token), it's attached, otherwise the proxy injects the client token.
    */
   private async ledgerHeaders(): Promise<Record<string, string>> {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    // An operator's console (admin session) reads the treasury's private contracts, e.g. the payout
+    // queue's PendingPayouts: the relay wants the session's instance header for those (F1) and
+    // strips it before the participant. Empty for everyone else.
+    const headers: Record<string, string> = { "Content-Type": "application/json", ...adminInstanceHeaders() };
     const token = await this.config.getToken();
     if (typeof token === "string" && token.trim()) {
       headers.Authorization = `Bearer ${token.trim()}`;
@@ -118,9 +118,7 @@ export class CantonParticipantClient {
     const cmdId = commandId ?? crypto.randomUUID();
 
     const rawCommands = params.commands ?? [];
-    const commands = Array.isArray(rawCommands)
-      ? rawCommands.map(normalizeCommand)
-      : [normalizeCommand(rawCommands)];
+    const commands = Array.isArray(rawCommands) ? rawCommands.map(normalizeCommand) : [normalizeCommand(rawCommands)];
 
     const body = {
       commandId: cmdId,
@@ -147,7 +145,8 @@ export class CantonParticipantClient {
     const data = await response.json();
     const preparedTransaction = data.preparedTransaction || data.prepared_transaction || "";
     const preparedTransactionHash = data.preparedTransactionHash || data.prepared_transaction_hash || "";
-    const hashingSchemeVersion = data.hashingSchemeVersion || data.hashing_scheme_version || "HASHING_SCHEME_VERSION_V2";
+    const hashingSchemeVersion =
+      data.hashingSchemeVersion || data.hashing_scheme_version || "HASHING_SCHEME_VERSION_V2";
     if (!preparedTransaction) {
       throw new Error("Prepare did not return a preparedTransaction");
     }
@@ -212,7 +211,7 @@ export class CantonParticipantClient {
   async queryActiveContracts(
     partyId: string,
     templateId: { packageName?: string; packageId?: string; moduleName: string; entityName: string },
-    options?: { includeCreatedEventBlob?: boolean }
+    options?: { includeCreatedEventBlob?: boolean },
   ): Promise<unknown[]> {
     const headers = await this.ledgerHeaders();
 
@@ -234,10 +233,11 @@ export class CantonParticipantClient {
       ? `#${templateId.packageName}:${templateId.moduleName}:${templateId.entityName}`
       : `${templateId.packageId}:${templateId.moduleName}:${templateId.entityName}`;
 
-    // Payload shape: top-level verbose, activeAtOffset as string, eventFormat with filtersByParty and verbose.
+    // GetActiveContractsRequest: activeAtOffset as a string plus an eventFormat (filtersByParty and
+    // its own verbose flag). The legacy top-level `filter` / `verbose` fields are DISABLED on Canton
+    // 3.6 (DEPRECATED_API_DISABLED), so nothing may sit next to eventFormat but the offset.
     const includeBlob = options?.includeCreatedEventBlob === true;
     const body = {
-      verbose: false,
       activeAtOffset: String(activeAtOffset),
       eventFormat: {
         filtersByParty: {
@@ -275,7 +275,7 @@ export class CantonParticipantClient {
     const raw = (await response.json()) as unknown;
     const list = Array.isArray(raw)
       ? raw
-      : (raw as Record<string, unknown>).activeContracts ?? (raw as Record<string, unknown>).contracts ?? [];
+      : ((raw as Record<string, unknown>).activeContracts ?? (raw as Record<string, unknown>).contracts ?? []);
 
     if (IS_DEV && DEBUG_ACTIVE_CONTRACTS) {
       console.debug("[active-contracts]", {
@@ -299,11 +299,7 @@ export class CantonParticipantClient {
           ? ((rec.contractEntry as Record<string, unknown>)?.JsActiveContract as Record<string, unknown> | undefined)
           : undefined;
       const entry = jsActive?.createdEvent as Record<string, unknown> | undefined;
-      let contractId =
-        entry?.contractId ??
-        entry?.contract_id ??
-        rec.contractId ??
-        rec.contract_id;
+      let contractId = entry?.contractId ?? entry?.contract_id ?? rec.contractId ?? rec.contract_id;
       // Some APIs return workflowId at top level; never use it as contractId (exercise would fail with CONTRACT_NOT_FOUND).
       const workflowId = rec.workflowId as string | undefined;
       if (typeof contractId === "string" && typeof workflowId === "string" && contractId === workflowId) {
@@ -317,11 +313,9 @@ export class CantonParticipantClient {
         rec.payload ??
         {};
       const createdEventBlob =
-        (entry?.createdEventBlob as string | undefined) ??
-        (entry?.created_event_blob as string | undefined);
+        (entry?.createdEventBlob as string | undefined) ?? (entry?.created_event_blob as string | undefined);
       const synchronizerId =
-        (jsActive?.synchronizerId as string | undefined) ??
-        (jsActive?.synchronizer_id as string | undefined);
+        (jsActive?.synchronizerId as string | undefined) ?? (jsActive?.synchronizer_id as string | undefined);
       if (contractId && typeof contractId === "string") {
         results.push({
           contractId,

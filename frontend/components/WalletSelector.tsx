@@ -30,9 +30,18 @@ import { useToast } from "@/components/ui/use-toast";
 import { useCantonWallet } from "@/wallets";
 import { useAccountWallet, useAuth } from "@/auth/AuthContext";
 import { authErrorMessage } from "@/auth/wallet";
-import { getCantonCoinHoldings, type AmuletHoldings } from "@/view-functions/getAccountBalance";
+import { fetchWalletHoldings, type WalletHolding } from "@/lib/walletHoldings";
 import { WALLET_DISPLAY_NAME } from "@/config";
 import { shortPartyId } from "@/lib/party";
+import {
+  defaultCollateral,
+  formatMoney,
+  instrumentForWalletId,
+  instrumentLabel,
+  useInstruments,
+  walletInstrumentId,
+  type InstrumentRef,
+} from "@/lib/instruments";
 
 type Badge = { text: string; tone: "ok" | "warn" } | null;
 
@@ -43,12 +52,32 @@ export function WalletSelector() {
   const { toast } = useToast();
   const [busy, setBusy] = useState<"connect" | "link" | null>(null);
 
-  const { data: holdings } = useQuery<AmuletHoldings>({
-    queryKey: ["canton-coin-holdings", account?.address],
+  const { data: holdings } = useQuery<WalletHolding[]>({
+    queryKey: ["wallet-holdings", account?.address],
     refetchInterval: 10_000,
-    queryFn: () => getCantonCoinHoldings(),
+    queryFn: () => fetchWalletHoldings(),
     enabled: !!account?.address,
   });
+  // The wallet backend reports every token the party holds under its own ids; the instrument
+  // catalog says what each is called here (the wallet's id itself when the catalog does not know
+  // it). The default collateral leads — it is what a deposit from here pays for — then the rest in
+  // the wallet's order; a wallet that holds nothing still shows the collateral at 0.
+  const instruments = useInstruments().data;
+  const collateral = defaultCollateral(instruments);
+  const rows: { instrument: InstrumentRef | { symbol: string; name: string; decimals: number }; holding: WalletHolding | null }[] = [];
+  if (collateral) {
+    rows.push({
+      instrument: collateral,
+      holding: (holdings ?? []).find((h) => h.walletInstrumentId === walletInstrumentId(collateral)) ?? null,
+    });
+  }
+  for (const h of holdings ?? []) {
+    if (collateral && h.walletInstrumentId === walletInstrumentId(collateral)) continue;
+    rows.push({
+      instrument: instrumentForWalletId(instruments, h.walletInstrumentId) ?? { symbol: h.walletInstrumentId, name: h.walletInstrumentId, decimals: 10 },
+      holding: h,
+    });
+  }
 
   // connect() is the first statement: the browser grants one popup per click.
   const handleConnect = useCallback(async () => {
@@ -135,16 +164,27 @@ export function WalletSelector() {
           </>
         ) : null}
         <div className="px-4 py-2">
-          <p className="text-sm font-medium">{WALLET_DISPLAY_NAME} wallet · Canton Coin</p>
-          <p className="text-2xl font-bold">{(holdings?.balance ?? 0).toFixed(2)} CC</p>
-          <p className="text-xs text-gray-400">≈ ${(holdings?.balanceUsd ?? 0).toFixed(2)} USD</p>
-          {(holdings?.lockedBalance ?? 0) > 0 && (
-            <p className="mt-1 text-xs text-amber-400">
-              Locked: {(holdings?.lockedBalance ?? 0).toFixed(2)} CC (≈ ${(holdings?.lockedBalanceUsd ?? 0).toFixed(2)})
-            </p>
+          <p className="text-sm font-medium">{WALLET_DISPLAY_NAME} wallet</p>
+          {rows.length === 0 ? (
+            <p className="text-2xl font-bold">0</p>
+          ) : (
+            rows.map(({ instrument, holding }, index) => (
+              <div key={`${instrument.symbol}-${index}`} className={index === 0 ? "" : "mt-2 border-t border-slate-100 pt-2"}>
+                <p className="text-xs text-gray-500">{instrumentLabel(instrument)}</p>
+                <p className={index === 0 ? "text-2xl font-bold" : "text-base font-semibold"}>
+                  {formatMoney(holding?.balance ?? 0, instrument, 2)}
+                </p>
+                <p className="text-xs text-gray-400">≈ ${(holding?.balanceUsd ?? 0).toFixed(2)} USD</p>
+                {(holding?.lockedBalance ?? 0) > 0 && (
+                  <p className="mt-1 text-xs text-amber-400">
+                    Locked: {formatMoney(holding?.lockedBalance ?? 0, instrument, 2)} (≈ ${(holding?.lockedBalanceUsd ?? 0).toFixed(2)})
+                  </p>
+                )}
+              </div>
+            ))
           )}
           <p className="mt-2 text-xs text-gray-500">
-            Balance in your connected {WALLET_DISPLAY_NAME} wallet. Trading spends your in-app wallet balance — deposit
+            Balances in your connected {WALLET_DISPLAY_NAME} wallet. Trading spends your in-app wallet balance — deposit
             from here to top it up.
           </p>
           {walletState === "linked" && primaryPartyId ? (

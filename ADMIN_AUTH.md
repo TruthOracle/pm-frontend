@@ -8,8 +8,8 @@ reached the deployment was executed with full authority:
 
 | Endpoint | Authority it carried | What an anonymous caller could do |
 | --- | --- | --- |
-| `POST /__proxy/wallet/api/v1/external/submit` | Treasury signing key | Sign any Daml command as the admin party — including `CreateUserWallet` with an arbitrary balance, i.e. mint unlimited in-app CC |
-| `POST /__proxy/wallet/api/v1/transfer` | Treasury signing key | Send any amount of real CC to any party |
+| `POST /__proxy/wallet/api/v1/external/submit` | Treasury signing key | Sign any Daml command as the admin party — including creating a `UserWallet` with an arbitrary balance, i.e. mint unlimited in-app balance in any instrument |
+| `POST /__proxy/wallet/api/v1/transfer` | Treasury signing key | Send any amount of any token the treasury holds (Canton Coin at the time) to any party |
 | `POST /__proxy/ledger/v2/users/{u}/rights` | `ParticipantAdmin` | Grant themselves `CanActAs` on any party hosted by the participant |
 
 The only thing standing in front of them was `useIsAdmin()`, which compared a
@@ -249,23 +249,29 @@ middleware):
   `502 backend_unreachable`: sign-in is offered but disabled and the money controls
   pause with a Retry (an outage must never look like "no backend").
 
-The two auth systems do not interact. Market creation is backend-only now: the catalog
-console (`Admin/CatalogPanel.tsx`, `Admin/CreateMarketForm.tsx`) signs the operator into
-the backend (`purpose = admin-sign-in`, parties in the backend's own `ADMIN_OPERATORS`)
-and the backend submits `CreateMarket` through the Enterprise Wallet — the browser never
-builds that command and the wallet relay no longer serves it. Operators keep signing into
-the rest of `/admin` through the `to_admin` flow above until it is ported to the backend's
-admin sessions: `Admin/PayoutQueue` only lists rows, copies their contract ids for the
-backend's `POST /api/v1/admin/payouts/:cid/settle`, and keeps the wallet-signed Mark Paid
-for payouts settled out-of-band — it never pretends to hold a backend admin session.
+The two auth systems do not interact. Everything that configures the exchange is
+backend-only now: `Admin/BackendOperatorSession.tsx` signs the operator into the backend
+once (`purpose = admin-sign-in`, parties in the backend's own `ADMIN_OPERATORS`) and holds
+that session for every backend-backed panel — the catalog and the treasury-signed market
+factory (`CatalogPanel`, `CreateMarketForm` → `POST /admin/markets`), the instrument
+registry (`InstrumentsPanel` → `/admin/instruments`, including the AutoAccept /
+MintDelegation setup action), Cantor8's token-app (`TokensPanel` → `/admin/tokens/*`:
+mint, mint-and-credit, burn) and the rewards rules (`RewardsPanel` → `/admin/rewards/*`).
+The browser never builds those commands and the wallet relay serves none of them; the
+backend submits them through the Enterprise Wallet or the token-app and audits each one.
+Only the payout queue still signs in through the `to_admin` flow above:
+`Admin/PayoutQueue` lists rows, copies their contract ids for the backend's
+`POST /api/v1/admin/payouts/:cid/settle`, and keeps the wallet-signed Mark Paid for payouts
+settled out-of-band — it never pretends to hold a backend admin session.
 
 ## Known gaps
 
-- **The `/admin` UI is not on backend admin sessions yet.** Its `to_admin` cookie is
-  this repository's own flow, so the payout queue cannot call the backend's
-  `POST /api/v1/admin/payouts/:cid/settle`; stuck payouts are force-settled from that
-  API directly (the queue shows the contract id to copy). Porting `/admin` is Phase 2
-  in `truthoracle-backend/docs/ARCHITECTURE.md` §17.
+- **The payout queue is not on backend admin sessions yet.** Every other `/admin` panel
+  runs on the backend operator session (`BackendOperatorSession.tsx`); the queue's
+  `to_admin` cookie is this repository's own flow, so it cannot call the backend's
+  `POST /api/v1/admin/payouts/:cid/settle` — stuck payouts are force-settled from that
+  API directly (the queue shows the contract id to copy). Porting it is Phase 2 in
+  `truthoracle-backend/docs/ARCHITECTURE.md` §17.
 - **No deposits or withdrawals without `BACKEND_URL`.** By design: there are no
   money endpoints in this repository, so a deployment without an accounts backend is
   read + wallet-signed trading only. [#78](https://github.com/TruthOracle/pm-frontend/issues/78)

@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { formatCents } from "@/lib/marketPricing";
+import { formatMoney } from "@/lib/instruments";
 import { cn } from "@/lib/utils";
 import { TrendingUp, CheckCircle2, Clock } from "lucide-react";
 import type { PredictionMarketRecord } from "@/utils/activeContracts";
@@ -108,8 +109,8 @@ const MarketCard = ({ market }: MarketCardProps) => {
           {/* Stats row: volume · reserves · fee · expiry */}
           <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border pt-2 text-[11px] text-muted-foreground">
             <div className="flex justify-between">
-              <span>{market.volume24hCC !== undefined ? "24h volume" : "Token volume"}</span>
-              <span className="font-medium text-foreground">{(market.volume24hCC ?? market.totalVolumeCC).toFixed(1)} CC</span>
+              <span>{market.volume24h !== undefined ? "24h volume" : "Volume"}</span>
+              <span className="font-medium text-foreground">{formatMoney(market.volume24h ?? market.totalVolume, market.collateral, 1)}</span>
             </div>
             <div className="flex justify-between">
               <span>{market.openInterest !== undefined ? "Open interest" : "Reserves"}</span>

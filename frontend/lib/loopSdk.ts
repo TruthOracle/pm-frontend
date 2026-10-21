@@ -38,8 +38,14 @@ export interface LoopInitOptions {
 export interface LoopProvider {
   party_id: string;
   public_key: string;
-  submitTransaction: (payload: DamlCommandPayload, options?: { message?: string; estimateTraffic?: boolean }) => Promise<{ command_id?: string; submission_id?: string }>;
-  submitAndWaitForTransaction: (payload: DamlCommandPayload, options?: { message?: string; estimateTraffic?: boolean }) => Promise<LoopTxResult>;
+  submitTransaction: (
+    payload: DamlCommandPayload,
+    options?: { message?: string; estimateTraffic?: boolean },
+  ) => Promise<{ command_id?: string; submission_id?: string }>;
+  submitAndWaitForTransaction: (
+    payload: DamlCommandPayload,
+    options?: { message?: string; estimateTraffic?: boolean },
+  ) => Promise<LoopTxResult>;
   getHolding: () => Promise<unknown[]>;
   getAccount: () => Promise<unknown>;
   getActiveContracts: (params: { templateId?: string; interfaceId?: string }) => Promise<unknown[]>;

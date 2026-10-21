@@ -26,10 +26,7 @@ export function normCdf(z: number): number {
   if (z < 0) return 1 - normCdf(-z);
   if (z > 8) return 1;
   const t = 1 / (1 + 0.2316419 * z);
-  const poly =
-    t *
-    (0.31938153 +
-      t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  const poly = t * (0.31938153 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
   return 1 - normPdf(z) * poly;
 }
 
@@ -41,20 +38,29 @@ export function normInvCdf(pRaw: number): number {
   if (p < pLow) {
     const q = Math.sqrt(-2 * Math.log(p));
     x =
-      -(((((-0.007784894 * q - 0.322396458) * q - 2.400758277) * q - 2.549732539) * q + 4.374664141) * q + 2.938163983) /
+      -(
+        ((((-0.007784894 * q - 0.322396458) * q - 2.400758277) * q - 2.549732539) * q + 4.374664141) * q +
+        2.938163983
+      ) /
       ((((0.007784696 * q + 0.322467129) * q + 2.445134137) * q + 3.754408662) * q + 1);
   } else if (p > 1 - pLow) {
     const q = Math.sqrt(-2 * Math.log(1 - p));
     x =
-      ((((( -0.007784894 * q - 0.322396458) * q - 2.400758277) * q - 2.549732539) * q + 4.374664141) * q + 2.938163983) /
+      (((((-0.007784894 * q - 0.322396458) * q - 2.400758277) * q - 2.549732539) * q + 4.374664141) * q + 2.938163983) /
       ((((0.007784696 * q + 0.322467129) * q + 2.445134137) * q + 3.754408662) * q + 1);
   } else {
     const q = p - 0.5;
     const r = q * q;
     x =
-      (((((-39.69683028665376 * r + 220.9460984245205) * r - 275.9285104469687) * r + 138.357751867269) * r - 30.66479806614716) * r + 2.506628277459239) *
-      q /
-      (((((-54.47609879822406 * r + 161.5858368580409) * r - 155.6989798598866) * r + 66.80131188771972) * r - 13.28068155288572) * r + 1);
+      ((((((-39.69683028665376 * r + 220.9460984245205) * r - 275.9285104469687) * r + 138.357751867269) * r -
+        30.66479806614716) *
+        r +
+        2.506628277459239) *
+        q) /
+      (((((-54.47609879822406 * r + 161.5858368580409) * r - 155.6989798598866) * r + 66.80131188771972) * r -
+        13.28068155288572) *
+        r +
+        1);
   }
   for (let i = 0; i < 2; i++) x -= (normCdf(x) - p) / Math.max(1e-10, normPdf(x));
   return x;
@@ -72,8 +78,7 @@ export function optimalReserves(p: number, l: number): { x: number; y: number } 
 export const poolValue = (p: number, l: number) => l * normPdf(normInvCdf(p));
 
 /** Liquidity from a target pool value: L = V / φ(Φ⁻¹(P)). */
-export const liquidityFromValue = (v: number, p: number) =>
-  v / Math.max(1e-10, normPdf(normInvCdf(p)));
+export const liquidityFromValue = (v: number, p: number) => v / Math.max(1e-10, normPdf(normInvCdf(p)));
 
 /** Invariant residual I(x, y, L). */
 export function invariantValue(x: number, y: number, l: number): number {
@@ -172,20 +177,19 @@ export interface BuyQuote {
   priceImpact: number; // |P' - P| / P
 }
 
-/** Quote a Buy: collateral in → shares out (mirrors PredictionMarket.Buy). */
+/** Quote a Buy: collateral in (`amount`, in the market's instrument) → shares out (mirrors PredictionMarket.Buy). */
 export function quoteBuy(
   m: AmmMarketState,
   side: "Yes" | "No",
-  collateralCC: number,
+  amount: number,
   nowSecs = Math.floor(Date.now() / 1000),
 ): BuyQuote | null {
   const l = marketEffectiveL(m, nowSecs);
-  if (l <= 0 || collateralCC <= 0) return null;
+  if (l <= 0 || amount <= 0) return null;
   const { x, y } = optimalReserves(m.currentPrice, l);
-  const fee = collateralCC * feeFraction(m.feeBps);
-  const net = collateralCC - fee;
-  const sharesOut =
-    side === "Yes" ? solveBuyShares(x, y, l, net) : solveBuyShares(y, x, l, net);
+  const fee = amount * feeFraction(m.feeBps);
+  const net = amount - fee;
+  const sharesOut = side === "Yes" ? solveBuyShares(x, y, l, net) : solveBuyShares(y, x, l, net);
   if (sharesOut <= 0) return null;
   const diff = y - x;
   const newDiff = side === "Yes" ? diff + sharesOut : diff - sharesOut;
@@ -195,7 +199,7 @@ export function quoteBuy(
   return {
     sharesOut,
     fee,
-    avgPrice: collateralCC / sharesOut,
+    avgPrice: amount / sharesOut,
     newPrice,
     priceImpact: Math.abs(newSidePrice - sidePrice) / Math.max(1e-9, sidePrice),
   };
@@ -209,7 +213,7 @@ export interface SellQuote {
   newPrice: number;
 }
 
-/** Quote a Sell: shares in → net CC out (mirrors PredictionMarket.Sell). */
+/** Quote a Sell: shares in → net collateral out (mirrors PredictionMarket.Sell). */
 export function quoteSell(
   m: AmmMarketState,
   side: "Yes" | "No",
@@ -219,8 +223,7 @@ export function quoteSell(
   const l = marketEffectiveL(m, nowSecs);
   if (l <= 0 || sharesIn <= 0) return null;
   const { x, y } = optimalReserves(m.currentPrice, l);
-  const gross =
-    side === "Yes" ? solveSellProceeds(x, y, l, sharesIn) : solveSellProceeds(y, x, l, sharesIn);
+  const gross = side === "Yes" ? solveSellProceeds(x, y, l, sharesIn) : solveSellProceeds(y, x, l, sharesIn);
   if (gross <= 0) return null;
   const fee = gross * feeFraction(m.feeBps);
   const diff = y - x;
@@ -253,8 +256,7 @@ export function quoteSwapShares(
   const { x, y } = optimalReserves(m.currentPrice, l);
   const fee = sharesIn * feeFraction(m.feeBps);
   const net = sharesIn - fee;
-  const sharesOut =
-    fromSide === "Yes" ? solveSwapOut(x, y, l, net) : solveSwapOut(y, x, l, net);
+  const sharesOut = fromSide === "Yes" ? solveSwapOut(x, y, l, net) : solveSwapOut(y, x, l, net);
   if (sharesOut <= 0) return null;
   const diff = y - x;
   const newDiff = fromSide === "Yes" ? diff - sharesOut - net : diff + sharesOut + net;
@@ -270,27 +272,28 @@ export function quoteSwapShares(
 }
 
 export interface LiquidityQuote {
-  costCC: number;
+  /** Collateral debited: max(dx, dy), in the market's instrument. */
+  cost: number;
   lpMinted: number;
   shareOfPool: number; // after the deposit
   newL: number;
 }
 
-/** Quote ProvideLiquidity: desired value increase → CC cost + LP minted. */
+/** Quote ProvideLiquidity: desired value increase → collateral cost + LP minted. */
 export function quoteProvideLiquidity(
   m: AmmMarketState & { lpTokenSupply: number },
-  valueIncreaseCC: number,
+  valueIncrease: number,
   nowSecs = Math.floor(Date.now() / 1000),
 ): LiquidityQuote | null {
   const l = marketEffectiveL(m, nowSecs);
-  if (l <= 0 || valueIncreaseCC <= 0) return null;
+  if (l <= 0 || valueIncrease <= 0) return null;
   const v = poolValue(m.currentPrice, l);
-  const ratio = valueIncreaseCC / v;
+  const ratio = valueIncrease / v;
   const { x, y } = optimalReserves(m.currentPrice, l);
-  const costCC = Math.max(x * ratio, y * ratio);
+  const cost = Math.max(x * ratio, y * ratio);
   const lpMinted = m.lpTokenSupply * ratio;
   return {
-    costCC,
+    cost,
     lpMinted,
     shareOfPool: lpMinted / (m.lpTokenSupply + lpMinted),
     newL: m.liquidityL * (1 + ratio),

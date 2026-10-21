@@ -3,19 +3,21 @@
  * (truthoracle-backend docs/MARKETS.md §4). Identity comes from the catalog — a market is a leg
  * of an event and its ticker is `EVENT-SUFFIX` — and the backend refuses an unknown event or a
  * taken ticker before anything reaches the ledger, then submits `MarketCounter.CreateMarket`
- * through the Enterprise Wallet. Everything below the identity block is the pm-AMM seed and the
- * resolution policy, both immutable once the contract exists. The market shows up in the catalog
- * as soon as the indexer sees it.
+ * through the Enterprise Wallet. The market is denominated in one collateral instrument
+ * (docs/TOKENS.md §2): the first market of an event fixes the event's instrument and every later
+ * market of that event must use it, so the selector is locked once the event has one. Everything
+ * below the identity block is the pm-AMM seed and the resolution policy, both immutable once the
+ * contract exists and both in the collateral. The market shows up in the catalog as soon as the
+ * indexer sees it.
  */
 import { useState } from "react";
 import { Box, Button, Flex, FormLabel, Input, Select, Switch, Text, Textarea, useToast } from "@chakra-ui/react";
 import { createMarketViaBackend } from "@/lib/backendAdmin";
 import { TICKER_PATTERN, type ApiEvent, type ApiSeries } from "@/lib/marketsTypes";
+import { defaultCollateral, enabledCollaterals, formatAmount, instrumentKey, instrumentLabel, sameInstrument, useInstruments, type InstrumentRef } from "@/lib/instruments";
 import { liquidityFromValue, optimalReserves } from "@/lib/marketPricing";
 import { parseUTCInput } from "@/lib/time";
-
-/** Runs one operator action with the console's busy state, reload and toasts (see CatalogPanel). */
-export type Run = (what: string, fn: () => Promise<unknown>, done: string) => Promise<boolean>;
+import type { Run } from "./adminUi";
 
 const TICKER_HINT = "Upper-case letters, digits and . _ - only, 2–64 characters (e.g. FED-26MAR-CUT25).";
 const BUSY_KEY = "Create market";
@@ -34,7 +36,9 @@ const initialForm = {
   isDynamic: true,
   liquidityPeriodMinutes: 5, // pre-trading liquidity-collection window (default 5 min)
   initialProbability: 50, // percent
-  initialValueCC: 100, // pool value V0 in CC
+  /** `<admin>:<id>` of the chosen collateral; "" = the catalog's default (or the event's, once it has one). */
+  collateralKey: "",
+  initialValue: 100, // pool value V0, in the collateral
   feeBps: 30,
   prizeFeeShareBps: 2000,
   // Resolution policy
@@ -43,7 +47,7 @@ const initialForm = {
   reporters: "", // comma-separated party ids
   quorum: 0,
   challengeHours: 0, // 0 disables T3
-  bondCC: 0,
+  bond: 0, // T3 bond, in the collateral
   // Audit log
   reason: "",
 };
@@ -62,6 +66,7 @@ export default function CreateMarketForm({ events, series, busy, run }: { events
   // The event image the image field was last prefilled with, so switching events replaces a
   // default but never an operator's own URL.
   const [imageFromEvent, setImageFromEvent] = useState("");
+  const instruments = useInstruments();
 
   const open = events.filter((e) => !e.archived);
   const event = open.find((e) => e.ticker === form.eventTicker);
@@ -70,10 +75,22 @@ export default function CreateMarketForm({ events, series, busy, run }: { events
   const ticker = form.eventTicker && suffix ? `${form.eventTicker}-${suffix}` : "";
   const tickerError = ticker !== "" && !TICKER_PATTERN.test(ticker) ? TICKER_HINT : null;
 
+  // Collateral: the enabled collateral instruments of the catalog, the event's instrument once it
+  // has one (locked — a second instrument inside one event is refused by the backend), else the
+  // operator's pick, else the catalog's default.
+  const collaterals = enabledCollaterals(instruments.data);
+  const locked: InstrumentRef | null = event?.instrument ?? null;
+  const picked = collaterals.find((i) => instrumentKey(i) === form.collateralKey) ?? null;
+  const collateral: InstrumentRef | null = locked ?? picked ?? defaultCollateral(instruments.data);
+  const symbol = collateral?.symbol ?? "";
+  const unit = symbol || "collateral";
+  // A locked instrument the catalog no longer enables still has to be shown as the only option.
+  const options: InstrumentRef[] = locked && !collaterals.some((i) => sameInstrument(i, locked)) ? [locked, ...collaterals] : collaterals;
+
   const p0 = Math.min(0.99, Math.max(0.01, form.initialProbability / 100));
   const seedCost = (() => {
     try {
-      const l0 = liquidityFromValue(form.initialValueCC, p0);
+      const l0 = liquidityFromValue(form.initialValue, p0);
       const { x, y } = optimalReserves(p0, l0);
       return Math.max(x, y);
     } catch {
@@ -104,7 +121,7 @@ export default function CreateMarketForm({ events, series, busy, run }: { events
     form.description.trim() !== "" &&
     form.resolutionDescription.trim() !== "" &&
     form.expiresAtUtc !== "" &&
-    form.initialValueCC > 0 &&
+    form.initialValue > 0 &&
     form.initialProbability >= 1 &&
     form.initialProbability <= 99;
 
@@ -134,6 +151,8 @@ export default function CreateMarketForm({ events, series, busy, run }: { events
         createMarketViaBackend({
           eventTicker: event.ticker,
           ticker,
+          // Omitted when the catalog is unknown here: the backend then applies its default collateral.
+          collateral: collateral ? { admin: collateral.admin, id: collateral.id } : undefined,
           question: form.question.trim(),
           // Blank labels fall back to plain Yes / No on the backend; all four identity fields are
           // mandatory Text on the contract.
@@ -148,7 +167,7 @@ export default function CreateMarketForm({ events, series, busy, run }: { events
           isDynamic: form.isDynamic,
           liquidityPeriodSecs: form.isDynamic ? Math.max(0, Math.round(form.liquidityPeriodMinutes * 60)) : 0,
           initialProbability: p0.toFixed(4),
-          initialValueCC: String(form.initialValueCC),
+          initialValue: String(form.initialValue),
           feeBps: form.feeBps,
           prizeFeeShareBps: form.prizeFeeShareBps,
           policy: {
@@ -158,11 +177,11 @@ export default function CreateMarketForm({ events, series, busy, run }: { events
             reporters,
             quorum: form.quorum,
             challengeSecs: Math.max(0, Math.round(form.challengeHours * 3600)),
-            bondCC: String(form.bondCC),
+            bond: String(form.bond),
           },
           reason: form.reason.trim() || undefined,
         }),
-      `CreateMarket submitted for ${ticker}: pm-AMM seeded at ${form.initialProbability}% with ${form.initialValueCC} CC pool value (collateral cost ≈ ${seedCost.toFixed(2)} CC). It appears once the indexer sees it.`,
+      `CreateMarket submitted for ${ticker}: pm-AMM seeded at ${form.initialProbability}% with ${formatAmount(form.initialValue, collateral)} ${unit} pool value (collateral cost ≈ ${formatAmount(seedCost, collateral, 2)} ${unit}). It appears once the indexer sees it.`,
     );
     if (ok) {
       (window as { refreshMarketplace?: () => void }).refreshMarketplace?.();
@@ -197,6 +216,32 @@ export default function CreateMarketForm({ events, series, busy, run }: { events
           <Input required type="text" marginTop="2px" id="suffix" name="suffix" placeholder="CUT25" value={form.suffix} onChange={(e) => setForm((prev) => ({ ...prev, suffix: e.target.value.toUpperCase() }))} isInvalid={tickerError !== null} />
           <Text color={tickerError ? "red.400" : "gray.500"} fontSize="xs" mt={1}>
             {tickerError ?? (ticker ? `On-ledger ticker: ${ticker}` : "On-ledger ticker: <event ticker>-<suffix>")}
+          </Text>
+        </Box>
+      </Flex>
+
+      <Flex gap={4} marginBottom="16px" direction={{ base: "column", md: "row" }}>
+        <Box flex={1}>
+          <label htmlFor="collateralKey">Collateral instrument</label>
+          <Select
+            id="collateralKey"
+            name="collateralKey"
+            marginTop="2px"
+            value={collateral ? instrumentKey(collateral) : ""}
+            isDisabled={locked !== null || options.length === 0}
+            onChange={(e) => setForm((prev) => ({ ...prev, collateralKey: e.target.value }))}
+          >
+            {options.length === 0 && <option value="">{instruments.isLoading ? "Loading the instrument catalog…" : "No enabled collateral instrument — the backend's default applies"}</option>}
+            {options.map((i) => (
+              <option key={instrumentKey(i)} value={instrumentKey(i)}>
+                {instrumentLabel(i)}
+              </option>
+            ))}
+          </Select>
+          <Text color="gray.500" fontSize="xs" mt={1}>
+            {locked
+              ? `Fixed by this event's first market (${instrumentLabel(locked)}); every market of an event shares its instrument.`
+              : "Shares cost at most 1 unit and pay 1 unit of this instrument; fees and bonds are in it. The first market fixes it for the whole event."}
           </Text>
         </Box>
       </Flex>
@@ -268,8 +313,8 @@ export default function CreateMarketForm({ events, series, busy, run }: { events
           <Input required type="number" min={1} max={99} id="initialProbability" name="initialProbability" marginTop="2px" value={form.initialProbability} onChange={handleInputChange} />
         </Box>
         <Box flex={1}>
-          <label htmlFor="initialValueCC">Initial pool value (CC)</label>
-          <Input required type="number" min={1} step="any" id="initialValueCC" name="initialValueCC" marginTop="2px" value={form.initialValueCC} onChange={handleInputChange} />
+          <label htmlFor="initialValue">Initial pool value ({unit})</label>
+          <Input required type="number" min={1} step="any" id="initialValue" name="initialValue" marginTop="2px" value={form.initialValue} onChange={handleInputChange} />
         </Box>
         <Box flex={1}>
           <label htmlFor="feeBps">Fee (bps)</label>
@@ -330,8 +375,8 @@ export default function CreateMarketForm({ events, series, busy, run }: { events
           <Input type="number" min={0} step="any" id="challengeHours" name="challengeHours" marginTop="2px" value={form.challengeHours} onChange={handleInputChange} />
         </Box>
         <Box flex={1}>
-          <label htmlFor="bondCC">T3 bond (CC)</label>
-          <Input type="number" min={0} step="any" id="bondCC" name="bondCC" marginTop="2px" value={form.bondCC} onChange={handleInputChange} />
+          <label htmlFor="bond">T3 bond ({unit})</label>
+          <Input type="number" min={0} step="any" id="bond" name="bond" marginTop="2px" value={form.bond} onChange={handleInputChange} />
         </Box>
       </Flex>
 
@@ -339,9 +384,9 @@ export default function CreateMarketForm({ events, series, busy, run }: { events
       <Input type="text" marginBottom="16px" marginTop="2px" id="reason" name="reason" placeholder="why this market exists / ticket id" value={form.reason} onChange={handleInputChange} />
 
       <Text fontSize="xs" color="gray.500" mb={3}>
-        Seeding at {form.initialProbability}% with {form.initialValueCC} CC pool value costs ≈ {seedCost.toFixed(2)} CC of collateral (max of the optimal YES/NO reserves), paid by the
-        treasury. Every market is binary Yes / No; Void is a first-class outcome. The backend refuses an unknown or archived event and a ticker that is already taken, then the
-        Enterprise Wallet signs <code className="font-mono">MarketCounter.CreateMarket</code> as the treasury.
+        Seeding at {form.initialProbability}% with {formatAmount(form.initialValue, collateral)} {unit} pool value costs ≈ {formatAmount(seedCost, collateral, 2)} {unit} of collateral (max of the optimal
+        YES/NO reserves), paid by the treasury from its {unit} holdings. Every market is binary Yes / No; Void is a first-class outcome. The backend refuses an unknown or archived event, a
+        ticker that is already taken and a collateral other than the event's, then the Enterprise Wallet signs <code className="font-mono">MarketCounter.CreateMarket</code> as the treasury.
       </Text>
 
       <Button type="submit" colorScheme="green" isDisabled={busy !== null || !formValid} isLoading={busy === BUSY_KEY} loadingText="Submitting…">

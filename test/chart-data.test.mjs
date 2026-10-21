@@ -18,7 +18,7 @@ const candle = (startTs, close, extra = {}) => ({
   startTs,
   endTs: startTs + 60,
   price: { open: String(close), high: String(close), low: String(close), close: String(close), mean: String(close), previous: null },
-  volumeCC: "0",
+  volume: "0",
   trades: 0,
   openInterest: "0",
   liquidityL: null,
@@ -121,9 +121,9 @@ describe("points and alignment", () => {
   });
   it("ranks markets for the chart by volume, then price", () => {
     const ranked = chart.rankMarketsForChart([
-      { ticker: "LOW", totalVolumeCC: "10", currentPrice: "0.9" },
-      { ticker: "HIGH", totalVolumeCC: "50", currentPrice: "0.1" },
-      { ticker: "TIE", totalVolumeCC: "10", currentPrice: "0.95" },
+      { ticker: "LOW", totalVolume: "10", currentPrice: "0.9" },
+      { ticker: "HIGH", totalVolume: "50", currentPrice: "0.1" },
+      { ticker: "TIE", totalVolume: "10", currentPrice: "0.95" },
     ]);
     assert.deepEqual(ranked.map((m) => m.ticker), ["HIGH", "TIE", "LOW"]);
   });
@@ -146,20 +146,24 @@ describe("deltas and formatting", () => {
     assert.equal(chart.formatPercent(0.6249), "62%");
     assert.equal(chart.formatPercent(0.6249, 1), "62.5%");
     assert.equal(chart.formatCents(0.6249), "62¢");
-    assert.equal(chart.compactCC("812.4"), "812 CC");
-    assert.equal(chart.compactCC(1234), "1.2k CC");
-    assert.equal(chart.compactCC(12_345), "12k CC");
-    assert.equal(chart.compactCC(3_400_000), "3.4M CC");
-    assert.equal(chart.compactCC(7.25, ""), "7.25");
-    assert.equal(chart.compactCC(42.5), "42.5 CC");
+    const CC = { symbol: "CC", decimals: 10 };
+    assert.equal(chart.compactAmount("812.4", CC), "812 CC");
+    assert.equal(chart.compactAmount(1234, CC), "1.2k CC");
+    assert.equal(chart.compactAmount(12_345, CC), "12k CC");
+    assert.equal(chart.compactAmount(3_400_000, CC), "3.4M CC");
+    assert.equal(chart.compactAmount(7.25, null), "7.25");
+    assert.equal(chart.compactAmount(42.5, CC), "42.5 CC");
     // Small figures read naturally: no "0.00 CC" on an untraded card.
-    assert.equal(chart.compactCC(0), "0 CC");
-    assert.equal(chart.compactCC("0.0000000000"), "0 CC");
-    assert.equal(chart.compactCC(0.5), "0.5 CC");
-    assert.equal(chart.compactCC(12.345), "12.3 CC");
-    assert.equal(chart.compactCC(940), "940 CC");
-    assert.equal(chart.compactCC(1000), "1k CC");
-    assert.equal(chart.compactCC(-0.001), "0 CC");
+    assert.equal(chart.compactAmount(0, CC), "0 CC");
+    assert.equal(chart.compactAmount("0.0000000000", CC), "0 CC");
+    assert.equal(chart.compactAmount(0.5, CC), "0.5 CC");
+    assert.equal(chart.compactAmount(12.345, CC), "12.3 CC");
+    assert.equal(chart.compactAmount(940, CC), "940 CC");
+    assert.equal(chart.compactAmount(1000, CC), "1k CC");
+    assert.equal(chart.compactAmount(-0.001, CC), "0 CC");
+    // The label follows the instrument, and a coarser instrument never shows more decimals than it has.
+    assert.equal(chart.compactAmount(7.25, { symbol: "cBYN", decimals: 6 }), "7.25 cBYN");
+    assert.equal(chart.compactAmount(7.25, { symbol: "X", decimals: 0 }), "7 X");
   });
   it("formats relative times and time left", () => {
     const now = Date.parse("2026-09-29T12:00:00Z");
@@ -329,9 +333,9 @@ describe("axis ticks (viewer's clock)", () => {
 describe("marketColorMap", () => {
   it("follows the chart ranking (volume, then price) and skips archived markets", () => {
     const map = chart.marketColorMap([
-      { ticker: "A", currentPrice: "0.2", totalVolumeCC: "10" },
-      { ticker: "B", currentPrice: "0.6", totalVolumeCC: "50" },
-      { ticker: "Z", currentPrice: "0.9", totalVolumeCC: "999", archived: true },
+      { ticker: "A", currentPrice: "0.2", totalVolume: "10" },
+      { ticker: "B", currentPrice: "0.6", totalVolume: "50" },
+      { ticker: "Z", currentPrice: "0.9", totalVolume: "999", archived: true },
     ]);
     assert.equal(map.get("B"), chart.SERIES_PALETTE[0]);
     assert.equal(map.get("A"), chart.SERIES_PALETTE[1]);

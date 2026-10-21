@@ -114,7 +114,11 @@ export function requestLinkChallenge(partyId: string): Promise<WalletChallenge> 
  * it from the stored challenge, so any client-side reformatting would fail verification.
  * Blocks on a human: the popup asks the person to approve.
  */
-export async function signChallenge(challenge: WalletChallenge, partyId: string, signMessage: SignMessage): Promise<string> {
+export async function signChallenge(
+  challenge: WalletChallenge,
+  partyId: string,
+  signMessage: SignMessage,
+): Promise<string> {
   const signature = await signMessage(challenge.message, partyId);
   if (!signature) throw new Error("The wallet returned an empty signature.");
   return signature;

@@ -34,15 +34,17 @@ VITE_WALLET_TYPE=cantor8
 VITE_LOOP_NETWORK=devnet
 VITE_USE_PARTICIPANT_API=true
 VITE_TRUTHORACLE_PACKAGE_ID=<package id printed by npm run dars:upload in truthoracle-contracts>
-VITE_TRUTHORACLE_PACKAGE_NAME=truthoracle-v16
+VITE_TRUTHORACLE_PACKAGE_NAME=truthoracle-v17
 VITE_ENTERPRISE_WALLET_PARTY_ID=20a2514bea1b4dd382f116c1e580197d::12205811d9301bcc2456567f882baceb8e083483c8be3f2631aedc2ce1806c424393
 VITE_ENTERPRISE_WALLET_APP_NAME=truthoracle
 ```
 
 `VITE_TRUTHORACLE_PACKAGE_ID` and `VITE_ENTERPRISE_WALLET_PARTY_ID` have no
 default: without them ledger commands, the marketplace queries and admin gating
-throw. The browser falls back to `truthoracle-v16` for the package name, but the
-server-side ledger client does not, so set it too.
+throw. The browser falls back to `truthoracle-v17` for the package name, but the
+server-side ledger client does not, so set it too. The instrument catalog (symbols,
+decimals, the default collateral) is not configured here at all — the app reads it from
+the accounts backend's `GET /exchange/instruments`.
 
 Only `VITE_APP_NETWORK=mainnet` is special-cased — any other value, `testnet`
 included, behaves as devnet.

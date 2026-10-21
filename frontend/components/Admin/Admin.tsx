@@ -1,13 +1,23 @@
 import { Box, Center } from "@chakra-ui/react";
 import PayoutQueue from "./PayoutQueue";
 import CatalogPanel from "./CatalogPanel";
+import InstrumentsPanel from "./InstrumentsPanel";
+import TokensPanel from "./TokensPanel";
+import RewardsPanel from "./RewardsPanel";
+import RampConsole from "./RampConsole";
+import { BackendOperatorProvider, OperatorSessionCard } from "./BackendOperatorSession";
+import { RampAdminSessionProvider } from "./RampAdminSession";
 
 type Props = {};
 
 /**
- * The operator console. Markets are created only through the catalog console's treasury-signed
- * factory (truthoracle-backend `POST /admin/markets`, docs/MARKETS.md §4); the payout queue
- * below it still runs on the older `to_admin` relay session (ADMIN_AUTH.md "Known gaps").
+ * The operator console. Everything that configures the exchange lives in the accounts backend
+ * behind one operator session (BackendOperatorSession.tsx): the catalog and the treasury-signed
+ * market factory (truthoracle-backend docs/MARKETS.md §4), the instrument registry, Cantor8's
+ * token-app (mint / burn), the rewards rules (docs/TOKENS.md §4), the fiat ramp's operator
+ * console (docs/RAMP.md §12.2: orders, four-eyes approvals, halts and reconciliation, token
+ * commands, bank batches and statements, compliance) and the payout queue's overrides, which are
+ * approval-backed backend routes now — the browser relays no longer sign treasury money moves.
  */
 function Admin({}: Props) {
   return (
@@ -17,12 +27,19 @@ function Admin({}: Props) {
       <Center>
         <h1 className="font-jbm font-bold text-2xl text-slate-950">Operator console</h1>
       </Center>
-      {/* Series → events → markets, the treasury-signed market factory and the trading halt
-          live in the accounts backend (truthoracle-backend docs/MARKETS.md). */}
-      <Box mt={8}>
-        <CatalogPanel />
-      </Box>
-      <PayoutQueue />
+      <BackendOperatorProvider>
+        <Box mt={8} className="space-y-6">
+          <OperatorSessionCard />
+          <CatalogPanel />
+          <InstrumentsPanel />
+          <TokensPanel />
+          <RewardsPanel />
+          <RampAdminSessionProvider>
+            <RampConsole />
+            <PayoutQueue />
+          </RampAdminSessionProvider>
+        </Box>
+      </BackendOperatorProvider>
     </Box>
   );
 }

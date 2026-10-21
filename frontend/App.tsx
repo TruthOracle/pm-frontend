@@ -18,7 +18,15 @@ import { setPrefetchedMarkets } from "@/utils/marketPrefetch";
 import { marketSource } from "@/lib/marketsApi";
 import { fetchMarketNews } from "@/lib/marketNews";
 import EventView from "@/components/EventView";
+import MockCheckoutPage from "@/components/ramp/MockCheckoutPage";
+import RampAccountsPage from "@/components/ramp/RampAccountsPage";
+import RampOrderPage from "@/components/ramp/RampOrderPage";
 import { ExchangeStatusBanner, ExchangeStatusProvider } from "@/components/ExchangeStatusBanner";
+import { RAMP_MOCK_PAGES } from "@/lib/ramp";
+
+// The mock acquirer's page exists only where a mock acquirer can (the backend refuses it on
+// mainnet); MockCheckoutPage also checks that the backend really runs it before showing buttons.
+const MOCK_CHECKOUT_ROUTE = RAMP_MOCK_PAGES;
 
 /**
  * /admin is reachable by anyone; AdminGate decides whether to show the console or a
@@ -132,6 +140,10 @@ function AppContent() {
         <Route path="/rewards" element={<Rewards />} />
         <Route path="/news" element={<News />} />
         <Route path="/account" element={<AccountPage />} />
+        {/* BYN ramp (truthoracle-backend docs/RAMP.md): history + cards + bank accounts, one order. */}
+        <Route path="/wallet/ramp" element={<RampAccountsPage />} />
+        {MOCK_CHECKOUT_ROUTE && <Route path="/wallet/ramp/mock-checkout" element={<MockCheckoutPage />} />}
+        <Route path="/wallet/ramp/:orderId" element={<RampOrderPage />} />
       </Routes>
     </main>
     <Footer />

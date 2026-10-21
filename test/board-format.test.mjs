@@ -1,5 +1,6 @@
 /** Unit tests for the trending-board formatters (frontend/lib/boardFormat.ts). */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { register } from "node:module";
 
@@ -48,5 +49,11 @@ describe("outcomeLabel", () => {
   it("prefers the Yes label unless it is just Yes", () => {
     assert.equal(fmt.outcomeLabel({ yesSubTitle: "Hold", question: "Will the Fed hold?" }), "Hold");
     assert.equal(fmt.outcomeLabel({ yesSubTitle: "Yes", question: "Will BTC close above $100k?" }), "Will BTC close above $100k?");
+  });
+
+  it("names the event chart's lines too, so a market labelled just Yes is not a line called Yes", () => {
+    const chart = readFileSync(new URL("../frontend/components/charts/EventPriceChart.tsx", import.meta.url), "utf8");
+    assert.match(chart, /label: outcomeLabel\(m\)/);
+    assert.doesNotMatch(chart, /yesSubTitle \|\| m\.question/);
   });
 });

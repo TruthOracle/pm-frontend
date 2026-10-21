@@ -7,7 +7,7 @@ import EventCard from "./EventCard";
 import TrendingEventBoard, { TrendingEventBoardEmpty, TrendingEventBoardSkeleton } from "./TrendingEventBoard";
 import PriceChart from "@/components/charts/PriceChart";
 import { useEventsList } from "@/lib/marketQueries";
-import { compactCC, formatPercent, priceDelta } from "@/lib/chartData";
+import { compactAmount, formatPercent, priceDelta } from "@/lib/chartData";
 import { ArrowRight, Clock3, Loader2, Newspaper, Radio, ShieldCheck, Sparkles, TrendingUp, Zap } from "lucide-react";
 import { getPrefetchedMarkets } from "@/utils/marketPrefetch";
 import { fetchMarketNews, getNewsThumbnail, getTickerHeadline, NEWS_REFRESH_INTERVAL_MS, type MarketNewsItem } from "@/lib/marketNews";
@@ -67,7 +67,7 @@ function Homepage() {
   // Trending = the most traded open markets over the last day (falls back to the newest).
   const featured = [...markets]
     .filter((m) => m.status === "Trading")
-    .sort((a, b) => (b.volume24hCC ?? 0) - (a.volume24hCC ?? 0) || b.marketId - a.marketId)
+    .sort((a, b) => (b.volume24h ?? 0) - (a.volume24h ?? 0) || b.marketId - a.marketId)
     .slice(0, 4);
   const lead = featured[featured.length ? featuredIndex % featured.length : 0];
   const yesPct = lead ? Math.round(lead.currentPrice * 100) : 0;
@@ -146,7 +146,7 @@ function Homepage() {
                   <PriceChart marketRef={lead.ticker || lead.marketId} createdAtSec={lead.createdAt} currentPrice={lead.currentPrice} indexed={lead.seriesTicker !== undefined} variant="compact" height={168} className="!p-3" />
                 </div>
                 <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 pt-5 text-xs text-slate-500">
-                  <span className="k-num">{lead.volume24hCC !== undefined ? `${compactCC(lead.volume24hCC)} traded in 24h · ${compactCC(lead.totalVolumeCC)} lifetime` : `${compactCC(lead.totalVolumeCC)} market volume`}</span>
+                  <span className="k-num">{lead.volume24h !== undefined ? `${compactAmount(lead.volume24h, lead.collateral)} traded in 24h · ${compactAmount(lead.totalVolume, lead.collateral)} lifetime` : `${compactAmount(lead.totalVolume, lead.collateral)} market volume`}</span>
                   <Link
                     to={`/market/${lead.ticker ?? lead.marketId}`}
                     className="inline-flex items-center gap-1 font-semibold text-slate-900 hover:text-primary"

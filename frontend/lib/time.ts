@@ -44,12 +44,20 @@ type PartName = "year" | "month" | "day" | "hour" | "minute";
 function partsOf(ms: number, options: Intl.DateTimeFormatOptions, zone: Zone): Record<PartName, string> {
   const out: Record<PartName, string> = { year: "", month: "", day: "", hour: "", minute: "" };
   for (const p of formatter(options, zone).formatToParts(ms)) {
-    if (p.type === "year" || p.type === "month" || p.type === "day" || p.type === "hour" || p.type === "minute") out[p.type] = p.value;
+    if (p.type === "year" || p.type === "month" || p.type === "day" || p.type === "hour" || p.type === "minute")
+      out[p.type] = p.value;
   }
   return out;
 }
 
-const DATE_TIME: Intl.DateTimeFormatOptions = { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+const DATE_TIME: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+};
 
 function dateTimeParts(t: Instant, zone: Zone = "UTC"): Record<PartName, string> | null {
   const ms = toMs(t);
@@ -127,7 +135,14 @@ export function parseUTCInput(value: string): number | null {
   const ms = Date.UTC(year, month - 1, day, hour, minute, second);
   const d = new Date(ms);
   // Date.UTC rolls over (Feb 30 → Mar 2); a round trip rejects dates that do not exist.
-  if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day || d.getUTCHours() !== hour || d.getUTCMinutes() !== minute) return null;
+  if (
+    d.getUTCFullYear() !== year ||
+    d.getUTCMonth() !== month - 1 ||
+    d.getUTCDate() !== day ||
+    d.getUTCHours() !== hour ||
+    d.getUTCMinutes() !== minute
+  )
+    return null;
   return ms;
 }
 

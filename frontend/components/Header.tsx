@@ -6,6 +6,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useToast } from "@chakra-ui/react";
 import { cn } from "@/lib/utils";
 import { WALLET_DISPLAY_NAME } from "@/config";
+import { defaultCollateral, instrumentLabel, useInstruments } from "@/lib/instruments";
 import { Coins, Info, LogIn, Menu, Search, TrendingUp, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -66,6 +67,9 @@ function WalletControl() {
 export function Header() {
   const { account } = useCantonWallet();
   const { status: authStatus } = useAuth();
+  // The collateral new markets default to (the instrument catalog): what the "Get …" shortcut
+  // names. Nothing to offer until the catalog answers, or on a deployment without one.
+  const collateral = defaultCollateral(useInstruments().data);
   const location = useLocation();
   const navigate = useNavigate();
   const toast = useToast();
@@ -101,18 +105,20 @@ export function Header() {
     return () => window.removeEventListener("mousedown", handleOutsideClick);
   }, [searchOpen, searchQuery]);
 
-  // CC lands in the external wallet, so the advice is whatever the person's next step is:
+  // Tokens land in the external wallet, so the advice is whatever the person's next step is:
   // sign in (no account yet), connect (account but no wallet), or use the faucet.
-  const handleGetCantonCoin = (e: React.MouseEvent) => {
+  const handleGetCollateral = (e: React.MouseEvent) => {
     e.preventDefault();
+    if (!collateral) return;
+    const name = collateral.name || collateral.symbol;
     const needsSignIn = authStatus === "anonymous";
     toast({
-      title: account ? "Canton Coin" : needsSignIn ? "Sign in first" : `Connect your ${WALLET_DISPLAY_NAME} wallet first`,
+      title: account ? instrumentLabel(collateral) : needsSignIn ? "Sign in first" : `Connect your ${WALLET_DISPLAY_NAME} wallet first`,
       description: account
-        ? "Use the network faucet or transfer to get Canton Coin on testnet."
+        ? `Use the network faucet or a transfer to get ${name} into your ${WALLET_DISPLAY_NAME} wallet, then deposit it into your in-app balance.`
         : needsSignIn
-          ? `Sign in, then connect your ${WALLET_DISPLAY_NAME} wallet — Canton Coin is sent to that wallet.`
-          : `Canton Coin is sent to your ${WALLET_DISPLAY_NAME} wallet, so connect it first.`,
+          ? `Sign in, then connect your ${WALLET_DISPLAY_NAME} wallet — ${name} is sent to that wallet.`
+          : `${name} is sent to your ${WALLET_DISPLAY_NAME} wallet, so connect it first.`,
       status: "info", duration: 4000, isClosable: true,
     });
   };
@@ -152,7 +158,7 @@ export function Header() {
             ) : (
               <button className="search-trigger hidden md:flex" onClick={() => setSearchOpen(true)} aria-label="Search markets"><Search className="h-4 w-4" /><span>Search markets</span><kbd>/</kbd></button>
             )}
-            <button onClick={handleGetCantonCoin} className="header-utility hidden xl:inline-flex"><Coins className="h-3.5 w-3.5" /> Get CC</button>
+            {collateral && <button onClick={handleGetCollateral} className="header-utility hidden xl:inline-flex"><Coins className="h-3.5 w-3.5" /> Get {collateral.symbol}</button>}
             <div className="header-wallet"><WalletControl /></div>
             <div className="hidden sm:flex"><AuthControl /></div>
             <button className="mobile-menu-button lg:hidden" onClick={() => setMobileMenuOpen((open) => !open)} aria-label="Toggle menu">{mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}</button>

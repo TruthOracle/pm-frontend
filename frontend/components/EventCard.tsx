@@ -8,10 +8,10 @@
 import type { MouseEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { CheckCircle2, Clock } from "lucide-react";
-import { SERIES_PALETTE, compactCC, formatPercent, marketColorMap } from "@/lib/chartData";
+import { SERIES_PALETTE, compactAmount, formatPercent, marketColorMap } from "@/lib/chartData";
 import { initialsOf, payoutMultiplier } from "@/lib/boardFormat";
 import { barWidthPercent, outcomeRows, resultLabel, rowsHaveOwnImages } from "@/lib/outcomeRows";
-import { toNumber, type ApiEvent } from "@/lib/marketsTypes";
+import { eventInstrument, toNumber, type ApiEvent } from "@/lib/marketsTypes";
 import { formatShortDateTimeUTC } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
@@ -107,7 +107,7 @@ export default function EventCard({ event, showOutcomeImages = true }: { event: 
       </ul>
 
       <div className="ev-foot">
-        <span>{compactCC(event.volumeCC)} vol</span>
+        <span>{compactAmount(event.volume, eventInstrument(event))} vol</span>
         <span>
           {markets.length} market{markets.length === 1 ? "" : "s"}
         </span>

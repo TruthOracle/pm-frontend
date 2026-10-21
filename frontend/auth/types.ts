@@ -5,8 +5,11 @@
  * validates it at runtime (`backendFetch` returns `data as T`), so a drift shows up
  * wherever a component first reads the missing field. Money is a STRING with exactly
  * ten decimals — never do arithmetic on it with `Number`; format it through
- * `accountUi.fmtMoney` / test it with `moneyIsPositive`.
+ * `formatAmount` (lib/instruments.ts, next to the instrument it is in) and test it
+ * with `moneyIsPositive`.
  */
+
+import type { InstrumentRef } from "@/lib/instruments";
 
 export type Money = string; // "0.0000000000"
 
@@ -38,6 +41,8 @@ export type BackendErrorCode =
   | "primary_wallet_in_use"
   | "deposit_in_progress"
   | "deposit_attribution_drift"
+  /** Reconcile refused because the ledger index lags the ledger end (503); transient, retried by the caller. */
+  | "ledger_stale"
   | "payout_not_found"
   | "payout_blocked"
   | "kyc_required"
@@ -48,18 +53,104 @@ export type BackendErrorCode =
   // markets / orders (truthoracle-backend docs/MARKETS.md)
   | "trading_halted"
   | "market_not_tradable"
+  /** 409 from `POST /admin/markets/:id/resolution` (review F0); `details.reason` names the check, `details.opensAt` / `closedAt` / `cid` / `sources` where they apply. */
+  | "market_not_resolvable"
   | "no_in_app_wallet"
   | "no_position"
   | "insufficient_balance"
   | "insufficient_shares"
   | "quote_unavailable"
   | "catalog_conflict"
+  /** `POST /admin/instruments` for an (admin, id) pair the catalog already has (409). */
+  | "instrument_exists"
+  /** A registry-mode treasury transfer finds too few unlocked holdings in the index (409). */
+  | "insufficient_treasury_holdings"
+  // BYN ramp — buy by card / ERIP, cash out to card / bank (truthoracle-backend docs/RAMP.md, API §12.1)
+  | "ramp_unavailable"
+  /** A runtime halt of new orders (503); orders in flight continue. */
+  | "ramp_paused"
+  /** 403; `details.reasons` — every compliance reason arrives as `compliance`. */
+  | "ramp_not_eligible"
+  /** 409; `details.limit` (daily | monthly | bank_first_payout), `details.available`, `details.max` (bank_first_payout). */
+  | "ramp_limit_exceeded"
+  | "ramp_quote_changed"
+  /** 409; `details.orderId` = the order that waits for the person. */
+  | "ramp_order_open"
+  | "ramp_order_state"
+  /** 409; card-bought value inside the dispute window: `details.withdrawableToBank`. */
+  | "ramp_exposure"
+  /** 409; more than the card's purchases can still refund: `details.available`. */
+  | "ramp_card_cashout_limit"
+  /** 409; `details.rail`, and for a bank account not usable yet `details.reason` (`bank_account_<status>` | `bank_blocked`) + `usableFrom`. */
+  | "ramp_rail_unavailable"
+  /** 409; an Idempotency-Key replayed with a different request. */
+  | "idempotency_key_reused"
+  | "bank_account_invalid"
+  | "bank_account_exists"
+  | "bank_account_limit"
+  /** 409; a payout to the account is still in flight. */
+  | "bank_account_in_use"
+  /** 401; adding a payout account needs a sign-in within the last 15 minutes. */
+  | "recent_auth_required"
+  | "kyc_identity_unavailable"
+  // money and token-app internals (operator console; lib/rampAdminErrors.ts words them)
+  | "instrument_unknown"
+  | "instrument_disabled"
+  | "token_app_unauthorized"
+  | "token_app_forbidden"
+  | "token_app_invalid_request"
+  | "token_app_cap"
+  | "token_command_conflict"
+  | "token_command_state"
+  // ramp controls and four-eyes approvals (operator console, docs/RAMP.md §6)
+  | "reserve_gate"
+  | "payout_gate"
+  /** 403; `details.role` names the operator role the route needs. */
+  | "role_required"
+  | "approval_pending"
+  | "approval_not_pending"
+  | "approval_expired"
+  | "approval_self"
+  | "approval_same_person"
+  | "approval_linked_person"
+  /** 409: a conflict of interest; `details.reason` names it (`position_in_market`: the person holds a position in the market being resolved), `details.person` who. */
+  | "approval_conflict"
+  | "approval_role_required"
+  | "approval_signature_required"
+  | "approval_signature_invalid"
+  | "approval_precondition_changed"
+  | "approval_failed"
+  | "ramp_card_state"
+  /** 409: the webhook event was applied or closed meanwhile (replay / close, C31). */
+  | "ramp_event_state"
+  // bank rail: payout batches, statements, lines (operator console, docs/RAMP.md §10)
+  | "batch_state"
+  | "batch_held"
+  | "batch_export_mismatch"
+  | "statement_invalid"
+  | "statement_account"
+  | "statement_duplicate"
+  | "statement_continuity"
+  | "statement_mismatch"
+  | "bank_line_state"
+  // compliance: alerts, exports, screening, freezes (operator console, docs/RAMP.md §11)
+  | "compliance_alert_state"
+  | "export_range"
+  | "screening_list_invalid"
+  | "screening_list_exists"
+  | "screening_hit_state"
+  | "screening_hits_open"
+  | "rescreen_running"
+  | "freeze_active"
+  | "freeze_state"
   | "validation_failed"
   | "bad_request"
   | "not_found"
   | "payload_too_large"
   | "unsupported_media_type"
   | "upstream_failed"
+  /** Cantor8's token-app (mint / burn) is not configured on this backend (503). */
+  | "token_app_unconfigured"
   /** `GET /health/ready` while a dependency check fails or the process drains. */
   | "not_ready"
   | "internal_error"
@@ -67,6 +158,8 @@ export type BackendErrorCode =
   | "backend_unconfigured"
   /** Relay: BACKEND_URL is set but the backend did not answer. */
   | "backend_unreachable"
+  /** Relay (413): the request body is above the relay's cap for that route. */
+  | "body_too_large"
   /** Synthesised by backendFetch: fetch() itself rejected. */
   | "network_error"
   /** Synthesised by backendFetch: a 2xx with a non-JSON body. */
@@ -99,12 +192,28 @@ export interface Identity {
   kycLocked: boolean;
 }
 
+/**
+ * An on-ledger `UserWallet` as the index sees it. There is one per (owner, instrument)
+ * (docs/TOKENS.md §2.1): a party holds its collateral balance and its TRO balance in two
+ * contracts, and a market only ever debits or credits the wallet of its own collateral.
+ */
 export interface LedgerWallet {
   contractId: string;
   owner: string;
-  balanceCC: Money;
-  depositedCC: Money;
-  withdrawnCC: Money;
+  instrument: InstrumentRef;
+  balance: Money;
+  deposited: Money;
+  withdrawn: Money;
+  /** Refs already applied — deposit credits and reward grants — newest first. */
+  creditRefs: string[];
+}
+
+/** Deposits from one linked wallet credited to the account's in-app balance, per instrument. */
+export interface WalletCredit {
+  instrument: InstrumentRef;
+  credited: Money;
+  /** Only present in GET /in-app-wallet: what the ledger index shows received from this party in this instrument. */
+  received?: Money;
 }
 
 export interface Wallet {
@@ -116,17 +225,16 @@ export interface Wallet {
   isPrimary: boolean;
   status: "active" | "revoked";
   verifiedAt: string;
-  creditedCC: Money;
-  /** Only present in GET /in-app-wallet. */
-  receivedCC?: Money;
+  /** One entry per instrument this wallet was ever credited in (the only attribution — nothing predates the backend); empty until the first deposit. */
+  credits: WalletCredit[];
   /**
-   * A non-primary party's own on-ledger UserWallet. Null for the primary wallet and for
-   * nearly every other one: the backend creates UserWallets only for an account's primary
-   * party. The one exception (ARCHITECTURE §18) is an in-app payout (`bond` /
-   * `model-prize`) settled to a party that traded with its own key — that wallet is
-   * shown here and never folded into the account's balance.
+   * A non-primary party's own on-ledger UserWallets, one per instrument. Empty for the
+   * primary wallet and for nearly every other one: the backend creates UserWallets only
+   * for an account's primary party. The one exception (ARCHITECTURE §18) is an in-app
+   * payout (`bond` / `model-prize`) settled to a party that traded with its own key —
+   * those wallets are shown here and never folded into the account's balance.
    */
-  ownLedgerWallet: LedgerWallet | null;
+  ownLedgerWallets: LedgerWallet[];
 }
 
 export interface KycVerification {
@@ -180,30 +288,50 @@ export interface Session {
   current: boolean;
 }
 
+/** Every `to_payouts.status`: what an operator sees (`GET /admin/payouts`). */
+export type PayoutStatus =
+  | "queued"
+  | "settling"
+  | "settled_external"
+  | "settled_in_app"
+  | "blocked_kyc"
+  | "blocked_unknown_user"
+  | "blocked_unknown_reason"
+  | "blocked_wallet_revoked"
+  /** Card-bought value still inside the card dispute window (docs/RAMP.md §9.3): settles by itself as that ends. */
+  | "blocked_ramp_exposure"
+  /** Held by a compliance decision or freeze (§11.6); the payee sees `processing`. */
+  | "blocked_compliance"
+  /** A cash-out's MarkPaid deferred by the payout gate (§6.4); retried until it passes; the payee sees `processing`. */
+  | "blocked_payout_gate"
+  | "failed"
+  | "archived";
+
+/**
+ * What the PAYEE sees (`GET /in-app-wallet[/payouts]`, settle): every internal hold — a freeze, a
+ * compliance review, the payout gate — is the one neutral `processing` (C8 / C11, no tipping-off).
+ */
+export type UserPayoutStatus = PayoutStatus | "processing";
+
 export interface Payout {
   pendingPayoutCid: string;
   payeeParty: string;
   walletId: string | null;
-  amountCC: Money;
+  /** The instrument the payout is in: the market's collateral for bonds and prizes, the wallet's for a withdrawal. */
+  instrument: InstrumentRef;
+  amount: Money;
   reason: string;
-  status:
-    | "queued"
-    | "settling"
-    | "settled_external"
-    | "settled_in_app"
-    | "blocked_kyc"
-    | "blocked_unknown_user"
-    | "blocked_unknown_reason"
-    | "blocked_wallet_revoked"
-    | "failed"
-    | "archived";
+  status: UserPayoutStatus;
   retryAfterKyc: boolean;
   attempts: number;
+  /** The payee's view: null, except a fixed neutral sentence for `failed` (never the raw error). */
   lastError: string | null;
   firstSeenAt: string;
   settledAt: string | null;
   /** Still an active PendingPayout contract. */
   onLedger: boolean;
+  /** The ramp cash-out this withdrawal was bound to, when the backend reports it (links the order page). */
+  offrampOrderId?: string | null;
 }
 
 export interface LoginResult {
@@ -340,7 +468,7 @@ export interface AuthContextValue {
   /** `capabilities.primaryPartyId ?? user.partyId` from /me; null without /me. */
   primaryPartyId: string | null;
   /**
-   * The party whose UserWallet the money rails key on — non-null exactly in states A
+   * The party whose UserWallets the money rails key on — non-null exactly in states A
    * and B of §16 (connected wallet is the primary, or an active linked wallet). Null
    * for anonymous, unlinked (state C), degraded and unavailable.
    */

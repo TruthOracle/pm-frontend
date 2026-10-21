@@ -8,7 +8,6 @@ import { Check, Copy, Wallet } from "lucide-react";
 import { FaGoogle, FaTelegramPlane } from "react-icons/fa";
 import type { IdentityProvider, Money } from "@/auth/types";
 import { WALLET_DISPLAY_NAME } from "@/config";
-import { fmtCC } from "@/components/market/marketHelpers";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -149,17 +148,10 @@ export function ConfirmDialog({
 }
 
 /**
- * Money strings carry ten decimals; people read four. This is the one sanctioned
- * `Number()` of a Money value — for DISPLAY only, where a double's 15 significant
- * digits are plenty. Arithmetic on Money stays server-side (§8.4).
+ * `m > 0` without parsing: a Money string is positive iff it has a non-zero digit and no leading
+ * minus. Display goes through `formatAmount` (lib/instruments.ts) next to the instrument the money
+ * is in — the one sanctioned `Number()` of a Money value; arithmetic on Money stays server-side (§8.4).
  */
-export function fmtMoney(m: Money | null | undefined): string {
-  if (m == null) return "0";
-  const n = Number(m);
-  return Number.isFinite(n) ? fmtCC(n) : m;
-}
-
-/** `m > 0` without parsing: a Money string is positive iff it has a non-zero digit and no leading minus. */
 export function moneyIsPositive(m: Money | null | undefined): boolean {
   if (m == null) return false;
   const trimmed = m.trim();

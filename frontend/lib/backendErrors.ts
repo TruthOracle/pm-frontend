@@ -53,8 +53,7 @@ const BASE: ErrorSentences = {
   challenge_rejected: "The wallet challenge expired or was already used. Try again.",
   challenge_purpose_mismatch: "The wallet challenge did not match this action. Try again.",
   no_primary_wallet: "Your account has no primary wallet yet. Link a wallet on the Account page first.",
-  primary_wallet_in_use:
-    "Your primary wallet can't change once you have deposited or have a withdrawal in progress.",
+  primary_wallet_in_use: "Your primary wallet can't change once you have deposited or have a withdrawal in progress.",
   trading_halted: "Trading is paused by the operator right now. Redemptions still work; try again later.",
   market_not_tradable: "This market is not open for that action right now.",
   no_in_app_wallet: "Deposit to your in-app wallet first — one deposit funds every trade.",
@@ -63,10 +62,36 @@ const BASE: ErrorSentences = {
   insufficient_shares: "You hold fewer shares than this order needs.",
   quote_unavailable: "The pool cannot fill this order at that size. Try a smaller amount.",
   catalog_conflict: "That ticker or entry already exists.",
+  instrument_exists: "An instrument with that admin party and token id is already registered.",
+  insufficient_treasury_holdings:
+    "The treasury does not hold enough of that token to send this amount right now. Top it up (or wait for the index) and try again.",
+  token_app_unconfigured:
+    "Minting and burning are not available: Cantor8's token-app is not configured on this backend.",
+  // BYN ramp (lib/ramp.ts adds the figures from `details`). Compliance never gets its own
+  // sentence here: an ineligible account reads the same neutral line whatever the reason.
+  ramp_unavailable: "Buying and cashing out are not available right now. Try again later.",
+  ramp_paused: "Buying and cashing out are paused right now. Orders already in progress continue.",
+  ramp_not_eligible: "Buying and cashing out are not available for this account at the moment.",
+  ramp_limit_exceeded: "This is above your limit. Try a smaller amount.",
+  ramp_quote_changed: "The figures changed while you were deciding. Review the new ones and confirm again.",
+  ramp_order_open: "You already have an order waiting for you. Finish or cancel it first.",
+  ramp_order_state: "This order has moved on. Reload it to see where it stands.",
+  ramp_exposure:
+    "Part of your balance was bought by card and cannot go to a bank account yet. It can go back to your card at any time.",
+  ramp_card_cashout_limit: "This card cannot take back that much. Send the rest to a bank account.",
+  ramp_rail_unavailable: "This payout method is not available right now.",
+  idempotency_key_reused: "This request was already used for a different order. Reload the page and try again.",
+  bank_account_invalid:
+    "This bank account cannot receive payouts. Check the IBAN, or use another BYN account in your own name.",
+  bank_account_exists: "This bank account is already saved.",
+  bank_account_limit: "You have saved the most bank accounts allowed. Remove one first.",
+  bank_account_in_use: "A payout to this account is still on its way. Remove it once the payout has finished.",
+  recent_auth_required: "For your security, sign out and sign in again, then add the account within 15 minutes.",
+  kyc_identity_unavailable: "Your verified identity could not be read right now. Try again in a moment.",
   deposit_in_progress:
     "Another deposit is still being credited. Your transfer is safe — check the balance again in a moment.",
   deposit_attribution_drift:
-    "The deposit could not be credited automatically because the treasury's records and your wallet disagree. Your CC is safe — support has been notified and will credit it manually.",
+    "The deposit could not be credited automatically because the treasury's records and your wallet disagree. Your funds are safe — support has been notified and will credit it manually.",
   payout_not_found: "The server hasn't picked up this payout yet. It settles automatically within a minute.",
   payout_blocked: "This payout cannot be settled right now.",
   kyc_required: "Identity verification is required before you can withdraw.",
@@ -80,7 +105,9 @@ const BASE: ErrorSentences = {
   // server-to-server only and never reaches a browser.
   not_found: "That record no longer exists. Reload the page and try again.",
   payload_too_large: "The request was too large to send. Try again with less data.",
-  unsupported_media_type: "The request was sent in a format the accounts service does not accept. Reload the page and try again.",
+  body_too_large: "The request was too large to send. Try again with less data.",
+  unsupported_media_type:
+    "The request was sent in a format the accounts service does not accept. Reload the page and try again.",
   upstream_failed: "A service we depend on did not answer. Try again in a moment.",
   not_ready: "The accounts service is starting up. Try again in a moment.",
   internal_error: "The accounts service hit an unexpected error. Try again in a moment.",

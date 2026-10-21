@@ -27,9 +27,7 @@ export const IS_DEV = import.meta.env.DEV === true;
 export const APP_NETWORK = readString(import.meta.env.VITE_APP_NETWORK, "devnet");
 export const LOOP_NETWORK = readString(import.meta.env.VITE_LOOP_NETWORK, "devnet").toLowerCase();
 export const WALLET_TYPE =
-  readString(import.meta.env.VITE_WALLET_TYPE, "cantor8").toLowerCase() === "canton"
-    ? "canton"
-    : "cantor8";
+  readString(import.meta.env.VITE_WALLET_TYPE, "cantor8").toLowerCase() === "canton" ? "canton" : "cantor8";
 
 /**
  * Display name of the connected EXTERNAL wallet. Balances live in two places —
@@ -41,17 +39,14 @@ export const WALLET_DISPLAY_NAME = WALLET_TYPE === "canton" ? "Canton" : "Cantor
 // The package id is per deployment (printed by `npm run dars:upload` in truthoracle-contracts);
 // there is no meaningful default, so an unset value fails loudly at the participant.
 export const TRUTHORACLE_PACKAGE_ID = readString(import.meta.env.VITE_TRUTHORACLE_PACKAGE_ID, "");
-export const TRUTHORACLE_PACKAGE_NAME = readString(
-  import.meta.env.VITE_TRUTHORACLE_PACKAGE_NAME,
-  "truthoracle-v16",
-);
+export const TRUTHORACLE_PACKAGE_NAME = readString(import.meta.env.VITE_TRUTHORACLE_PACKAGE_NAME, "truthoracle-v17");
 
-// The browser never calls the participant or the wallet directly — it calls the
-// proxies below, which resolve the upstream URL and inject a Keycloak token
-// server-side. Each proxy accepts two names, first match wins:
+// The browser never calls the participant directly — it calls the ledger proxy below,
+// which resolves the upstream URL and injects a Keycloak token server-side. It accepts
+// two names, first match wins:
 //   api/proxy/ledger.mjs    CANTON_LEDGER_PROXY_TARGET_URL → VITE_CANTON_PARTICIPANT_URL
-//   api/proxy/wallet.mjs    ENTERPRISE_WALLET_PROXY_TARGET_URL → VITE_ENTERPRISE_WALLET_URL
-//   api/proxy/keycloak.mjs  KEYCLOAK_PROXY_TARGET_URL → KEYCLOAK_URL → VITE_KEYCLOAK_URL
+// There is no browser path to the Enterprise Wallet: nothing in the browser signs as the
+// treasury (market resolution is the accounts backend's approval-backed route, review F0).
 //
 // The VITE_* spellings are what .env uses and they stay out of the bundle only
 // because nothing in THIS file reads them: Vite inlines a VITE_ var when it sees an
@@ -66,9 +61,7 @@ export const PARTICIPANT_PROXY_URL = trimTrailingSlash(
  * sends no CORS headers, so direct browser calls fail). The relay picks the real
  * upstream server-side from VITE_APP_NETWORK, overridable with C8_WALLET_BACKEND_URL.
  */
-export const C8_BACKEND_URL = trimTrailingSlash(
-  readString(import.meta.env.VITE_C8_BACKEND_URL, "/__proxy/c8b"),
-);
+export const C8_BACKEND_URL = trimTrailingSlash(readString(import.meta.env.VITE_C8_BACKEND_URL, "/__proxy/c8b"));
 export const USE_PARTICIPANT_API = readBoolean(import.meta.env.VITE_USE_PARTICIPANT_API);
 
 // Keycloak client credentials are intentionally NOT read here — token minting is
@@ -76,16 +69,8 @@ export const USE_PARTICIPANT_API = readBoolean(import.meta.env.VITE_USE_PARTICIP
 // env (KEYCLOAK_CLIENT_ID / KEYCLOAK_CLIENT_SECRET, no VITE_ prefix) and never reach
 // the browser bundle. See the enterprise-wallet repository README → Authentication.
 
-export const ENTERPRISE_WALLET_PARTY_ID = readString(
-  import.meta.env.VITE_ENTERPRISE_WALLET_PARTY_ID,
-);
-export const ENTERPRISE_WALLET_APP_NAME = readString(
-  import.meta.env.VITE_ENTERPRISE_WALLET_APP_NAME,
-  "truthoracle",
-);
-export const ENTERPRISE_WALLET_PROXY_URL = trimTrailingSlash(
-  readString(import.meta.env.VITE_ENTERPRISE_WALLET_PROXY_URL, "/__proxy/wallet"),
-);
+/** The treasury party: the observer the market reads are keyed by, and where deposits go. */
+export const ENTERPRISE_WALLET_PARTY_ID = readString(import.meta.env.VITE_ENTERPRISE_WALLET_PARTY_ID);
 
 export const DEBUG_ACTIVE_CONTRACTS = readBoolean(import.meta.env.VITE_DEBUG_ACTIVE_CONTRACTS);
 export const DEBUG_WALLET_STATUS = readBoolean(import.meta.env.VITE_DEBUG_WALLET_STATUS);
@@ -97,9 +82,7 @@ export const DEBUG_WALLET_STATUS = readBoolean(import.meta.env.VITE_DEBUG_WALLET
 // BACKEND_URL: it calls the same-origin relay below (api/proxy/backend.mjs), which
 // resolves the real host server-side — the same pattern as the ledger/wallet proxies.
 // ---------------------------------------------------------------------------
-export const BACKEND_BASE_URL = trimTrailingSlash(
-  readString(import.meta.env.VITE_BACKEND_PROXY_URL, "/__backend"),
-);
+export const BACKEND_BASE_URL = trimTrailingSlash(readString(import.meta.env.VITE_BACKEND_PROXY_URL, "/__backend"));
 /** Google Identity Services client id. Empty = no Google button. */
 export const GOOGLE_CLIENT_ID = readString(import.meta.env.VITE_GOOGLE_CLIENT_ID);
 /** Bot username (no "@") for the Telegram Login Widget. Empty = Telegram sign-in hidden. */

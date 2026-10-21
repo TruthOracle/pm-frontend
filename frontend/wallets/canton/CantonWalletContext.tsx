@@ -2,6 +2,12 @@
  * Canton Wallet – Loop SDK implementation.
  * Uses @fivenorth/loop-sdk for Loop Wallet (Canton / Five North).
  * For future use when switching from Cantor8 to Canton.
+ *
+ * Amulet only: the Loop wallet holds Canton Coin and this SDK build has no token `send`, so
+ * `listInstruments()` names that one token and `transfer()` refuses — deposits in any
+ * instrument, like operator sign-in, run through the Cantor8 wallet in practice
+ * (docs/TOKENS.md §5). The context conforms to `CantonWalletContextValue` so the app does not
+ * branch on the wallet type anywhere else.
  */
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import {
@@ -23,6 +29,8 @@ import type {
   CantonWalletItem,
   CantonWalletContextValue,
   ConnectOptions,
+  TransferArgs,
+  WalletInstrument,
 } from "../types";
 import { debugLog } from "@/lib/debugLog";
 
@@ -30,19 +38,15 @@ const CantonWalletContext = createContext<CantonWalletContextValue | null>(null)
 
 const APP_NAME = "TruthOracle";
 
+/**
+ * The one token a Loop wallet holds, under the id the Canton Coin registry (and the Cantor8
+ * wallet) use for it. The instrument catalog maps `Amulet` back to the configured symbol.
+ */
+const LOOP_INSTRUMENTS: readonly WalletInstrument[] = [{ instrumentId: "Amulet", name: "Canton Coin", symbol: "CC" }];
+
 function toLoopPayload(params: PrepareExecuteParams): DamlCommandPayload {
-  const {
-    actAs,
-    commands,
-    readAs,
-    disclosedContracts,
-    packageIdSelectionPreference,
-  } = params as Record<string, unknown>;
-  const commandsArray = Array.isArray(commands)
-    ? commands
-    : commands && typeof commands === "object"
-      ? [commands]
-      : [];
+  const { actAs, commands, readAs, disclosedContracts, packageIdSelectionPreference } = params as Record<string, unknown>;
+  const commandsArray = Array.isArray(commands) ? commands : commands && typeof commands === "object" ? [commands] : [];
   return {
     commands: commandsArray,
     actAs: actAs as string[] | undefined,
@@ -95,44 +99,40 @@ export function CantonWalletProvider({ children }: { children: React.ReactNode }
     setAccount(null);
   }, []);
 
-  const signAndSubmitTransaction = useCallback(
-    async (params: PrepareExecuteParams): Promise<{ hash: string }> => {
-      if (USE_PARTICIPANT_API) {
-        const client = createParticipantClient();
-        return await client.submitTransaction(params);
-      } else {
-        const provider = (await import("@fivenorth/loop-sdk")).loop
-          .provider as LoopProvider | undefined;
-        if (!provider) throw new Error("Loop wallet not connected. Connect first.");
-        const payload = toLoopPayload(params);
-        const result: LoopTxResult = await provider.submitAndWaitForTransaction(payload, {
-          message: "TruthOracle transaction",
-          estimateTraffic: true,
-        });
-        const hash = result?.command_id ?? result?.submission_id ?? "";
-        if (result?.error?.error_message) {
-          throw new Error(result.error.error_message);
-        }
-        return { hash };
+  const signAndSubmitTransaction = useCallback(async (params: PrepareExecuteParams): Promise<{ hash: string }> => {
+    if (USE_PARTICIPANT_API) {
+      const client = createParticipantClient();
+      return await client.submitTransaction(params);
+    } else {
+      const provider = (await import("@fivenorth/loop-sdk")).loop.provider as LoopProvider | undefined;
+      if (!provider) throw new Error("Loop wallet not connected. Connect first.");
+      const payload = toLoopPayload(params);
+      const result: LoopTxResult = await provider.submitAndWaitForTransaction(payload, {
+        message: "TruthOracle transaction",
+        estimateTraffic: true,
+      });
+      const hash = result?.command_id ?? result?.submission_id ?? "";
+      if (result?.error?.error_message) {
+        throw new Error(result.error.error_message);
       }
-    },
-    []
-  );
+      return { hash };
+    }
+  }, []);
 
   /**
-   * Loop wallet path doesn't have an Amulet send equivalent in this SDK build,
-   * so we throw. End users on this codebase connect via Cantor8 in practice.
+   * The Loop SDK build has no token `send`, so a deposit cannot be signed here in any
+   * instrument. End users on this codebase connect via Cantor8 in practice.
    */
-  const transferCC = useCallback(
-    async (_args: { to: string; amount: number; memo?: string; metadata?: Record<string, string> }): Promise<{ txId: string }> => {
-      throw new Error(
-        "Canton Coin transfer is only wired through the Cantor8 wallet. Connect via Cantor8 to send CC.",
-      );
-    },
-    [],
-  );
+  const transfer = useCallback(async (_args: TransferArgs): Promise<{ txId: string }> => {
+    throw new Error(
+      "Token transfers are only wired through the Cantor8 wallet. Connect via Cantor8 to deposit into your in-app wallet.",
+    );
+  }, []);
 
-  /** Same story as transferCC — admin login runs through the Cantor8 popup. */
+  /** Canton Coin is the only token a Loop wallet holds; see the module note. */
+  const listInstruments = useCallback(async (): Promise<WalletInstrument[]> => [...LOOP_INSTRUMENTS], []);
+
+  /** Same story as transfer — admin login runs through the Cantor8 popup. */
   const signMessage = useCallback(async (_message: string, _partyId?: string): Promise<string> => {
     throw new Error(
       "Message signing is only wired through the Cantor8 wallet. Connect via Cantor8 to sign in as an operator.",
@@ -149,17 +149,14 @@ export function CantonWalletProvider({ children }: { children: React.ReactNode }
     connect,
     disconnect,
     signAndSubmitTransaction,
-    transferCC,
+    transfer,
+    listInstruments,
     signMessage,
     wallets,
     network,
   };
 
-  return (
-    <CantonWalletContext.Provider value={value}>
-      {children}
-    </CantonWalletContext.Provider>
-  );
+  return <CantonWalletContext.Provider value={value}>{children}</CantonWalletContext.Provider>;
 }
 
 export function useCantonWallet(): CantonWalletContextValue {

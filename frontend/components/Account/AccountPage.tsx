@@ -150,7 +150,7 @@ export default function AccountPage() {
           id="verification"
           icon={<ShieldCheck className="h-4 w-4" />}
           title="Identity verification"
-          description="Verify once to withdraw CC from your in-app balance. One person, one account."
+          description="Verify once to withdraw from your in-app balance. One person, one account."
         >
           <KycPanel />
         </SectionCard>

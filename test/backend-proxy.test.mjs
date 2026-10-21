@@ -13,7 +13,9 @@ import { Readable } from "node:stream";
 
 import handler, {
   MAX_BODY_BYTES,
+  MAX_UPLOAD_BODY_BYTES,
   allowedPath,
+  bodyLimitFor,
   backendTarget,
   buildForwardHeaders,
   config,
@@ -206,6 +208,15 @@ describe("backend proxy: forwarded request headers", () => {
     assert.equal(headers["x-other-signature"], undefined);
   });
 
+  it("forwards the card ramp's idempotency-key so a retried order POST reaches the backend with the same key", () => {
+    delete process.env.BACKEND_PROXY_SECRET;
+    delete process.env.VERCEL;
+    const headers = buildForwardHeaders(
+      req({ host: "app.example.com", "content-type": "application/json", "idempotency-key": "web-123e4567" }),
+    );
+    assert.equal(headers["idempotency-key"], "web-123e4567");
+  });
+
   it("is an allow-list built from scratch, never a copy of req.headers (on Vercel)", () => {
     process.env.BACKEND_PROXY_SECRET = "s3cret";
     process.env.VERCEL = "1";
@@ -352,6 +363,44 @@ describe("backend proxy: handler", () => {
     const ok = response();
     await handler(request({ method: "POST", path: "api/v1/auth/google", body: "x".repeat(MAX_BODY_BYTES) }), ok);
     assert.equal(ok.statusCode, 200);
+    assert.equal(calls.length, 1);
+  });
+
+  it("gives only the two admin file imports the 8 MB cap", async () => {
+    assert.equal(MAX_UPLOAD_BODY_BYTES, 8 * 1024 * 1024);
+    for (const path of [
+      "api/v1/admin/ramp/bank-statements",
+      "api/v1/admin/ramp/bank-statements/00000000-0000-4000-8000-000000000001/confirm",
+      "api/v1/admin/compliance/screening-lists",
+    ]) {
+      assert.equal(bodyLimitFor(path), MAX_UPLOAD_BODY_BYTES, path);
+    }
+    for (const path of [
+      "api/v1/admin/ramp/bank-statementsx",
+      "api/v1/admin/ramp/bank-lines/x/classify",
+      "api/v1/admin/compliance/screening-lists/x",
+      "api/v1/admin/compliance/screening-hits",
+      "api/v1/ramp/onramp",
+      "api/v1/admin/ramp/bank-statements/../../tokens/mint",
+    ]) {
+      assert.equal(bodyLimitFor(path), MAX_BODY_BYTES, path);
+    }
+
+    process.env.BACKEND_URL = "https://backend.example";
+    const calls = stubFetch(() => upstream({ body: "{}" }));
+    // A statement just under the upload cap goes through; one byte over is 413 before upstream.
+    const ok = response();
+    await handler(request({ method: "POST", path: "api/v1/admin/ramp/bank-statements", body: "x".repeat(MAX_UPLOAD_BODY_BYTES) }), ok);
+    assert.equal(ok.statusCode, 200);
+    assert.equal(calls.length, 1);
+    const big = response();
+    await handler(request({ method: "POST", path: "api/v1/admin/compliance/screening-lists", body: "x".repeat(MAX_UPLOAD_BODY_BYTES + 1) }), big);
+    assert.equal(big.statusCode, 413);
+    assert.match(JSON.parse(big.body).message, /8388608/);
+    // Every other admin route keeps the small cap.
+    const small = response();
+    await handler(request({ method: "POST", path: "api/v1/admin/tokens/mint", body: "x".repeat(MAX_BODY_BYTES + 1) }), small);
+    assert.equal(small.statusCode, 413);
     assert.equal(calls.length, 1);
   });
 

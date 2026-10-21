@@ -3,7 +3,8 @@
  * like Kalshi's: a tab row (BUY / SELL, or the current mode's own sub-toggle) with the order-type
  * menu on the right, the event and the outcome being traded, the Yes / No toggle with live prices,
  * the amount, the quote, what it costs and what it can pay, one full-width call to action, and the
- * in-app balance underneath.
+ * in-app balance underneath. Every money figure is in the market's collateral and labelled with its
+ * symbol (`market.collateral`, lib/instruments.ts) — a cBYN market reads cBYN, a Canton Coin one CC.
  *
  * Kalshi's order types map onto the pm-AMM's actions: Market (buy / sell outcome shares), Convert
  * (swap Yes ↔ No shares), Split / merge (mint or burn complete sets) and Liquidity (provide /
@@ -24,19 +25,23 @@ import { WALLET_DISPLAY_NAME } from "@/config";
 import { cn } from "@/lib/utils";
 import { formatDateTimeUTC, formatDateUTC } from "@/lib/time";
 import { formatCents } from "@/lib/chartData";
-import { fmtCC, fmtCountdown } from "./marketHelpers";
+import { formatMoney, type InstrumentRef } from "@/lib/instruments";
+import { fmtNum, fmtCountdown } from "./marketHelpers";
 import type { LiquiditySubTab, MainTab, TradeSubTab } from "./marketTypes";
 
 const SLIPPAGE_OPTIONS = [0.005, 0.01, 0.02];
 
 export type OrderMode = "market" | "convert" | "split" | "liquidity";
 
-const MODES: { mode: OrderMode; label: string; hint: string }[] = [
-  { mode: "market", label: "Market", hint: "Buy or sell outcome shares at the pool price" },
-  { mode: "convert", label: "Convert", hint: "Swap Yes shares for No shares, or back" },
-  { mode: "split", label: "Split / merge", hint: "Mint or burn complete Yes + No sets for CC" },
-  { mode: "liquidity", label: "Liquidity", hint: "Provide or withdraw pool liquidity" },
-];
+/** The order-type menu; the split hint names the collateral the sets are minted from. */
+function orderModes(symbol: string): { mode: OrderMode; label: string; hint: string }[] {
+  return [
+    { mode: "market", label: "Market", hint: "Buy or sell outcome shares at the pool price" },
+    { mode: "convert", label: "Convert", hint: "Swap Yes shares for No shares, or back" },
+    { mode: "split", label: "Split / merge", hint: `Mint or burn complete Yes + No sets for ${symbol}` },
+    { mode: "liquidity", label: "Liquidity", hint: "Provide or withdraw pool liquidity" },
+  ];
+}
 
 type Side = "yes" | "no";
 type WalletCta = { label: string; onClick?: () => void } | null;
@@ -44,13 +49,15 @@ type WalletCta = { label: string; onClick?: () => void } | null;
 type BuyQuote = { sharesOut: number; fee: number; avgPrice: number; priceImpact: number } | null;
 type SellQuote = { netProceeds: number; fee: number; avgPrice: number } | null;
 type SwapQuote = { sharesOut: number; fee: number; priceImpact: number } | null;
-type LiquidityQuote = { costCC: number; lpMinted: number; shareOfPool: number; newL: number } | null;
+type LiquidityQuote = { cost: number; lpMinted: number; shareOfPool: number; newL: number } | null;
 
 export interface OrderPanelContext {
   market: {
     question: string;
     yesSubTitle: string;
     noSubTitle: string;
+    /** What every money figure on the ticket is in. */
+    collateral: InstrumentRef;
     feeBps: number;
     /** Slice of each fee that funds the model prize pool (bps of the fee); the rest goes to the LPs. */
     prizeFeeShareBps?: number;
@@ -174,6 +181,9 @@ export default function OrderPanel({ context: c, walletFooter }: { context: Orde
   };
 
   const m = c.market;
+  const collateral = m.collateral;
+  const sym = collateral.symbol;
+  const modes = orderModes(sym);
   const yesName = m.yesSubTitle && m.yesSubTitle.toLowerCase() !== "yes" ? m.yesSubTitle : null;
   const outcomeName = yesName ?? m.question;
   const contextLine = c.contextTitle && c.contextTitle !== outcomeName ? c.contextTitle : null;
@@ -181,16 +191,16 @@ export default function OrderPanel({ context: c, walletFooter }: { context: Orde
   const sideWord = side === "yes" ? "Yes" : "No";
   const closeMs = m.expiresAt * 1000;
   const feePct = pct(m.feeBps / 10_000, 2);
-  // What the contract charges, per action (Truthoracle.daml): Buy takes feeBps of the CC spent,
-  // Sell of the CC the shares fetch, SwapShares of the shares converted; split / merge and
-  // liquidity carry none (the label only shows in Market and Convert modes).
+  // What the contract charges, per action (Truthoracle.daml): Buy takes feeBps of the collateral
+  // spent, Sell of the collateral the shares fetch, SwapShares of the shares converted; split /
+  // merge and liquidity carry none (the label only shows in Market and Convert modes).
   const prizeShareBps = m.prizeFeeShareBps ?? 0;
   const feeBase =
     mode === "convert"
       ? "of the shares you convert"
       : c.tradeSide === "sell"
-        ? "of the CC your shares sell for"
-        : "of the CC you spend, taken before your shares are bought";
+        ? `of the ${sym} your shares sell for`
+        : `of the ${sym} you spend, taken before your shares are bought`;
   const feeSplit =
     prizeShareBps > 0
       ? `${pct(prizeShareBps / 10_000, 0)} of it funds the model prize pool; the rest goes to this market's liquidity providers.`
@@ -250,7 +260,7 @@ export default function OrderPanel({ context: c, walletFooter }: { context: Orde
       const shares = q?.sharesOut ?? 0;
       body = (
         <>
-          <FieldRow label="Amount" unit="CC" value={c.collateralIn} onChange={c.setCollateralIn} />
+          <FieldRow label="Amount" unit={sym} value={c.collateralIn} onChange={c.setCollateralIn} />
           <p className="ticket-muted">
             {q ? <>Avg {cents(q.avgPrice)}</> : <>Price {cents(side === "yes" ? c.probYes : c.probNo)}</>}
             {ask !== null && bid !== null && (
@@ -261,14 +271,14 @@ export default function OrderPanel({ context: c, walletFooter }: { context: Orde
             {q && q.priceImpact > 0.0005 && <span className={q.priceImpact > 0.05 ? "text-oracle-no" : undefined}> · impact {pct(q.priceImpact, 2)}</span>}
           </p>
           <div className="ticket-sum">
-            <SummaryRow label="Cost" value={`${fmtCC(c.collateralIn, 2)} CC`} />
-            <SummaryRow label="Max payout" sub={formatDateUTC(closeMs)} title={`Pays 1 CC per share if the market resolves ${sideWord}; it closes ${formatDateTimeUTC(closeMs)}`} value={`${fmtCC(shares, 2)} CC`} big />
+            <SummaryRow label="Cost" value={formatMoney(c.collateralIn, collateral, 2)} />
+            <SummaryRow label="Max payout" sub={formatDateUTC(closeMs)} title={`Pays 1 ${sym} per share if the market resolves ${sideWord}; it closes ${formatDateTimeUTC(closeMs)}`} value={formatMoney(shares, collateral, 2)} big />
             {q && c.collateralIn > 0 && <SummaryRow label="Potential return" value={<span className="text-oracle-yes">+{pct(shares / c.collateralIn - 1, 1)}</span>} />}
           </div>
         </>
       );
-      action = cta(`Buy ${sideWord}`, c.handleTradeClick, c.collateralIn <= 0 ? "Enter the CC to spend" : null, "trade");
-      note = q ? `${fmtCC(q.sharesOut * (1 - c.slippage), 2)} shares at least, or the order does not fill (max slippage ${pct(c.slippage, 1)}).` : null;
+      action = cta(`Buy ${sideWord}`, c.handleTradeClick, c.collateralIn <= 0 ? `Enter the ${sym} to spend` : null, "trade");
+      note = q ? `${fmtNum(q.sharesOut * (1 - c.slippage), 2)} shares at least, or the order does not fill (max slippage ${pct(c.slippage, 1)}).` : null;
     } else if (mode === "market") {
       const q = c.sellQuote;
       const held = c.userPosition ? (side === "yes" ? c.userPosition.yesShares : c.userPosition.noShares) : null;
@@ -286,19 +296,19 @@ export default function OrderPanel({ context: c, walletFooter }: { context: Orde
               <>
                 {" "}· you hold{" "}
                 <button type="button" className="ticket-inline-link" onClick={() => c.setSharesIn(held)}>
-                  {fmtCC(held, 2)}
+                  {fmtNum(held, 2)}
                 </button>
               </>
             )}
           </p>
           <div className="ticket-sum">
-            <SummaryRow label="Fee" value={`${fmtCC(q?.fee ?? 0, 2)} CC`} />
-            <SummaryRow label="You receive" sub="credited to your in-app balance" value={`${fmtCC(q?.netProceeds ?? 0, 2)} CC`} big />
+            <SummaryRow label="Fee" value={formatMoney(q?.fee ?? 0, collateral, 2)} />
+            <SummaryRow label="You receive" sub="credited to your in-app balance" value={formatMoney(q?.netProceeds ?? 0, collateral, 2)} big />
           </div>
         </>
       );
       action = cta(`Sell ${sideWord}`, c.handleTradeClick, c.sharesIn <= 0 ? "Enter the shares to sell" : null, "trade");
-      note = q ? `${fmtCC(q.netProceeds * (1 - c.slippage), 2)} CC at least, or the order does not fill (max slippage ${pct(c.slippage, 1)}).` : null;
+      note = q ? `${formatMoney(q.netProceeds * (1 - c.slippage), collateral, 2)} at least, or the order does not fill (max slippage ${pct(c.slippage, 1)}).` : null;
     } else {
       const q = c.swapQuote;
       const to = side === "yes" ? "No" : "Yes";
@@ -310,13 +320,13 @@ export default function OrderPanel({ context: c, walletFooter }: { context: Orde
             {q && q.priceImpact > 0.0005 && <span className={q.priceImpact > 0.05 ? "text-oracle-no" : undefined}> · impact {pct(q.priceImpact, 2)}</span>}
           </p>
           <div className="ticket-sum">
-            <SummaryRow label={`Fee (${sideWord} shares)`} value={fmtCC(q?.fee ?? 0, 3)} />
-            <SummaryRow label="You receive" sub={`${to} shares`} value={fmtCC(q?.sharesOut ?? 0, 2)} big />
+            <SummaryRow label={`Fee (${sideWord} shares)`} value={fmtNum(q?.fee ?? 0, 3)} />
+            <SummaryRow label="You receive" sub={`${to} shares`} value={fmtNum(q?.sharesOut ?? 0, 2)} big />
           </div>
         </>
       );
       action = cta(`Convert ${sideWord} → ${to}`, c.handleTradeClick, c.sharesIn <= 0 ? "Enter the shares to convert" : null, "trade");
-      note = q ? `${fmtCC(q.sharesOut * (1 - c.slippage), 2)} ${to} shares at least (max slippage ${pct(c.slippage, 1)}).` : null;
+      note = q ? `${fmtNum(q.sharesOut * (1 - c.slippage), 2)} ${to} shares at least (max slippage ${pct(c.slippage, 1)}).` : null;
     }
   } else if (mode === "split") {
     const mint = c.mintMode === "mint";
@@ -326,27 +336,27 @@ export default function OrderPanel({ context: c, walletFooter }: { context: Orde
       const amt = c.splitMergeAmount;
       body = (
         <>
-          <FieldRow label={mint ? "Amount" : "Pairs"} unit={mint ? "CC" : "sets"} value={amt} onChange={c.setSplitMergeAmount} />
-          <p className="ticket-muted">{mint ? "1 CC mints 1 Yes + 1 No — no price impact, no fee." : "1 Yes + 1 No burn back into 1 CC — no price impact, no fee."}</p>
+          <FieldRow label={mint ? "Amount" : "Pairs"} unit={mint ? sym : "sets"} value={amt} onChange={c.setSplitMergeAmount} />
+          <p className="ticket-muted">{mint ? `1 ${sym} mints 1 Yes + 1 No — no price impact, no fee.` : `1 Yes + 1 No burn back into 1 ${sym} — no price impact, no fee.`}</p>
           <div className="ticket-sum">
             {mint ? (
               <>
-                <SummaryRow label="You pay" value={`${fmtCC(amt, 2)} CC`} />
-                <SummaryRow label="You receive" sub="complete sets" value={`${fmtCC(amt, 2)} Yes + No`} big />
+                <SummaryRow label="You pay" value={formatMoney(amt, collateral, 2)} />
+                <SummaryRow label="You receive" sub="complete sets" value={`${fmtNum(amt, 2)} Yes + No`} big />
               </>
             ) : (
               <>
-                <SummaryRow label="You burn" value={`${fmtCC(amt, 2)} Yes + ${fmtCC(amt, 2)} No`} />
-                <SummaryRow label="You receive" sub="credited to your in-app balance" value={`${fmtCC(amt, 2)} CC`} big />
+                <SummaryRow label="You burn" value={`${fmtNum(amt, 2)} Yes + ${fmtNum(amt, 2)} No`} />
+                <SummaryRow label="You receive" sub="credited to your in-app balance" value={formatMoney(amt, collateral, 2)} big />
               </>
             )}
           </div>
         </>
       );
       action = cta(
-        mint ? "Split into Yes + No" : "Merge into CC",
+        mint ? "Split into Yes + No" : `Merge into ${sym}`,
         () => c.handleSplitMerge(mint ? "split" : "merge"),
-        amt <= 0 ? (mint ? "Enter the CC to split" : "Enter the pairs to merge") : !mint && !c.userPosition ? "You hold no Yes + No pairs to merge" : null,
+        amt <= 0 ? (mint ? `Enter the ${sym} to split` : "Enter the pairs to merge") : !mint && !c.userPosition ? "You hold no Yes + No pairs to merge" : null,
         "splitmerge",
       );
     }
@@ -357,12 +367,12 @@ export default function OrderPanel({ context: c, walletFooter }: { context: Orde
       const q = c.liquidityQuote;
       body = (
         <>
-          <FieldRow label="Pool value +" unit="CC" value={c.liquidityValue} onChange={c.setLiquidityValue} />
+          <FieldRow label="Pool value +" unit={sym} value={c.liquidityValue} onChange={c.setLiquidityValue} />
           <p className="ticket-muted">The pool scales its reserves and L by (V+ΔV)/V, so the price does not move.</p>
           <div className="ticket-sum">
-            <SummaryRow label="LP tokens" value={fmtCC(q?.lpMinted ?? 0, 4)} />
+            <SummaryRow label="LP tokens" value={fmtNum(q?.lpMinted ?? 0, 4)} />
             <SummaryRow label="Share of pool" value={q ? pct(q.shareOfPool, 2) : "—"} />
-            <SummaryRow label="Cost" sub={q ? `new L₀ ${fmtCC(q.newL, 2)}` : undefined} value={`${fmtCC(q?.costCC ?? 0, 2)} CC`} big />
+            <SummaryRow label="Cost" sub={q ? `new L₀ ${fmtNum(q.newL, 2)}` : undefined} value={formatMoney(q?.cost ?? 0, collateral, 2)} big />
           </div>
         </>
       );
@@ -392,13 +402,13 @@ export default function OrderPanel({ context: c, walletFooter }: { context: Orde
             {locked
               ? "Dynamic pool: withdrawal unlocks after resolution or void (uniform-LVR design)."
               : c.phase === "resolved"
-                ? "Settled pool: you receive your share of the winning reserve plus fees, as CC."
+                ? `Settled pool: you receive your share of the winning reserve plus fees, as ${sym}.`
                 : c.phase === "voided"
-                  ? "Voided market: you receive your deposit share plus fees, as CC."
+                  ? `Voided market: you receive your deposit share plus fees, as ${sym}.`
                   : "Static pool: early withdrawal returns proportional Yes / No shares plus your fee share."}
           </p>
           <div className="ticket-sum">
-            <SummaryRow label="LP tokens to burn" value={fmtCC(lp.lpTokens * (c.withdrawPct / 100), 4)} big />
+            <SummaryRow label="LP tokens to burn" value={fmtNum(lp.lpTokens * (c.withdrawPct / 100), 4)} big />
           </div>
         </>
       );
@@ -417,14 +427,14 @@ export default function OrderPanel({ context: c, walletFooter }: { context: Orde
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button type="button" className="ticket-mode" aria-label={`Order type: ${MODES.find((x) => x.mode === mode)?.label}`}>
-              {MODES.find((x) => x.mode === mode)?.label}
+            <button type="button" className="ticket-mode" aria-label={`Order type: ${modes.find((x) => x.mode === mode)?.label}`}>
+              {modes.find((x) => x.mode === mode)?.label}
               <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-64 rounded-xl p-1.5">
             <DropdownMenuRadioGroup value={mode} onValueChange={(v) => setMode(v as OrderMode)}>
-              {MODES.map((x) => (
+              {modes.map((x) => (
                 <DropdownMenuRadioItem key={x.mode} value={x.mode} className="flex-col items-start gap-0.5 rounded-lg py-2">
                   <span className="text-sm font-semibold text-slate-950">{x.label}</span>
                   <span className="text-xs text-slate-500">{x.hint}</span>

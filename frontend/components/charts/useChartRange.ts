@@ -9,6 +9,9 @@ import { OPENING_TIMEFRAME, settleRange, type ChartRange, type Timeframe } from 
 export function useChartRange(opening: Timeframe = OPENING_TIMEFRAME) {
   const [range, setRange] = useState<ChartRange>({ tf: opening, settled: false });
   const pick = useCallback((tf: Timeframe) => setRange({ tf, settled: true }), []);
-  const settle = useCallback((answered: Timeframe, candles: number) => setRange((r) => settleRange(r, answered, candles)), []);
+  const settle = useCallback(
+    (answered: Timeframe, candles: number) => setRange((r) => settleRange(r, answered, candles)),
+    [],
+  );
   return { tf: range.tf, pick, settle };
 }

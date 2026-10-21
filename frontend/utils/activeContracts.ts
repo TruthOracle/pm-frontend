@@ -2,9 +2,9 @@ import { createParticipantClient } from "@/lib/cantonParticipant";
 import { TRUTHORACLE_PACKAGE_ID, TRUTHORACLE_PACKAGE_NAME } from "@/constants";
 import { ENTERPRISE_WALLET_PARTY_ID } from "@/config";
 import { debugWarn } from "@/lib/debugLog";
+import { instrumentRefFromId, sameInstrument, type InstrumentId, type InstrumentRef } from "@/lib/instruments";
 
 const TRUTHORACLE_MODULE = "Truthoracle";
-const INCENTIVES_MODULE = "Incentives";
 
 function templateId(moduleName: string, entityName: string) {
   return {
@@ -37,9 +37,7 @@ function getPayload(item: unknown): Record<string, unknown> {
 }
 
 /** Pull the optional disclosed-contract fields (only present when includeCreatedEventBlob was set). */
-function getDisclosure(
-  item: unknown,
-): { createdEventBlob?: string; synchronizerId?: string } {
+function getDisclosure(item: unknown): { createdEventBlob?: string; synchronizerId?: string } {
   const c = item as Record<string, unknown>;
   return {
     createdEventBlob: typeof c.createdEventBlob === "string" ? c.createdEventBlob : undefined,
@@ -50,10 +48,21 @@ function getDisclosure(
 function adminParty(): string {
   if (!ENTERPRISE_WALLET_PARTY_ID) {
     throw new Error(
-      "VITE_ENTERPRISE_WALLET_PARTY_ID is not set. Set it in .env to the Enterprise Wallet party id (see the enterprise-wallet repository README)."
+      "VITE_ENTERPRISE_WALLET_PARTY_ID is not set. Set it in .env to the Enterprise Wallet party id (see the enterprise-wallet repository README).",
     );
   }
   return ENTERPRISE_WALLET_PARTY_ID;
+}
+
+/**
+ * Whether a contract's `admin` is the treasury. UserWallet, PendingPayout and PredictionMarket are
+ * `signatory admin`, and only a signatory authorises a create: any party can create one with
+ * itself as admin that names a victim as owner or payee and lists the treasury as an audit
+ * observer, and it then shows in both parties' reads (review R3-02). Only the treasury's own are
+ * the platform's; with no treasury configured, none is.
+ */
+function isTreasury(admin: unknown): boolean {
+  return ENTERPRISE_WALLET_PARTY_ID !== "" && admin === ENTERPRISE_WALLET_PARTY_ID;
 }
 
 /** Daml Int/Decimal fields come back as numeric strings on the JSON Ledger API. */
@@ -83,6 +92,17 @@ function optionalEnum(v: unknown): string | null {
   return tag || null;
 }
 
+/**
+ * `Truthoracle.InstrumentId { admin, id }` as the JSON Ledger API encodes it. A participant read
+ * knows only the identity; the symbol and decimals come from the backend's catalog, so the record
+ * carries the ledger fallback (token id as symbol, 10 dp) until a component resolves it
+ * (`resolveInstrument`, lib/instruments.ts).
+ */
+function parseInstrument(v: unknown): InstrumentRef {
+  const p = (v ?? {}) as Record<string, unknown>;
+  return instrumentRefFromId({ admin: asString(p.admin), id: asString(p.id) });
+}
+
 export type MarketStatus = "Trading" | "Proposed" | "Resolved" | "Voided";
 export type OutcomeTag = "Yes" | "No" | "VoidOutcome";
 
@@ -93,14 +113,15 @@ export interface ResolutionPolicyRecord {
   reporters: string[];
   quorum: number;
   challengeSecs: number;
-  bondCC: number;
+  /** T3 bond, in the market's collateral. */
+  bond: number;
 }
 
 export interface ProposalRecord {
   proposer: string;
   proposedOutcome: OutcomeTag;
   proposedAt: number;
-  bondCC: number;
+  bond: number;
   challenger: string | null;
   challengerOutcome: OutcomeTag | null;
 }
@@ -131,9 +152,14 @@ export interface PredictionMarketRecord {
   currentPrice: number;
   feeBps: number;
   prizeFeeShareBps: number;
-  accumulatedFeesCC: number;
-  prizePoolCC: number;
-  totalVolumeCC: number;
+  /**
+   * The instrument the market is denominated in (truthoracle-v17): shares cost at most one unit of
+   * it, a winning share pays one, and fees, bonds, volume and every payout are in it.
+   */
+  collateral: InstrumentRef;
+  accumulatedFees: number;
+  prizePool: number;
+  totalVolume: number;
   status: MarketStatus;
   outcome: OutcomeTag | null;
   resolvedAt: number | null;
@@ -160,12 +186,12 @@ export interface PredictionMarketRecord {
   templateId?: string;
   previousPrice?: number | null;
   priceChange24h?: number | null;
-  volume24hCC?: number;
+  volume24h?: number;
   /** Outstanding YES + NO shares. */
   openInterest?: number;
   /** Pool value V(P) at the current effective liquidity. */
-  liquidityCC?: number;
-  /** AMM-implied one-share bid / ask for a 1 CC order; null unless trading. */
+  liquidity?: number;
+  /** AMM-implied one-share bid / ask for a one-unit order; null unless trading. */
   book?: { yesBid: number; yesAsk: number; noBid: number; noAsk: number } | null;
   tradeCount?: number;
   /** Ledger offset of the version — what to wait past after a trade. */
@@ -187,7 +213,7 @@ function parsePolicy(v: unknown): ResolutionPolicyRecord {
     reporters: Array.isArray(p.reporters) ? (p.reporters as unknown[]).map(asString) : [],
     quorum: num(p.quorum),
     challengeSecs: num(p.challengeSecs),
-    bondCC: num(p.bondCC),
+    bond: num(p.bond),
   };
 }
 
@@ -198,7 +224,7 @@ function parseProposal(v: unknown): ProposalRecord | null {
     proposer: asString(p.proposer),
     proposedOutcome: (enumTag(p.proposedOutcome) || "Yes") as OutcomeTag,
     proposedAt: num(p.proposedAt),
-    bondCC: num(p.bondCC),
+    bond: num(p.bond),
     challenger: p.challenger == null ? null : asString(p.challenger),
     challengerOutcome: optionalEnum(p.challengerOutcome) as OutcomeTag | null,
   };
@@ -234,9 +260,10 @@ function parseMarket(item: unknown): PredictionMarketRecord | null {
     currentPrice: num(p.currentPrice),
     feeBps: num(p.feeBps),
     prizeFeeShareBps: num(p.prizeFeeShareBps),
-    accumulatedFeesCC: num(p.accumulatedFeesCC),
-    prizePoolCC: num(p.prizePoolCC),
-    totalVolumeCC: num(p.totalVolumeCC),
+    collateral: parseInstrument(p.collateral),
+    accumulatedFees: num(p.accumulatedFees),
+    prizePool: num(p.prizePool),
+    totalVolume: num(p.totalVolume),
     status: (enumTag(p.status) || "Trading") as MarketStatus,
     outcome: optionalEnum(p.outcome) as OutcomeTag | null,
     resolvedAt: p.resolvedAt == null ? null : num(p.resolvedAt),
@@ -254,10 +281,7 @@ function parseMarket(item: unknown): PredictionMarketRecord | null {
 export async function fetchMarketCounterContractId(): Promise<string | null> {
   try {
     const client = createParticipantClient();
-    const list = await client.queryActiveContracts(
-      adminParty(),
-      templateId(TRUTHORACLE_MODULE, "MarketCounter")
-    );
+    const list = await client.queryActiveContracts(adminParty(), templateId(TRUTHORACLE_MODULE, "MarketCounter"));
     const forAdmin = list.filter((item) => {
       const payload = getPayload(item);
       const admin = payload.admin ?? payload.Admin;
@@ -276,17 +300,17 @@ export async function fetchMarketCounterContractId(): Promise<string | null> {
  * Resolved, Voided live on the same template; filter on `status`). Queries as
  * the Enterprise Wallet admin party (template signatory); end-user wallets
  * reach the market via disclosed contracts (createdEventBlob captured here).
+ * Only the treasury's markets: another party's that lists the treasury as an observer is dropped.
  */
 export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecord[]> {
   try {
     const client = createParticipantClient();
-    const list = await client.queryActiveContracts(
-      adminParty(),
-      templateId(TRUTHORACLE_MODULE, "PredictionMarket"),
-      { includeCreatedEventBlob: true },
-    );
+    const list = await client.queryActiveContracts(adminParty(), templateId(TRUTHORACLE_MODULE, "PredictionMarket"), {
+      includeCreatedEventBlob: true,
+    });
     const out: PredictionMarketRecord[] = [];
     for (const item of list) {
+      if (!isTreasury(getPayload(item).admin)) continue;
       const rec = parseMarket(item);
       if (rec) out.push(rec);
     }
@@ -309,19 +333,16 @@ export async function fetchAllResolvedMarkets(): Promise<PredictionMarketRecord[
  */
 export async function fetchPredictionMarketContractId(
   marketId: number,
-  partyId: string
+  partyId: string,
 ): Promise<{ contractId: string; payload?: Record<string, unknown> } | null> {
   try {
     const client = createParticipantClient();
-    const list = await client.queryActiveContracts(
-      partyId,
-      templateId(TRUTHORACLE_MODULE, "PredictionMarket")
-    );
+    const list = await client.queryActiveContracts(partyId, templateId(TRUTHORACLE_MODULE, "PredictionMarket"));
     for (const item of list) {
       const cid = getContractId(item);
       const payload = getPayload(item);
       const mid = payload.marketId ?? payload.market_id;
-      if (cid && Number(mid) === marketId) return { contractId: cid, payload };
+      if (cid && Number(mid) === marketId && isTreasury(payload.admin)) return { contractId: cid, payload };
     }
     return null;
   } catch (e) {
@@ -335,8 +356,8 @@ export interface UserMarketPosition {
   marketId: number;
   yesShares: number;
   noShares: number;
-  /** Lifetime CC spent on this market (void refunds / accounting). */
-  costBasisCC: number;
+  /** Lifetime collateral spent on this market (void refunds / accounting). */
+  costBasis: number;
 }
 
 function parsePosition(item: unknown, partyId: string): UserMarketPosition | null {
@@ -351,21 +372,15 @@ function parsePosition(item: unknown, partyId: string): UserMarketPosition | nul
     marketId: Number(mid),
     yesShares: num(p.yesShares),
     noShares: num(p.noShares),
-    costBasisCC: num(p.costBasisCC),
+    costBasis: num(p.costBasis),
   };
 }
 
 /** Fetch the holder's Position for a given market (or null). */
-export async function fetchUserPosition(
-  partyId: string,
-  marketId: number
-): Promise<UserMarketPosition | null> {
+export async function fetchUserPosition(partyId: string, marketId: number): Promise<UserMarketPosition | null> {
   try {
     const client = createParticipantClient();
-    const list = await client.queryActiveContracts(
-      partyId,
-      templateId(TRUTHORACLE_MODULE, "Position")
-    );
+    const list = await client.queryActiveContracts(partyId, templateId(TRUTHORACLE_MODULE, "Position"));
     for (const item of list) {
       const pos = parsePosition(item, partyId);
       if (pos && pos.marketId === marketId) return pos;
@@ -378,15 +393,10 @@ export async function fetchUserPosition(
 }
 
 /** List every Position the holder has across all markets. */
-export async function fetchAllUserPositions(
-  partyId: string
-): Promise<UserMarketPosition[]> {
+export async function fetchAllUserPositions(partyId: string): Promise<UserMarketPosition[]> {
   try {
     const client = createParticipantClient();
-    const list = await client.queryActiveContracts(
-      partyId,
-      templateId(TRUTHORACLE_MODULE, "Position")
-    );
+    const list = await client.queryActiveContracts(partyId, templateId(TRUTHORACLE_MODULE, "Position"));
     const out: UserMarketPosition[] = [];
     for (const item of list) {
       const pos = parsePosition(item, partyId);
@@ -400,40 +410,20 @@ export async function fetchAllUserPositions(
   }
 }
 
-// Back-compat aliases (previous template was UserMarketData).
-export const fetchUserMarketDataPosition = fetchUserPosition;
-export const fetchAllUserMarketDataPositions = fetchAllUserPositions;
-export async function fetchUserMarketDataContractId(
-  partyId: string,
-  marketId?: number
-): Promise<string | null> {
-  if (marketId != null) {
-    const pos = await fetchUserPosition(partyId, marketId);
-    return pos?.contractId ?? null;
-  }
-  const all = await fetchAllUserPositions(partyId);
-  return all[0]?.contractId ?? null;
-}
-
 export interface LiquidityPositionRecord {
   contractId: string;
   marketId: number;
   provider: string;
   lpTokens: number;
-  depositedCC: number;
+  /** Collateral put into the pool, in the market's instrument. */
+  deposited: number;
 }
 
 /** Fetch the provider's LiquidityPosition for a market (or null). */
-export async function fetchUserLpPosition(
-  partyId: string,
-  marketId: number
-): Promise<LiquidityPositionRecord | null> {
+export async function fetchUserLpPosition(partyId: string, marketId: number): Promise<LiquidityPositionRecord | null> {
   try {
     const client = createParticipantClient();
-    const list = await client.queryActiveContracts(
-      partyId,
-      templateId(TRUTHORACLE_MODULE, "LiquidityPosition")
-    );
+    const list = await client.queryActiveContracts(partyId, templateId(TRUTHORACLE_MODULE, "LiquidityPosition"));
     for (const item of list) {
       const cid = getContractId(item);
       if (!cid) continue;
@@ -445,7 +435,7 @@ export async function fetchUserLpPosition(
         marketId: Number(p.marketId),
         provider: asString(p.provider),
         lpTokens: num(p.lpTokens),
-        depositedCC: num(p.depositedCC),
+        deposited: num(p.deposited),
       };
     }
     return null;
@@ -471,16 +461,10 @@ export interface OutcomeAttestationRecord {
  * List attestations for a market. Query as the admin (observer of every
  * attestation) for the resolution console, or as a reporter for their own.
  */
-export async function fetchAttestations(
-  partyId: string,
-  marketId?: number
-): Promise<OutcomeAttestationRecord[]> {
+export async function fetchAttestations(partyId: string, marketId?: number): Promise<OutcomeAttestationRecord[]> {
   try {
     const client = createParticipantClient();
-    const list = await client.queryActiveContracts(
-      partyId,
-      templateId(TRUTHORACLE_MODULE, "OutcomeAttestation")
-    );
+    const list = await client.queryActiveContracts(partyId, templateId(TRUTHORACLE_MODULE, "OutcomeAttestation"));
     const out: OutcomeAttestationRecord[] = [];
     for (const item of list) {
       const cid = getContractId(item);
@@ -518,16 +502,10 @@ export interface ModelForecastRecord {
 }
 
 /** List committed model forecasts (query as admin for all, or as the author). */
-export async function fetchModelForecasts(
-  partyId: string,
-  marketId?: number
-): Promise<ModelForecastRecord[]> {
+export async function fetchModelForecasts(partyId: string, marketId?: number): Promise<ModelForecastRecord[]> {
   try {
     const client = createParticipantClient();
-    const list = await client.queryActiveContracts(
-      partyId,
-      templateId(TRUTHORACLE_MODULE, "ModelForecast")
-    );
+    const list = await client.queryActiveContracts(partyId, templateId(TRUTHORACLE_MODULE, "ModelForecast"));
     const out: ModelForecastRecord[] = [];
     for (const item of list) {
       const cid = getContractId(item);
@@ -556,53 +534,72 @@ export interface UserWalletRecord {
   contractId: string;
   admin: string;
   owner: string;
-  /** Spendable in-app balance in CC. */
-  balanceCC: number;
+  /** The instrument this wallet holds — one UserWallet per (owner, instrument) (docs/TOKENS.md §2.1). */
+  instrument: InstrumentRef;
+  /** Spendable in-app balance, in the wallet's instrument. */
+  balance: number;
   /** Lifetime external deposits. */
-  depositedCC: number;
+  deposited: number;
   /** Lifetime external withdrawals. */
-  withdrawnCC: number;
+  withdrawn: number;
+  /** Deposit and grant refs already applied, newest first. */
+  creditRefs: string[];
+}
+
+function parseUserWallet(item: unknown): UserWalletRecord | null {
+  const cid = getContractId(item);
+  if (!cid) return null;
+  const p = getPayload(item);
+  return {
+    contractId: cid,
+    admin: asString(p.admin),
+    owner: asString(p.owner),
+    instrument: parseInstrument(p.instrument),
+    balance: num(p.balance),
+    deposited: num(p.deposited),
+    withdrawn: num(p.withdrawn),
+    creditRefs: Array.isArray(p.creditRefs) ? (p.creditRefs as unknown[]).map(asString) : [],
+  };
 }
 
 /**
- * Fetch the party's in-app UserWallet (or null if they never deposited).
- * The owner is an observer, so querying as the user surfaces their wallet;
- * querying as the admin surfaces every wallet (treasury reconciliation).
+ * Every in-app UserWallet the party owns, one per instrument (empty if they never
+ * deposited). The owner is an observer, so querying as the user surfaces their wallets;
+ * querying as the admin surfaces every wallet (treasury reconciliation). Only the treasury's:
+ * a wallet another party signed for this owner is never theirs (R3-02).
  */
-export async function fetchUserWallet(partyId: string): Promise<UserWalletRecord | null> {
+export async function fetchUserWallets(partyId: string): Promise<UserWalletRecord[]> {
   try {
     const client = createParticipantClient();
-    const list = await client.queryActiveContracts(
-      partyId,
-      templateId(TRUTHORACLE_MODULE, "UserWallet")
-    );
+    const list = await client.queryActiveContracts(partyId, templateId(TRUTHORACLE_MODULE, "UserWallet"));
+    const out: UserWalletRecord[] = [];
     for (const item of list) {
-      const cid = getContractId(item);
-      if (!cid) continue;
-      const p = getPayload(item);
-      if (p.owner !== partyId) continue;
-      return {
-        contractId: cid,
-        admin: asString(p.admin),
-        owner: asString(p.owner),
-        balanceCC: num(p.balanceCC),
-        depositedCC: num(p.depositedCC),
-        withdrawnCC: num(p.withdrawnCC),
-      };
+      const w = parseUserWallet(item);
+      if (w && w.owner === partyId && isTreasury(w.admin)) out.push(w);
     }
-    return null;
+    return out;
   } catch (e) {
-    debugWarn("fetchUserWallet", e);
-    return null;
+    debugWarn("fetchUserWallets", e);
+    return [];
   }
 }
 
 /**
- * Poll until the user's wallet satisfies `predicate` (e.g. balance credited
- * after a deposit) or the timeout elapses. Returns the latest record either way.
+ * The party's UserWallet for one instrument — a market's collateral, or TRO — or null
+ * when none exists yet (the backend creates it with the first deposit or grant).
+ */
+export async function fetchUserWallet(partyId: string, instrument: InstrumentId): Promise<UserWalletRecord | null> {
+  const wallets = await fetchUserWallets(partyId);
+  return wallets.find((w) => sameInstrument(w.instrument, instrument)) ?? null;
+}
+
+/**
+ * Poll until the user's wallet for `instrument` satisfies `predicate` (e.g. balance
+ * credited after a deposit) or the timeout elapses. Returns the latest record either way.
  */
 export async function waitForUserWallet(
   partyId: string,
+  instrument: InstrumentId,
   predicate: (w: UserWalletRecord | null) => boolean,
   opts?: { timeoutMs?: number; intervalMs?: number },
 ): Promise<UserWalletRecord | null> {
@@ -611,7 +608,7 @@ export async function waitForUserWallet(
   const deadline = Date.now() + timeoutMs;
   let latest: UserWalletRecord | null = null;
   for (;;) {
-    latest = await fetchUserWallet(partyId);
+    latest = await fetchUserWallet(partyId, instrument);
     if (predicate(latest) || Date.now() >= deadline) return latest;
     await new Promise((r) => setTimeout(r, intervalMs));
   }
@@ -622,7 +619,9 @@ export interface PendingPayoutRecord {
   admin: string;
   user: string;
   marketId: number;
-  amountCC: number;
+  /** The instrument owed: the market's collateral for bonds and prizes, the wallet's for a withdrawal. */
+  instrument: InstrumentRef;
+  amount: number;
   reason: string;
   createdAt: number;
 }
@@ -630,26 +629,25 @@ export interface PendingPayoutRecord {
 /**
  * Fetch pending payouts the admin owes the given party. The user is an observer
  * of PendingPayout, so querying as the user surfaces ones owed to them; querying
- * as admin surfaces all of them (for the admin payout queue).
+ * as admin surfaces all of them (for the admin payout queue). Only the treasury's: one another
+ * party signed is owed by nobody here, and is never a withdrawal to attach or settle (R3-02).
  */
 export async function fetchPendingPayouts(partyId: string): Promise<PendingPayoutRecord[]> {
   try {
     const client = createParticipantClient();
-    const list = await client.queryActiveContracts(
-      partyId,
-      templateId(TRUTHORACLE_MODULE, "PendingPayout")
-    );
+    const list = await client.queryActiveContracts(partyId, templateId(TRUTHORACLE_MODULE, "PendingPayout"));
     const out: PendingPayoutRecord[] = [];
     for (const item of list) {
       const cid = getContractId(item);
-      if (!cid) continue;
       const p = getPayload(item);
+      if (!cid || !isTreasury(p.admin)) continue;
       out.push({
         contractId: cid,
         admin: asString(p.admin),
         user: asString(p.user),
         marketId: num(p.marketId),
-        amountCC: num(p.amountCC ?? p.amount_cc),
+        instrument: parseInstrument(p.instrument),
+        amount: num(p.amount),
         reason: asString(p.reason),
         createdAt: num(p.createdAt),
       });
@@ -659,30 +657,5 @@ export async function fetchPendingPayouts(partyId: string): Promise<PendingPayou
   } catch (e) {
     debugWarn("fetchPendingPayouts", e);
     return [];
-  }
-}
-
-/**
- * Fetch UserRewardsSummary contract for the given party from the participant.
- */
-export async function fetchUserRewardsSummaryContractId(
-  partyId: string
-): Promise<string | null> {
-  try {
-    const client = createParticipantClient();
-    const list = await client.queryActiveContracts(
-      partyId,
-      templateId(INCENTIVES_MODULE, "UserRewardsSummary")
-    );
-    for (const item of list) {
-      const cid = getContractId(item);
-      const payload = getPayload(item);
-      if (cid && payload.user === partyId) return cid;
-    }
-    const first = list[0];
-    return first ? getContractId(first) : null;
-  } catch (e) {
-    debugWarn("fetchUserRewardsSummaryContractId", e);
-    return null;
   }
 }
