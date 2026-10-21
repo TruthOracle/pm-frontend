@@ -54,6 +54,17 @@ function adminParty(): string {
   return ENTERPRISE_WALLET_PARTY_ID;
 }
 
+/**
+ * Whether a contract's `admin` is the treasury. UserWallet, PendingPayout and PredictionMarket are
+ * `signatory admin`, and only a signatory authorises a create: any party can create one with
+ * itself as admin that names a victim as owner or payee and lists the treasury as an audit
+ * observer, and it then shows in both parties' reads (review R3-02). Only the treasury's own are
+ * the platform's; with no treasury configured, none is.
+ */
+function isTreasury(admin: unknown): boolean {
+  return ENTERPRISE_WALLET_PARTY_ID !== "" && admin === ENTERPRISE_WALLET_PARTY_ID;
+}
+
 /** Daml Int/Decimal fields come back as numeric strings on the JSON Ledger API. */
 function num(v: unknown): number {
   if (typeof v === "number") return v;
@@ -289,6 +300,7 @@ export async function fetchMarketCounterContractId(): Promise<string | null> {
  * Resolved, Voided live on the same template; filter on `status`). Queries as
  * the Enterprise Wallet admin party (template signatory); end-user wallets
  * reach the market via disclosed contracts (createdEventBlob captured here).
+ * Only the treasury's markets: another party's that lists the treasury as an observer is dropped.
  */
 export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecord[]> {
   try {
@@ -298,6 +310,7 @@ export async function fetchAllPredictionMarkets(): Promise<PredictionMarketRecor
     });
     const out: PredictionMarketRecord[] = [];
     for (const item of list) {
+      if (!isTreasury(getPayload(item).admin)) continue;
       const rec = parseMarket(item);
       if (rec) out.push(rec);
     }
@@ -329,7 +342,7 @@ export async function fetchPredictionMarketContractId(
       const cid = getContractId(item);
       const payload = getPayload(item);
       const mid = payload.marketId ?? payload.market_id;
-      if (cid && Number(mid) === marketId) return { contractId: cid, payload };
+      if (cid && Number(mid) === marketId && isTreasury(payload.admin)) return { contractId: cid, payload };
     }
     return null;
   } catch (e) {
@@ -552,7 +565,8 @@ function parseUserWallet(item: unknown): UserWalletRecord | null {
 /**
  * Every in-app UserWallet the party owns, one per instrument (empty if they never
  * deposited). The owner is an observer, so querying as the user surfaces their wallets;
- * querying as the admin surfaces every wallet (treasury reconciliation).
+ * querying as the admin surfaces every wallet (treasury reconciliation). Only the treasury's:
+ * a wallet another party signed for this owner is never theirs (R3-02).
  */
 export async function fetchUserWallets(partyId: string): Promise<UserWalletRecord[]> {
   try {
@@ -561,7 +575,7 @@ export async function fetchUserWallets(partyId: string): Promise<UserWalletRecor
     const out: UserWalletRecord[] = [];
     for (const item of list) {
       const w = parseUserWallet(item);
-      if (w && w.owner === partyId) out.push(w);
+      if (w && w.owner === partyId && isTreasury(w.admin)) out.push(w);
     }
     return out;
   } catch (e) {
@@ -615,7 +629,8 @@ export interface PendingPayoutRecord {
 /**
  * Fetch pending payouts the admin owes the given party. The user is an observer
  * of PendingPayout, so querying as the user surfaces ones owed to them; querying
- * as admin surfaces all of them (for the admin payout queue).
+ * as admin surfaces all of them (for the admin payout queue). Only the treasury's: one another
+ * party signed is owed by nobody here, and is never a withdrawal to attach or settle (R3-02).
  */
 export async function fetchPendingPayouts(partyId: string): Promise<PendingPayoutRecord[]> {
   try {
@@ -624,8 +639,8 @@ export async function fetchPendingPayouts(partyId: string): Promise<PendingPayou
     const out: PendingPayoutRecord[] = [];
     for (const item of list) {
       const cid = getContractId(item);
-      if (!cid) continue;
       const p = getPayload(item);
+      if (!cid || !isTreasury(p.admin)) continue;
       out.push({
         contractId: cid,
         admin: asString(p.admin),

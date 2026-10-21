@@ -43,6 +43,7 @@ import {
   type InstrumentId,
   type InstrumentRef,
 } from "@/lib/instruments";
+import { ledgerAmountEquals } from "@/lib/rampLogic";
 import type { LedgerWallet, Money, Payout, Wallet } from "@/auth/types";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -148,6 +149,9 @@ export function fetchBackendPayouts(): Promise<Payout[]> {
  */
 const MONEY_SENTENCES: ErrorSentences = {
   no_primary_wallet: "Your account has no primary wallet yet. Link a wallet on the Account page before depositing.",
+  // A wallet withdrawal, not a bank payout: the base sentence talks about bank accounts (review F7).
+  ramp_exposure:
+    "Part of this balance was bought by card and can leave the platform only after the card dispute window. The withdrawal settles automatically once it can.",
   backend_unconfigured: "Accounts are not enabled on this deployment.",
   rate_limited: "Too many requests. Wait a minute and try again.",
   ledger_stale: "The treasury's ledger index is catching up. Your transfer is safe; the credit follows in a moment.",
@@ -209,6 +213,11 @@ const PAYOUT_STATUSES: ReadonlySet<string> = new Set<Payout["status"]>([
   "blocked_unknown_user",
   "blocked_unknown_reason",
   "blocked_wallet_revoked",
+  "blocked_ramp_exposure",
+  "blocked_compliance",
+  "blocked_payout_gate",
+  // The payee's one word for every internal hold (C8 / C11); the two above are an older backend's.
+  "processing",
   "failed",
   "archived",
 ]);
@@ -236,6 +245,14 @@ export function payoutBlockedSentence(status: Payout["status"] | undefined): str
       return "This payout is addressed to a wallet you have unlinked. Re-link that wallet, or cancel and refund the payout to your in-app balance.";
     case "blocked_unknown_user":
       return "This payout is addressed to a wallet that is not linked to any account. Link it to settle.";
+    case "blocked_ramp_exposure":
+      return "Part of this balance was bought by card and can leave the platform only after the card dispute window. The withdrawal settles automatically once it can; until then you can cancel it back into your in-app balance.";
+    case "processing":
+    case "blocked_compliance":
+    case "blocked_payout_gate":
+      // Worded like any other wait on purpose: a compliance hold is never announced (no tipping-off),
+      // and the payout gate (an operator-side check) is just as much a wait for the payee.
+      return "This withdrawal is being processed and settles automatically. Until then you can cancel it back into your in-app balance.";
     case "blocked_unknown_reason":
     case "failed":
       return "This payout needs an operator to look at it. Support has been notified.";
@@ -243,6 +260,74 @@ export function payoutBlockedSentence(status: Payout["status"] | undefined): str
       return "This payout is being sent right now.";
     default:
       return "This payout cannot be settled right now.";
+  }
+}
+
+/** A payout pill's tones (components/Account/accountUi.tsx `PillTone`). */
+export type PayoutTone = "neutral" | "pending" | "ok" | "warn" | "bad";
+
+/** The status pill of a payout row in the payee's words (PendingPayouts); undefined = not indexed yet. */
+export function payoutStatusView(p: Pick<Payout, "status"> | undefined): {
+  label: string;
+  tone: PayoutTone;
+  verifyLink?: boolean;
+} {
+  if (!p) return { label: "Queued", tone: "neutral" };
+  switch (p.status) {
+    case "queued":
+      return { label: "Queued", tone: "neutral" };
+    case "settling":
+      return { label: "Settling", tone: "pending" };
+    case "blocked_kyc":
+      return { label: "Waiting for identity verification", tone: "warn", verifyLink: true };
+    case "blocked_wallet_revoked":
+      return { label: "Wallet unlinked", tone: "warn" };
+    case "blocked_ramp_exposure":
+      return { label: "Waiting (card purchase)", tone: "pending" };
+    case "processing":
+    case "blocked_compliance":
+    case "blocked_payout_gate":
+      // The same words as any other wait: a compliance hold is never announced (no tipping-off).
+      return { label: "Processing", tone: "pending" };
+    case "blocked_unknown_user":
+    case "blocked_unknown_reason":
+      return { label: "Needs review", tone: "warn" };
+    case "failed":
+      return { label: "Failed", tone: "bad" };
+    case "settled_external":
+    case "settled_in_app":
+      return { label: "Settled", tone: "ok" };
+    case "archived":
+      return { label: "Cancelled", tone: "neutral" };
+    default:
+      // An unknown code is never shown as-is (it could name a hold the payee must not see).
+      return { label: "Processing", tone: "pending" };
+  }
+}
+
+/**
+ * Whether the payee may sign a CancelPayout (the refund variant) now. Only safe while the backend
+ * has NOT started settling: the external path transfers BEFORE MarkPaid (§9.4), so a cancel that
+ * lands in between refunds the in-app balance on top of the tokens already sent. Allowed: a held
+ * row (nothing moves while it waits — `processing` included) and a queued row the processor has
+ * not touched. Refused: settling, settled, failed, and a row the backend does not know yet (it
+ * may pick it up within a scan and settle it).
+ */
+export function payoutCancelAllowed(p: Pick<Payout, "status" | "attempts"> | undefined): boolean {
+  if (!p) return false;
+  switch (p.status) {
+    case "blocked_kyc":
+    case "blocked_wallet_revoked":
+    case "blocked_unknown_user":
+    case "blocked_ramp_exposure":
+    case "processing":
+    case "blocked_compliance":
+    case "blocked_payout_gate":
+      return true;
+    case "queued":
+      return p.attempts === 0;
+    default:
+      return false;
   }
 }
 
@@ -464,12 +549,15 @@ export interface WithdrawArgs {
   signAndSubmitTransaction: (p: PrepareExecuteParams) => Promise<{ hash: string }>;
 }
 
-export type SettleMode = "external" | "in_app" | "already_settled";
+/** `offramp`: the withdrawal was bound to a ramp cash-out — consumed on-ledger, the fiat follows (lib/ramp.ts). */
+export type SettleMode = "external" | "in_app" | "offramp" | "already_settled";
 
 /** Outcome of asking the backend to settle one payout (`POST …/payouts/:cid/settle`). */
 export interface SettleOutcome {
   /** True once the transfer + MarkPaid (or SettleToWallet) completed. */
   settled: boolean;
+  /** `offramp`: the open cash-out this withdrawal was used for (the money follows to its card or bank account). */
+  offrampOrderId?: string | null;
   /** How it settled: real tokens out (`external`) or credited in-app (`in_app`, bond / model-prize per §9.4). */
   mode?: SettleMode;
   /** Backend's view of the row after the attempt, when it answered. */
@@ -500,18 +588,91 @@ export async function settlePayoutWithBackend(pendingPayoutCid: string): Promise
     );
     const status = res.payout.status;
     const settled = res.mode === "already_settled" || status === "settled_external" || status === "settled_in_app";
+    // A withdrawal the backend used for an open cash-out names it (review F7).
+    const cashOut = res.payout.offrampOrderId ? { offrampOrderId: res.payout.offrampOrderId } : {};
     return settled
-      ? { settled: true, mode: res.mode, status }
-      : { settled: false, mode: res.mode, status, blocked: status, detail: payoutBlockedSentence(status) };
+      ? { settled: true, mode: res.mode, status, ...cashOut }
+      : { settled: false, mode: res.mode, status, blocked: status, detail: payoutBlockedSentence(status), ...cashOut };
   } catch (e) {
     if (isBackendError(e, "kyc_required")) {
       return { settled: false, status: "blocked_kyc", blocked: "kyc", detail: payoutBlockedSentence("blocked_kyc") };
+    }
+    // Card-bought value inside the dispute window: the withdrawal is parked, not refused (review F7).
+    if (isBackendError(e, "ramp_exposure")) {
+      return {
+        settled: false,
+        status: "blocked_ramp_exposure",
+        blocked: "blocked_ramp_exposure",
+        detail: payoutBlockedSentence("blocked_ramp_exposure"),
+      };
     }
     if (isBackendError(e, "payout_blocked")) {
       const status = readDetailStatus(e.details);
       return { settled: false, status, blocked: status ?? "blocked", detail: payoutBlockedSentence(status) };
     }
     return { settled: false, detail: moneyErrorMessage(e) };
+  }
+}
+
+/**
+ * The toast of a settled withdrawal (review F7). `offramp`: the backend used it for an open cash-out
+ * — the tokens were consumed for the fiat payout, nothing went to the wallet — so it never says "sent".
+ */
+export function withdrawSettledMessage(result: Pick<SettleOutcome, "mode">, amountText: string): { title: string; description: string } {
+  if (result.mode === "in_app") return { title: "Withdrawal credited in-app", description: `${amountText} was credited to your in-app balance.` };
+  if (result.mode === "offramp")
+    return {
+      title: "Withdrawal used for your cash-out",
+      description: `${amountText} went to your open cash-out, not to your ${WALLET_DISPLAY_NAME} wallet: the money is paid to the card or bank account you chose there. Follow it under Buy and cash out.`,
+    };
+  return { title: "Withdrawal sent", description: `${amountText} sent to your ${WALLET_DISPLAY_NAME} wallet.` };
+}
+
+/**
+ * The cancel dialog of a pending withdrawal (review F12). One bound to a cash-out is that cash-out's
+ * signature: cancelling it cancels the cash-out, so the dialog says so instead of "a wallet transfer".
+ */
+export function payoutCancelDescription(amountText: string, offrampOrderId?: string | null): string {
+  const tail = "Your wallet will ask you to sign the cancellation. If settlement has started in the meantime the cancel is refused.";
+  return offrampOrderId
+    ? `This withdrawal belongs to your cash-out (order ${offrampOrderId.slice(0, 8)}). Cancelling it cancels that cash-out: nothing is paid to its card or bank account, and ${amountText} goes back into your in-app balance. ${tail}`
+    : `${amountText} goes back into your in-app balance instead of being sent to your external wallet. ${tail}`;
+}
+
+/** The party's PendingPayout ids right now (started before the Withdraw popup, never awaited in front of it). */
+export function snapshotPendingPayouts(userParty: string): Promise<Set<string>> {
+  return fetchPendingPayouts(userParty)
+    .then((list) => new Set(list.filter((p) => p.user === userParty).map((p) => p.contractId)))
+    .catch(() => new Set<string>());
+}
+
+/**
+ * The `withdraw` PendingPayout a just-signed Withdraw created: the party's, in `instrument`, not
+ * in `beforeCids` and — when `amount` is given (a cash-out) — of exactly that decimal amount at
+ * the instrument's scale, so an older withdrawal can never be taken for it when the snapshot
+ * read failed. Polls the participant for up to `timeoutMs` (15 s; at least one read); null when
+ * it did not surface in time (the backend's scans still pick it up — nothing is lost).
+ */
+export async function waitForFreshWithdrawPayout(
+  userParty: string,
+  instrument: Pick<InstrumentRef, "admin" | "id" | "decimals">,
+  beforeCids: Set<string>,
+  opts: { amount?: string; timeoutMs?: number } = {},
+): Promise<{ contractId: string; amount: number } | null> {
+  const deadline = Date.now() + (opts.timeoutMs ?? 15_000);
+  for (;;) {
+    const list = await fetchPendingPayouts(userParty);
+    const fresh = list.find(
+      (p) =>
+        p.user === userParty &&
+        p.reason === "withdraw" &&
+        sameInstrument(p.instrument, instrument) &&
+        !beforeCids.has(p.contractId) &&
+        (opts.amount === undefined || ledgerAmountEquals(p.amount, opts.amount, instrument.decimals)),
+    );
+    if (fresh) return fresh;
+    if (Date.now() + 1_000 > deadline) return null;
+    await sleep(1_000);
   }
 }
 
@@ -534,29 +695,14 @@ export async function withdrawFromInAppWallet(args: WithdrawArgs): Promise<Withd
   // activation, which an awaited read in front of it would spend
   // (frontend/wallets/cantor8/popupGesture.ts). An empty set on failure is safe — step 2
   // then falls back to matching on reason and instrument.
-  const beforePromise = fetchPendingPayouts(args.userParty)
-    .then((list) => new Set(list.filter((p) => p.user === args.userParty).map((p) => p.contractId)))
-    .catch(() => new Set<string>());
+  const beforePromise = snapshotPendingPayouts(args.userParty);
 
   // 1. User signs Withdraw (debit + PendingPayout, atomically).
   await args.signAndSubmitTransaction(buildWalletWithdrawParams(args.userParty, args.walletContractId, amount));
   const beforeCids = await beforePromise;
 
   // 2. Find the fresh "withdraw" payout for this instrument on the participant.
-  const deadline = Date.now() + 15_000;
-  let fresh: { contractId: string; amount: number } | null = null;
-  while (Date.now() < deadline && !fresh) {
-    const list = await fetchPendingPayouts(args.userParty);
-    fresh =
-      list.find(
-        (p) =>
-          p.user === args.userParty &&
-          p.reason === "withdraw" &&
-          sameInstrument(p.instrument, args.instrument) &&
-          !beforeCids.has(p.contractId),
-      ) ?? null;
-    if (!fresh) await sleep(1_000);
-  }
+  const fresh = await waitForFreshWithdrawPayout(args.userParty, args.instrument, beforeCids);
   if (!fresh) return { settled: false, amount };
 
   // 3. KYC and wallet-status gates live server-side (§9.4); a blocked row stays queued

@@ -1,6 +1,6 @@
 /**
- * Server-side Keycloak client_credentials token minter, shared by the ledger and
- * wallet proxies. Runs only in the serverless function / dev-server runtime — the
+ * Server-side Keycloak client_credentials token minter for the ledger relay
+ * (api/proxy/ledger.mjs). Runs only in the serverless function / dev-server runtime — the
  * client id/secret it reads must be SERVER-ONLY env vars (no VITE_ prefix), so they
  * are never compiled into the browser bundle.
  *

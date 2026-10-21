@@ -1,16 +1,17 @@
 {
-  "rewrites": [
+  "headers": [
     {
-      "source": "/__proxy/keycloak/:path*",
-      "destination": "/api/proxy/keycloak?path=:path*"
-    },
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      ]
+    }
+  ],
+  "rewrites": [
     {
       "source": "/__proxy/ledger/:path*",
       "destination": "/api/proxy/ledger?path=:path*"
-    },
-    {
-      "source": "/__proxy/wallet/:path*",
-      "destination": "/api/proxy/wallet?path=:path*"
     },
     {
       "source": "/__proxy/c8b/:path*",

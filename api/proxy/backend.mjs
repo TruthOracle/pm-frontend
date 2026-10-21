@@ -27,7 +27,8 @@
  *     is Vercel (VERCEL=1), whose edge overwrites x-real-ip / x-forwarded-host /
  *     x-forwarded-proto; anywhere else (vite dev, a self-hosted Node) those headers
  *     are whatever the client typed, so only the socket address and Host are used.
- *   - Bodies are capped (every proxied route is small JSON) — 413 above the cap.
+ *   - Bodies are capped (every proxied route is small JSON) — 413 above the cap. The two
+ *     admin file imports (bank statements, screening lists) get a larger cap of their own.
  *
  * With BACKEND_URL unset the relay answers 503 backend_unconfigured. The frontend
  * treats that as "accounts unavailable": no Sign-in button, no deposits and no
@@ -50,6 +51,8 @@ const FORWARDED_COOKIES = new Set(["to_session", "to_oidc"]);
 // The x-payload-digest pair is the KYC vendor's webhook signature (Sumsub-style names,
 // verified by the backend over the raw body): the documented webhook URL is on the app host,
 // so without these the relay would strip the signature and every webhook would be 401.
+// idempotency-key is the card ramp's retry token (truthoracle-backend docs/RAMP.md §8): a
+// retried POST /ramp/onramp | /ramp/offramp must reach the backend with the same key.
 const FORWARDED_REQUEST_HEADERS = [
   "content-type",
   "accept",
@@ -58,6 +61,7 @@ const FORWARDED_REQUEST_HEADERS = [
   "x-requested-with",
   "x-payload-digest",
   "x-payload-digest-alg",
+  "idempotency-key",
 ];
 
 // fetch already decoded the body and Node reframes it, so the upstream's framing
@@ -124,6 +128,21 @@ export function stripCookieDomain(setCookie) {
 // this is far above any of them and far below what a hostile client could otherwise
 // make a function buffer.
 export const MAX_BODY_BYTES = 256 * 1024;
+
+// The admin file imports carry the file base64-encoded in JSON: the backend accepts up to
+// 5 MB decoded (+33 % for base64) under its own 8 MB route limit (truthoracle-backend
+// docs/RAMP.md §8 "Files", §10.4, §11.6). Only these paths; every other route keeps the
+// small cap. Vercel itself refuses request bodies above 4.5 MB, so on Vercel the
+// effective ceiling is the platform's.
+export const MAX_UPLOAD_BODY_BYTES = 8 * 1024 * 1024;
+const UPLOAD_PATHS = [/^api\/v1\/admin\/ramp\/bank-statements(\/[^/]+)*$/, /^api\/v1\/admin\/compliance\/screening-lists$/];
+
+/** The body cap for a normalised proxy path; a dot segment never earns the large cap (allowedPath refuses it anyway). */
+export function bodyLimitFor(path) {
+  const value = String(path ?? "");
+  if (value.split("/").some((segment) => segment === "." || segment === "..")) return MAX_BODY_BYTES;
+  return UPLOAD_PATHS.some((re) => re.test(value)) ? MAX_UPLOAD_BODY_BYTES : MAX_BODY_BYTES;
+}
 
 function firstHeader(req, name) {
   const raw = req.headers?.[name];
@@ -206,7 +225,7 @@ class BodyTooLarge extends Error {
   }
 }
 
-function readBody(req) {
+function readBody(req, limit) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
@@ -214,7 +233,7 @@ function readBody(req) {
     req.on("data", (chunk) => {
       if (failed) return;
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
+      if (size > limit) {
         failed = true;
         reject(new BodyTooLarge());
         return;
@@ -289,11 +308,12 @@ export default async function handler(req, res) {
   // Raw bytes, untouched: the backend verifies webhook signatures and parses JSON
   // itself, so any re-serialisation here would be a bug waiting to happen.
   let body;
+  const limit = bodyLimitFor(path);
   try {
-    body = ["GET", "HEAD"].includes(method) ? undefined : await readBody(req);
+    body = ["GET", "HEAD"].includes(method) ? undefined : await readBody(req, limit);
   } catch (e) {
     if (e instanceof BodyTooLarge) {
-      return json(res, 413, { error: "body_too_large", message: `Request body exceeds ${MAX_BODY_BYTES} bytes.` });
+      return json(res, 413, { error: "body_too_large", message: `Request body exceeds ${limit} bytes.` });
     }
     throw e;
   }

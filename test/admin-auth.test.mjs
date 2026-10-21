@@ -218,14 +218,17 @@ describe("verifyPartySignature", () => {
 describe("proxy access policy", () => {
   const HOST = "app.example.com";
 
-  function request({ cookie = "", origin, host = HOST, instance = INSTANCE } = {}) {
+  // A session-only ledger diagnostic: the vehicle for the session gate now that the wallet relay is gone.
+  const DIAG = "v2/version";
+
+  function request({ cookie = "", origin, host = HOST, instance = INSTANCE, method = "GET" } = {}) {
     const headers = { host };
     if (cookie) {
       headers.cookie = cookie;
       if (instance) headers["x-admin-instance"] = instance;
     }
     if (origin !== undefined) headers.origin = origin;
-    return { headers };
+    return { method, headers };
   }
 
   function sessionCookieHeader() {
@@ -235,49 +238,77 @@ describe("proxy access policy", () => {
 
   it("allows public ledger reads without any auth or configuration", () => {
     const gate = authorise({ req: request(), path: "v2/state/active-contracts", kind: "ledger" });
-    assert.deepEqual(gate, { allow: true, operator: null });
+    assert.equal(gate.allow, true);
+    assert.equal(gate.operator, null);
+    // Review F1: the query's body is inspected once read (whose contracts it names); one naming no party passes.
+    assert.deepEqual(gate.inspect("{}"), { allow: true, body: "{}", operator: null });
   });
 
-  it("fails CLOSED with 503 on privileged paths when auth is unconfigured", () => {
-    const gate = authorise({ req: request(), path: "v2/users/x/rights", kind: "ledger" });
+  it("fails CLOSED with 503 on admin-only paths when auth is unconfigured", () => {
+    const gate = authorise({ req: request(), path: "v2/version", kind: "ledger" });
     assert.equal(gate.allow, false);
     assert.equal(gate.status, 503);
   });
 
-  it("requires a session for every wallet path", () => {
+  it("refuses /v2/users and /v2/parties writes with 403 relay_write_disabled, configured or not, session or not", () => {
+    for (const setup of [() => {}, () => configure()]) {
+      setup();
+      const cookie = isConfigured() ? sessionCookieHeader() : "";
+      for (const [method, path] of [
+        ["POST", "v2/users/x/rights"],
+        ["PATCH", "v2/users/x/rights"],
+        ["POST", "v2/users"],
+        ["POST", "v2/parties"],
+        ["POST", "v2/packages"],
+      ]) {
+        const gate = authorise({ req: request({ cookie, method }), path, kind: "ledger" });
+        assert.equal(gate.allow, false, `${method} ${path}`);
+        assert.equal(gate.status, 403, `${method} ${path}`);
+        assert.equal(gate.error, "relay_write_disabled", `${method} ${path}`);
+      }
+    }
+  });
+
+  it("requires a session for the ledger's diagnostics, and forwards no wallet path at all (review F0)", () => {
     configure();
-    // api/v1/accounts is the exact read that was reachable anonymously on the old
-    // open relay — the wallet allowlist must stay empty, reads included.
-    for (const path of ["api/v1/transfer", "api/v1/accounts", "api/v1/external/submit"]) {
-      const gate = authorise({ req: request(), path, kind: "wallet" });
-      assert.equal(gate.allow, false, `wallet path should be denied: ${path}`);
-      assert.equal(gate.status, 401);
+    const diag = authorise({ req: request(), path: DIAG, kind: "ledger" });
+    assert.equal(diag.allow, false);
+    assert.equal(diag.status, 401);
+    // api/v1/accounts is the exact read that was reachable anonymously on the old open relay;
+    // api/v1/transfer moves treasury money; external/submit signed market resolution as the
+    // treasury. The wallet relay is deleted: none of them is forwarded for anyone, session or not.
+    for (const [method, path] of [
+      ["POST", "api/v1/transfer"],
+      ["GET", "api/v1/accounts"],
+      ["POST", "api/v1/external/submit"],
+    ]) {
+      const gate = authorise({ req: request({ cookie: sessionCookieHeader(), method }), path, kind: "wallet" });
+      assert.equal(gate.allow, false, `wallet path should be denied: ${method} ${path}`);
+      assert.equal(gate.status, 403);
+      assert.equal(gate.error, "relay_write_disabled");
     }
   });
 
   it("denies wallet reads even before auth is configured (fail closed)", () => {
     const gate = authorise({ req: request(), path: "api/v1/accounts", kind: "wallet" });
     assert.equal(gate.allow, false);
-    assert.equal(gate.status, 503);
+    assert.equal(gate.status, 403);
   });
 
-  it("admits a valid operator session", () => {
+  it("admits a valid operator session to a ledger diagnostic, forwarded as is", () => {
     configure();
-    const gate = authorise({
-      req: request({ cookie: sessionCookieHeader() }),
-      path: "api/v1/external/submit",
-      kind: "wallet",
-    });
+    const gate = authorise({ req: request({ cookie: sessionCookieHeader() }), path: DIAG, kind: "ledger" });
     assert.equal(gate.allow, true);
     assert.equal(gate.operator.partyId, PARTY);
+    assert.equal(gate.inspect, undefined);
   });
 
   it("rejects a session cookie without its page-instance header (the reload case)", () => {
     configure();
     const gate = authorise({
       req: request({ cookie: sessionCookieHeader(), instance: "" }),
-      path: "api/v1/external/submit",
-      kind: "wallet",
+      path: DIAG,
+      kind: "ledger",
     });
     assert.equal(gate.allow, false);
     assert.equal(gate.status, 401);
@@ -301,8 +332,8 @@ describe("proxy access policy", () => {
     for (const origin of ["https://evil.example.net", "null", "not a url"]) {
       const gate = authorise({
         req: request({ cookie, origin }),
-        path: "api/v1/transfer",
-        kind: "wallet",
+        path: DIAG,
+        kind: "ledger",
       });
       assert.equal(gate.allow, false, `origin should be rejected: ${origin}`);
       assert.equal(gate.status, 403);
@@ -315,8 +346,8 @@ describe("proxy access policy", () => {
     for (const origin of [`https://${HOST}`, undefined]) {
       const gate = authorise({
         req: request({ cookie, origin }),
-        path: "api/v1/transfer",
-        kind: "wallet",
+        path: DIAG,
+        kind: "ledger",
       });
       assert.equal(gate.allow, true, `origin should be accepted: ${origin}`);
     }
@@ -327,8 +358,8 @@ describe("proxy access policy", () => {
     assert.equal(readCookie({ headers: { cookie: `${SESSION_COOKIE}=%zz%` } }, SESSION_COOKIE), "");
     const gate = authorise({
       req: request({ cookie: `${SESSION_COOKIE}=%zz%` }),
-      path: "api/v1/transfer",
-      kind: "wallet",
+      path: DIAG,
+      kind: "ledger",
     });
     assert.equal(gate.allow, false);
     assert.equal(gate.status, 401);

@@ -4,7 +4,6 @@ import { defineConfig, loadEnv, type PluginOption } from "vite";
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 import ledgerHandler from "./api/proxy/ledger.mjs";
-import walletHandler from "./api/proxy/wallet.mjs";
 import c8backendHandler from "./api/proxy/c8backend.mjs";
 import backendHandler from "./api/proxy/backend.mjs";
 import newsHandler from "./api/news.mjs";
@@ -25,16 +24,6 @@ export default defineConfig(({ mode }) => {
     if (process.env[key] === undefined) process.env[key] = value;
   }
 
-  // Same resolution order as api/proxy/keycloak.mjs, so the user-auth passthrough
-  // points at the same host under `vite dev` as it does on Vercel. Reading only
-  // VITE_KEYCLOAK_URL here meant a .env using the server-only KEYCLOAK_URL name fell
-  // through to the hardcoded default without saying so.
-  const keycloakTarget =
-    [env.KEYCLOAK_PROXY_TARGET_URL, env.KEYCLOAK_URL, env.VITE_KEYCLOAK_URL]
-      .map((value) => (value || "").trim().replace(/\/$/, ""))
-      .find((value) => /^https?:\/\//i.test(value)) ||
-    "https://auth.dev.digik.cantor8.tech";
-
   // SDK 0.5.1 uses the correct MainNet hostname, but its internal session-restore
   // and balance polling still call that host directly. The MainNet backend does
   // not allow browser CORS for the app origin, so route only that backend through
@@ -50,12 +39,12 @@ export default defineConfig(({ mode }) => {
   };
 
   // Dev server: token injection happens inside these handlers (same as prod), so the
-  // browser calls /__proxy/ledger and /__proxy/wallet with no credentials at all.
+  // browser calls /__proxy/ledger with no credentials at all. There is no wallet relay: nothing
+  // in the browser signs as the treasury (market resolution is the backend's, review F0).
   const devServerProxies: PluginOption = {
     name: "truthoracle-dev-proxies",
     configureServer(server) {
       server.middlewares.use(proxyMiddleware("/__proxy/ledger", ledgerHandler));
-      server.middlewares.use(proxyMiddleware("/__proxy/wallet", walletHandler));
       server.middlewares.use(proxyMiddleware("/__proxy/c8b", c8backendHandler));
       // Accounts backend relay (ARCHITECTURE.md §4.1): no token injection — the
       // browser's own to_session cookie is forwarded, and nothing else. The same
@@ -76,17 +65,9 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       open: true,
-      // Keycloak stays a plain pass-through proxy (no secret involved — the browser
-      // no longer mints tokens). Ledger + wallet are handled by devServerProxies above
-      // so they get server-side token injection.
-      proxy: {
-        "/__proxy/keycloak": {
-          target: keycloakTarget,
-          changeOrigin: true,
-          secure: true,
-          rewrite: (p) => p.replace(/^\/__proxy\/keycloak/, ""),
-        },
-      },
+      // No Keycloak passthrough: the browser holds no Keycloak credentials, and a relay that
+      // forwarded the app's cookies to a third-party host was removed (review F4). The ledger is
+      // handled by devServerProxies above so it gets server-side token injection.
     },
     plugins: [
       react(), nodePolyfills(), devServerProxies, routeCantor8MainnetBackendViaProxy,

@@ -50,12 +50,21 @@ import {
   isDepositCreditPending,
   missingWalletInstrumentReason,
   withdrawFromInAppWallet,
+  withdrawSettledMessage,
   type AccountBalances,
   type SettleOutcome,
 } from "@/lib/inAppWallet";
 import { shortPartyId } from "@/lib/party";
 import { authErrorMessage } from "@/auth/wallet";
 import { BACKEND_UNREACHABLE_SENTENCE } from "@/lib/backendErrors";
+import {
+  cashOutMatchSentence,
+  fetchRampOverview,
+  openCashOutFor,
+  withdrawExceedsExposure,
+  withdrawExposureFor,
+  type RampOverview,
+} from "@/lib/ramp";
 import { debugWarn } from "@/lib/debugLog";
 import {
   amountStep,
@@ -147,10 +156,33 @@ export function InAppWalletCard({
   const [creditPending, setCreditPending] = useState<{ key: string; message: string } | null>(null);
   // Which row's amount form is open, and for which action (collapsed by default).
   const [panel, setPanel] = useState<{ key: string; action: WalletAction } | null>(null);
+  // The ramp token's card exposure (`GET /ramp`), read when a withdraw form opens: card-bought value
+  // inside the dispute window cannot leave the platform yet, so a plain withdrawal above
+  // `withdrawableToBank` would wait (`blocked_ramp_exposure`) — the form says so before the signature.
+  // Also the open orders: a withdrawal of exactly a waiting cash-out's amount is used for it (review F7).
+  const [rampView, setRampView] = useState<Pick<RampOverview, "instrument" | "exposure" | "openOrders"> | null>(null);
+  const [rampViewNonce, setRampViewNonce] = useState(0);
 
   const managed = walletProp !== undefined;
   const offers = (a: WalletAction) => actions.includes(a);
   const authLoading = auth.status === "loading";
+  const withdrawFormOpen = panel?.action === "withdraw";
+
+  useEffect(() => {
+    if (!withdrawFormOpen || auth.status !== "authenticated") return;
+    let cancelled = false;
+    fetchRampOverview()
+      .then((o) => {
+        if (!cancelled) setRampView(o.instrument ? { instrument: o.instrument, exposure: o.exposure, openOrders: o.openOrders } : null);
+      })
+      .catch(() => {
+        // Without the figure the form says nothing extra; the backend still holds such a withdrawal.
+        if (!cancelled) setRampView(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [withdrawFormOpen, auth.status, reloadKey, rampViewNonce]);
 
   useEffect(() => {
     if (managed) return;
@@ -418,13 +450,9 @@ export function InAppWalletCard({
   const reportWithdraw = (result: SettleOutcome, withdrawn: number, withdrawnIn: InstrumentRef) => {
     if (result.settled) {
       toast({
-        title: result.mode === "in_app" ? "Withdrawal credited in-app" : "Withdrawal sent",
-        description:
-          result.mode === "in_app"
-            ? `${formatMoney(withdrawn, withdrawnIn)} was credited to your in-app balance.`
-            : `${formatMoney(withdrawn, withdrawnIn)} sent to your ${WALLET_DISPLAY_NAME} wallet.`,
+        ...withdrawSettledMessage(result, formatMoney(withdrawn, withdrawnIn)),
         status: "success",
-        duration: 7000,
+        duration: result.mode === "offramp" ? 10000 : 7000,
         isClosable: true,
       });
     } else if (result.blocked === "kyc") {
@@ -476,9 +504,13 @@ export function InAppWalletCard({
       return;
     }
     setBusy("withdraw");
+    // Read before the popup (no await in front of it): which open cash-out this amount would feed (F7).
+    const feeds = openCashOutFor(rampView?.openOrders, instrument, quantised);
     const t = toast({
       title: "Withdrawing…",
-      description: `Confirm the withdrawal in the ${WALLET_DISPLAY_NAME} popup — ${formatMoney(quantised, instrument)} is then sent to your ${WALLET_DISPLAY_NAME} wallet.`,
+      description: feeds
+        ? `Confirm the withdrawal in the ${WALLET_DISPLAY_NAME} popup. ${cashOutMatchSentence(feeds)}`
+        : `Confirm the withdrawal in the ${WALLET_DISPLAY_NAME} popup — ${formatMoney(quantised, instrument)} is then sent to your ${WALLET_DISPLAY_NAME} wallet.`,
       status: "info",
       duration: null,
       isClosable: false,
@@ -492,6 +524,7 @@ export function InAppWalletCard({
         signAndSubmitTransaction,
       });
       setAmount("");
+      setRampViewNonce((n) => n + 1);
       await reload();
       reportWithdraw(result, result.amount, instrument);
     } catch (e) {
@@ -718,6 +751,10 @@ export function InAppWalletCard({
   const amountForm = (row: BalanceRow, action: WalletAction, inputClass: string, buttonClass: string) => {
     const lock = action === "deposit" ? depositLockFor(row) : withdrawLock;
     const sym = row.instrument.symbol;
+    const exposure = action === "withdraw" ? withdrawExposureFor(rampView, row.instrument) : null;
+    const typed = quantizeAmount(amt, row.instrument.decimals);
+    const overExposure = exposure !== null && typed > 0 && withdrawExceedsExposure(exposure, typed.toFixed(10));
+    const feeds = action === "withdraw" ? openCashOutFor(rampView?.openOrders, row.instrument, typed) : null;
     return (
       <div className="mt-2.5">
         <div className="flex items-center gap-2">
@@ -748,6 +785,14 @@ export function InAppWalletCard({
             ? `Sent from your ${WALLET_DISPLAY_NAME} wallet to the treasury in one popup; the in-app balance credits automatically.`
             : `Available ${formatMoney(row.wallet?.balance ?? 0, row.instrument)} · sent to your ${WALLET_DISPLAY_NAME} wallet after you sign, in steps of ${amountStep(row.instrument)} ${sym}.`}
         </p>
+        {feeds && <p className="mt-1 text-[11px] leading-4 text-amber-700">{cashOutMatchSentence(feeds)}</p>}
+        {exposure && (
+          <p className={`mt-1 text-[11px] leading-4 ${overExposure ? "text-amber-700" : "text-muted-foreground"}`}>
+            {overExposure
+              ? `Above ${formatMoney(exposure.withdrawable, row.instrument)} this withdrawal waits until the card dispute window has passed; until then you can cancel it under Pending payouts.`
+              : `${formatMoney(exposure.withdrawable, row.instrument)} can leave now: ${formatMoney(exposure.exposure, row.instrument)} bought by card stays until the card dispute window has passed. Cashing out back to your card works at any time (Buy and cash out).`}
+          </p>
+        )}
       </div>
     );
   };
